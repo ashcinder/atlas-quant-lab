@@ -100,6 +100,7 @@ export function TopBar(props: Props) {
           <label><span>组合基准币种</span><select value={props.baseCurrency} onChange={(event) => props.onBaseCurrency(event.target.value as BaseCurrency)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="USDT">USDT</option></select></label>
           <label><span>复权方式</span><select value={props.adjustment} onChange={(event) => props.onAdjustment(event.target.value as Adjustment)}><option value="auto">自动（前复权）</option><option value="raw">不复权</option><option value="forward">前复权</option><option value="backward">后复权</option></select></label>
           <p>K线始终显示标的原始报价币种；组合回测换算使用历史汇率。演示数据只会在手动选择时启用。</p>
+          <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">图表由 TradingView Lightweight Charts™ 提供</a>
         </div>
       ) : null}
     </header>

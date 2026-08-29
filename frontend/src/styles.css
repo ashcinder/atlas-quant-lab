@@ -71,6 +71,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .settings-popover label span { color: var(--muted); font-size: 9px; }
 .settings-popover select { height: 29px; padding: 0 7px; border: 1px solid var(--border); background: #0b1118; color: var(--text); font: 9px var(--mono); }
 .settings-popover p { margin: 0; padding-top: 9px; border-top: 1px solid var(--border); color: #78879a; font-size: 8px; line-height: 1.55; }
+.settings-popover > a { color: #647489; font: 8px var(--mono); text-decoration: none; }
+.settings-popover > a:hover, .settings-popover > a:focus-visible { color: #9aabbe; text-decoration: underline; }
 
 .integrity-rail { display: flex; align-items: center; gap: 16px; padding: 0 13px; border-bottom: 1px solid var(--border); background: #0a0e13; color: var(--muted); overflow-x: auto; white-space: nowrap; }
 .rail-title { color: #cbd4df; font: 600 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
@@ -373,17 +375,25 @@ body.is-resizing-layout { user-select: none; }
 .metric-cell { min-width: 0; padding: 10px 11px; border-right: 1px solid rgba(37,49,64,.6); border-bottom: 1px solid rgba(37,49,64,.6); display: flex; flex-direction: column; justify-content: center; gap: 5px; }
 .metric-cell span { color: var(--muted); font-size: 8px; }
 .metric-cell strong { font: 650 14px var(--mono); font-variant-numeric: tabular-nums; }
-.equity-chart { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.equity-chart { position: relative; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.equity-chart-canvas { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.result-pane-caption { position: absolute; z-index: 4; top: 0; left: 8px; min-height: 22px; padding: 0 6px; border: 1px solid rgba(49,64,82,.75); background: rgba(17,24,33,.9); display: flex; align-items: center; gap: 8px; color: #8290a2; font: 8px var(--mono); pointer-events: none; will-change: transform; }
+.result-pane-caption strong { color: #c5cfdb; font-weight: 650; }
+.result-pane-caption span { display: inline-flex; align-items: center; gap: 4px; }
+.result-pane-caption i { width: 7px; height: 2px; background: #22c7a9; }
+.result-pane-caption i.benchmark { background: #64748b; }
+.result-pane-caption.drawdown small { color: #6f7d8f; font-size: 7px; }
+.result-pane-caption.drawdown span { color: #ff7b87; }
 .result-empty, .result-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--muted); font-size: 10px; }
 .pulse-line { width: 18px; height: 3px; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scaleX(1.8); opacity: .35; } }
 .table-scroll { min-width: 780px; }
-table { width: 100%; border-collapse: collapse; font-size: 9px; }
-th { position: sticky; top: 0; z-index: 1; height: 29px; padding: 0 9px; border-bottom: 1px solid var(--border); background: #151d27; color: var(--muted); font-weight: 500; text-align: right; }
-th:nth-child(-n+3) { text-align: left; }
-td { height: 30px; padding: 0 9px; border-bottom: 1px solid rgba(37,49,64,.55); color: #b7c1cd; font-family: var(--mono); text-align: right; white-space: nowrap; }
-td:nth-child(-n+3) { text-align: left; }
-td:nth-child(3) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+.table-scroll table { width: 100%; border-collapse: collapse; font-size: 9px; }
+.table-scroll th { position: sticky; top: 0; z-index: 1; height: 29px; padding: 0 9px; border-bottom: 1px solid var(--border); background: #151d27; color: var(--muted); font-weight: 500; text-align: right; }
+.table-scroll th:nth-child(-n+3) { text-align: left; }
+.table-scroll td { height: 30px; padding: 0 9px; border-bottom: 1px solid rgba(37,49,64,.55); color: #b7c1cd; font-family: var(--mono); text-align: right; white-space: nowrap; }
+.table-scroll td:nth-child(-n+3) { text-align: left; }
+.table-scroll td:nth-child(3) { max-width: 260px; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
 .side-tag { padding: 2px 5px; font: 8px var(--mono); }
 .side-tag.buy { color: var(--positive); background: rgba(34,199,169,.1); }
 .side-tag.sell { color: var(--negative); background: rgba(255,90,103,.1); }

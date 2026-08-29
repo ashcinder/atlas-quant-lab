@@ -72,6 +72,7 @@ function chartOptions(interval: Interval) {
     textColor: '#8b98a8',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     panes: { separatorColor: '#253140', separatorHoverColor: '#39485b', enableResize: true },
+    attributionLogo: false,
     },
     grid: {
       vertLines: { color: 'rgba(37, 49, 64, 0.42)' },
