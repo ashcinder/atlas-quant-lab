@@ -59,6 +59,11 @@ UI 中的证据链不将不同强度的保证混为一谈：
 | GET | `/api/v1/quantjudge/reports/{id}/verify` | 重算回执完整性并查询链上状态 |
 | POST | `/api/v1/quantjudge/agents/{id}/subscriptions` | 建立沙盒或外部支付引用订阅 |
 | GET | `/api/v1/quantjudge/chain/status` | Supervisor 连接、链 ID 与区块高度 |
+| GET / POST | `/api/v1/quantjudge/agents/{id}/packages` | 查询 / 上传加密 `.qstrategy` 包 |
+| POST | `/api/v1/quantjudge/studio/workflows/validate` | 校验 AI 权限、DAG、审计路径与硬风控不可绕过性 |
+| GET / PUT | `/api/v1/quantjudge/agents/{id}/workflows/{workflow_id}` | 读取 / 保存加密工作流修订 |
+
+策略开发格式、Python SDK、AI 责任边界和隔离 Runner 要求见 [STRATEGY_DEVELOPMENT.md](STRATEGY_DEVELOPMENT.md)。
 
 FastAPI 的完整请求模型与交互调试页位于 `http://127.0.0.1:8000/api/docs`。
 

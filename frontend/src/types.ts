@@ -363,3 +363,84 @@ export interface QuantSubscription {
   started_at: string
   expires_at: string
 }
+
+export type StudioNodeType = 'market_data' | 'universe' | 'feature_engine' | 'strategy' | 'ai_guard' | 'position_sizer' | 'risk_gate' | 'execution_review' | 'execution' | 'audit' | 'output'
+export type StudioAIRole = 'regime_detection' | 'signal_review' | 'risk_control' | 'position_management' | 'execution_review'
+export type StudioAIAuthority = 'advisory' | 'veto' | 'bounded_adjustment'
+
+export interface StudioWorkflowNode {
+  id: string
+  type: StudioNodeType
+  label: string
+  config: Record<string, unknown>
+  enabled?: boolean
+}
+
+export interface StudioWorkflowEdge { source: string; target: string; condition?: string | null }
+
+export interface StudioWorkflow {
+  schema_version: '1.0'
+  id: string
+  name: string
+  package_id?: string | null
+  description?: string
+  nodes: StudioWorkflowNode[]
+  edges: StudioWorkflowEdge[]
+}
+
+export interface StudioValidation {
+  valid: boolean
+  errors: string[]
+  warnings: string[]
+  graph_hash: string
+  topological_order: string[]
+  summary: { nodes: number; edges: number; ai_nodes: number; hard_risk_gates: number }
+}
+
+export interface StudioTemplate {
+  id: string
+  name: string
+  description: string
+  workflow: StudioWorkflow
+}
+
+export interface StudioSpec {
+  native_format: string
+  archive: string
+  required_files: string[]
+  languages: Array<{ id: string; label: string; production: boolean; execution: string }>
+  limits: { archive_bytes: number; expanded_bytes: number; files: number }
+  ai_roles: Array<{ id: StudioAIRole; label: string; allowed_authority: StudioAIAuthority[] }>
+  security: Record<string, boolean>
+}
+
+export interface StrategyPackageRecord {
+  id: string
+  agent_id: string
+  strategy_key: string
+  name: string
+  version: string
+  language: string
+  manifest_hash: string
+  content_hash: string
+  file_count: number
+  expanded_bytes: number
+  warnings: string[]
+  status: string
+  created_at: string
+  source_private: boolean
+  encrypted_at_rest: boolean
+}
+
+export interface StudioWorkflowRecord {
+  id: string
+  agent_id: string
+  name: string
+  revision: number
+  graph_hash: string
+  workflow?: StudioWorkflow
+  validation: StudioValidation
+  status: string
+  created_at: string
+  updated_at: string
+}

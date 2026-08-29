@@ -21,6 +21,7 @@ FastAPI API
   ├─ Custom DSL        受限指标规则树与因果信号计算
   ├─ Alert Monitor     后台轮询、冷却去重、通知持久化
 ├─ QuantJudge        Agent 市场、跑分、订阅与回执验证
+├─ Strategy Studio   私密策略包、AI 工作流、DAG 与硬风控校验
 ├─ Proof Attestor    SHA-256 / Merkle / Ed25519 证据链
 ├─ Supervisor RPC   链状态、交易载荷与回执校验
   └─ Workspace Store   SQLite 回测、研究、模板、提醒与通知
@@ -88,6 +89,12 @@ bar[t+1] 开盘
 - `qj_reports` 保存平台重算指标、降采样公开收益、决策 Merkle 根、前序回执哈希、Ed25519 签名和可选链上交易定位。原始净值和决策列表不入库。
 - `qj_subscriptions` 是授权账本，沙盒与外部支付引用状态明确分离，未配置支付时不会产生真实扣款。
 
+### qj_strategy_packages / qj_workflows / qj_workflow_revisions
+
+- 策略包先经压缩比、路径、凭证文件、manifest、Python AST 与入口类校验，再使用 AES-256-GCM 加密落盘；API 进程不执行上传代码。
+- 工作流明文不入库，当前图和每次修订均加密保存，并记录 graph hash。
+- 校验器拒绝环、逆阶段连线、禁用节点连线、未审计执行，以及任何绕过确定性 `risk_gate` 的决策路径。
+
 Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它交互，不导入或修改其源码。交易确认必须同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷精确匹配。
 
 ## 5. API
@@ -115,6 +122,12 @@ Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它�
 - `PUT /api/v1/quantjudge/reports/{id}/chain-transaction`
 - `GET|POST /api/v1/quantjudge/subscriptions`
 - `GET /api/v1/quantjudge/chain/status`
+- `GET /api/v1/quantjudge/studio/spec`
+- `GET /api/v1/quantjudge/studio/templates`
+- `POST /api/v1/quantjudge/studio/workflows/validate`
+- `GET|POST /api/v1/quantjudge/agents/{id}/packages`
+- `GET /api/v1/quantjudge/agents/{id}/packages/{package_id}/download`
+- `GET|PUT /api/v1/quantjudge/agents/{id}/workflows`
 
 ## 6. UI设计系统
 

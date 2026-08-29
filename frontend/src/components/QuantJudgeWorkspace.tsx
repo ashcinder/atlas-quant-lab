@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Activity, Bot, Check, ChevronRight, CircleDollarSign, Copy, DatabaseZap,
   Fingerprint, KeyRound, Link2, LockKeyhole, Plus, Search, ShieldCheck,
@@ -9,6 +9,8 @@ import type {
   QuantAgent, QuantCategory, QuantChainStatus, QuantJudgeOverview, QuantReport,
   QuantSubscription, QuantVerification,
 } from '../types'
+
+const QuantStrategyStudio = lazy(() => import('./QuantStrategyStudio').then((module) => ({ default: module.QuantStrategyStudio })))
 
 interface Props {
   onError: (message: string) => void
@@ -113,7 +115,7 @@ export function QuantJudgeWorkspace({ onError }: Props) {
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem('quantjudge-investor') ?? '')
   const [subscriptions, setSubscriptions] = useState<QuantSubscription[]>([])
-  const [activeView, setActiveView] = useState<'market' | 'subscriptions'>('market')
+  const [activeView, setActiveView] = useState<'market' | 'subscriptions' | 'studio'>('market')
 
   const load = useCallback(async (preserveSelection = true) => {
     setLoading(true)
@@ -196,11 +198,12 @@ export function QuantJudgeWorkspace({ onError }: Props) {
 
       <section className="qj-tabs">
         <button className={activeView === 'market' ? 'is-active' : ''} onClick={() => setActiveView('market')}><Activity size={14} />策略广场</button>
+        <button className={activeView === 'studio' ? 'is-active' : ''} onClick={() => setActiveView('studio')}><Bot size={14} />策略开发</button>
         <button className={activeView === 'subscriptions' ? 'is-active' : ''} onClick={openSubscriptions}><UserRoundCheck size={14} />我的订阅</button>
         <div><LockKeyhole size={13} />默认隐藏源码、Agent 参数、提示词和原始决策</div>
       </section>
 
-      {activeView === 'subscriptions' ? (
+      {activeView === 'studio' ? <Suspense fallback={<div className="qjs-loading"><Zap className="spin" size={20} />加载 Strategy Studio…</div>}><QuantStrategyStudio onError={onError} /></Suspense> : activeView === 'subscriptions' ? (
         <section className="qj-subscriptions-view">
           <header><div><strong>我的订阅</strong><small>本地投资人身份与策略授权记录</small></div><label>投资人别名<input value={investorAlias} onChange={(event) => setInvestorAlias(event.target.value)} /><button onClick={openSubscriptions}>查询</button></label></header>
           <div className="qj-subscription-list">

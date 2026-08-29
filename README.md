@@ -1,5 +1,7 @@
 # Atlas Quant Lab
 
+> Strategy developers: see [Atlas Strategy Studio](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
+
 Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略研究与历史回测平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
 
 > 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。

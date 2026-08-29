@@ -1,0 +1,6 @@
+{
+  "entry": {"left": {"field": "ema", "period": "$fast"}, "operator": "crosses_above", "right_indicator": {"field": "ema", "period": "$slow"}},
+  "exit": {"left": {"field": "ema", "period": "$fast"}, "operator": "crosses_below", "right_indicator": {"field": "ema", "period": "$slow"}},
+  "target_position": 0.8,
+  "execution": "next_bar_open"
+}

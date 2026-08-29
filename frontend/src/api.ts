@@ -19,15 +19,22 @@ import type {
   QuantJudgeOverview,
   QuantSubscription,
   QuantVerification,
+  StrategyPackageRecord,
+  StudioSpec,
+  StudioTemplate,
+  StudioValidation,
+  StudioWorkflow,
+  StudioWorkflowRecord,
 } from './types'
 
 const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const isFormData = options?.body instanceof FormData
   const response = await fetch(`${API_ROOT}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...options?.headers,
     },
   })
@@ -156,5 +163,30 @@ export const api = {
   },
   listQuantSubscriptions(investorAlias: string) {
     return request<QuantSubscription[]>(`/quantjudge/subscriptions?investor_alias=${encodeURIComponent(investorAlias)}`)
+  },
+  getStudioSpec() {
+    return request<StudioSpec>('/quantjudge/studio/spec')
+  },
+  getStudioTemplates() {
+    return request<StudioTemplate[]>('/quantjudge/studio/templates')
+  },
+  validateStudioWorkflow(workflow: StudioWorkflow) {
+    return request<StudioValidation>('/quantjudge/studio/workflows/validate', { method: 'POST', body: JSON.stringify(workflow) })
+  },
+  listStrategyPackages(agentId: string, token: string) {
+    return request<StrategyPackageRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { headers: { 'X-Developer-Token': token } })
+  },
+  uploadStrategyPackage(agentId: string, token: string, file: File) {
+    const body = new FormData()
+    body.append('file', file)
+    return request<StrategyPackageRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { method: 'POST', headers: { 'X-Developer-Token': token }, body })
+  },
+  listStudioWorkflows(agentId: string, token: string) {
+    return request<StudioWorkflowRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows`, { headers: { 'X-Developer-Token': token } })
+  },
+  saveStudioWorkflow(agentId: string, token: string, workflow: StudioWorkflow, changeNote = '') {
+    return request<StudioWorkflowRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows/${encodeURIComponent(workflow.id)}`, {
+      method: 'PUT', headers: { 'X-Developer-Token': token }, body: JSON.stringify({ workflow, change_note: changeNote }),
+    })
   },
 }

@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0", "api_version": "atlas.strategy/v1", "id": "private_remote_runner",
+  "name": "Private Remote Runner", "version": "1.0.0", "language": "remote_runner",
+  "description": "A signed contract for strategies that execute in the developer's private infrastructure.",
+  "asset_classes": ["crypto", "equity"], "intervals": ["1h", "1d"],
+  "capabilities": ["market_data.read", "portfolio.read", "orders.propose", "ai.request"],
+  "parameters": [], "ai_injection_points": ["signal_review", "risk_control"],
+  "research": {"holdout_ratio": 0.2, "walk_forward_required": true, "transaction_costs_required": true, "minimum_trades": 30, "regime_tests": ["bull", "bear", "sideways", "high_volatility"]}
+}

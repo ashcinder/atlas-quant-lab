@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Header, HTTPException, Query, Response, status
+from fastapi import FastAPI, File, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -35,6 +35,15 @@ from app.quantjudge_models import (
     SubscriptionCreate,
 )
 from app.supervisor_client import SupervisorRPCError
+from app.strategy_studio import (
+    MAX_ARCHIVE_BYTES,
+    StrategyPackageError,
+    StrategyStudioStore,
+    studio_spec,
+    validate_workflow,
+    workflow_templates,
+)
+from app.strategy_studio_models import StrategyWorkflow, WorkflowSaveRequest
 from app.storage import RunStore
 from app.strategies import list_strategies
 from app.workspace import AlertMonitor, WorkspaceStore
@@ -45,6 +54,7 @@ workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
 quantjudge_store = QuantJudgeStore()
+strategy_studio_store = StrategyStudioStore()
 
 
 @asynccontextmanager
@@ -391,3 +401,120 @@ def list_quant_subscriptions(investor_alias: str = Query(min_length=2, max_lengt
 @app.get("/api/v1/quantjudge/chain/status")
 def quantjudge_chain_status():
     return quantjudge_store.chain_status()
+
+
+@app.get("/api/v1/quantjudge/studio/spec")
+def quantjudge_studio_spec():
+    return studio_spec()
+
+
+@app.get("/api/v1/quantjudge/studio/templates")
+def quantjudge_workflow_templates():
+    return workflow_templates()
+
+
+@app.post("/api/v1/quantjudge/studio/workflows/validate")
+def validate_quant_workflow(workflow: StrategyWorkflow):
+    return validate_workflow(workflow)
+
+
+@app.get("/api/v1/quantjudge/agents/{agent_id}/packages")
+def list_quant_strategy_packages(
+    agent_id: str,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return strategy_studio_store.list_packages(agent_id, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v1/quantjudge/agents/{agent_id}/packages",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_quant_strategy_package(
+    agent_id: str,
+    file: UploadFile = File(...),
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    content = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        return strategy_studio_store.upload_package(
+            agent_id, file.filename or "strategy.qstrategy", content, developer_token
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except StrategyPackageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/agents/{agent_id}/packages/{package_id}/download")
+def download_quant_strategy_package(
+    agent_id: str,
+    package_id: str,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        content = strategy_studio_store.download_package(agent_id, package_id, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="策略包不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{package_id}.qstrategy"'},
+    )
+
+
+@app.get("/api/v1/quantjudge/agents/{agent_id}/workflows")
+def list_quant_workflows(
+    agent_id: str,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return strategy_studio_store.list_workflows(agent_id, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/agents/{agent_id}/workflows/{workflow_id}")
+def get_quant_workflow(
+    agent_id: str,
+    workflow_id: str,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return strategy_studio_store.get_workflow(agent_id, workflow_id, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="工作流不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/quantjudge/agents/{agent_id}/workflows/{workflow_id}")
+def save_quant_workflow(
+    agent_id: str,
+    workflow_id: str,
+    request: WorkflowSaveRequest,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    if workflow_id != request.workflow.id:
+        raise HTTPException(status_code=422, detail="路径中的工作流 ID 与内容不一致")
+    try:
+        return strategy_studio_store.save_workflow(
+            agent_id, request.workflow, request.change_note, developer_token
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except StrategyPackageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

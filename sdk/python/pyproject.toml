@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "atlas-strategy-sdk"
+version = "0.1.0"
+description = "Typed, deterministic contracts for Atlas private quantitative strategies"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["atlas_strategy_sdk"]
