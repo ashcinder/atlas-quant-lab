@@ -252,3 +252,114 @@ export interface AlertNotification {
   value: number
   read: boolean
 }
+
+export type QuantAgentType = 'ai_agent' | 'traditional'
+export type QuantCategory = 'stock_selection' | 'timing' | 'allocation' | 'multi_factor' | 'arbitrage'
+export type QuantRisk = 'low' | 'medium' | 'high' | 'extreme'
+export type QuantReportType = 'backtest' | 'live'
+
+export interface QuantCurvePoint {
+  time: number
+  return: number
+  benchmark_return: number
+}
+
+export interface QuantReport {
+  id: string
+  report_type: QuantReportType
+  period_start: string
+  period_end: string
+  metrics: Record<string, number>
+  public_curve: QuantCurvePoint[]
+  decision_count: number
+  decision_merkle_root: string
+  market_data_hash: string
+  previous_receipt_hash: string | null
+  receipt_hash: string
+  attestation_key_id: string
+  attestation_signature: string
+  external_proof: { proof_type: string; proof_hash: string; verifier: string; verifier_reference?: string | null } | null
+  chain_tx_hash: string | null
+  chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable'
+  chain_block_number: number | null
+  score: number
+  created_at: string
+  receipt_integrity_valid: boolean
+  public_curve_integrity_valid: boolean | null
+  privacy: { source_hidden: boolean; decisions_hidden: boolean; raw_equity_discarded: boolean }
+}
+
+export interface QuantAgent {
+  id: string
+  rank: number
+  name: string
+  developer_alias: string
+  agent_type: QuantAgentType
+  category: QuantCategory
+  asset_classes: string[]
+  description: string
+  risk_level: QuantRisk
+  monthly_price: number
+  price_currency: 'CNY' | 'USDT'
+  strategy_commitment: string
+  status: string
+  is_demo: boolean
+  subscriber_count: number
+  latest_report: QuantReport | null
+  reports?: QuantReport[]
+  created_at: string
+  updated_at: string
+}
+
+export interface QuantJudgeOverview {
+  agents: number
+  reports: number
+  live_reports: number
+  chain_confirmed_reports: number
+  active_subscriptions: number
+  median_score: number
+  attestation: { algorithm: string; key_id: string; public_key: string }
+  privacy_model: string
+}
+
+export interface QuantChainStatus {
+  connected: boolean
+  compatible: boolean
+  rpc_url: string
+  chain_id: number | null
+  block_number: number | null
+  error: string | null
+  expected_chain_id: number
+  read_only_source_policy: boolean
+  submission_policy: string
+}
+
+export interface QuantVerification {
+  report_id: string
+  receipt_hash: string
+  receipt_hash_valid: boolean
+  attestation_signature_valid: boolean
+  record_integrity_valid: boolean
+  public_curve_integrity_valid: boolean | null
+  calculation_verified: boolean
+  decision_merkle_root: string
+  strategy_commitment: string
+  external_proof_verified: boolean
+  chain: { status: string; transaction_hash: string | null; block_number: number | null; error?: string; payload_matches?: boolean }
+  proof_scope: string[]
+  limitations: string[]
+}
+
+export interface QuantSubscription {
+  id: string
+  agent_id: string
+  agent_name: string
+  investor_alias: string
+  billing_cycle: 'monthly' | 'quarterly' | 'yearly'
+  amount: number
+  currency: string
+  status: string
+  payment_mode: string
+  started_at: string
+  expires_at: string
+}

@@ -20,6 +20,9 @@ FastAPI API
   ├─ Research Service  异步网格研究、留出集、Walk-forward
   ├─ Custom DSL        受限指标规则树与因果信号计算
   ├─ Alert Monitor     后台轮询、冷却去重、通知持久化
+├─ QuantJudge        Agent 市场、跑分、订阅与回执验证
+├─ Proof Attestor    SHA-256 / Merkle / Ed25519 证据链
+├─ Supervisor RPC   链状态、交易载荷与回执校验
   └─ Workspace Store   SQLite 回测、研究、模板、提醒与通知
              │
 Local files
@@ -79,6 +82,14 @@ bar[t+1] 开盘
 - 自定义策略只保存通过 Pydantic 校验的规则树，最大 5 层、50 个节点，不接受或执行任意代码。
 - 提醒规则保存上次观测值、评估时间和触发时间，用于穿越判断与冷却去重；通知支持已读状态。
 
+### qj_agents / qj_reports / qj_subscriptions
+
+- `qj_agents` 只保存公开元数据、加盐策略承诺和开发者凭证哈希，不保存源码、提示词或参数。
+- `qj_reports` 保存平台重算指标、降采样公开收益、决策 Merkle 根、前序回执哈希、Ed25519 签名和可选链上交易定位。原始净值和决策列表不入库。
+- `qj_subscriptions` 是授权账本，沙盒与外部支付引用状态明确分离，未配置支付时不会产生真实扣款。
+
+Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它交互，不导入或修改其源码。交易确认必须同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷精确匹配。
+
 ## 5. API
 
 - `GET /api/v1/health`
@@ -97,6 +108,13 @@ bar[t+1] 开盘
 - `POST /api/v1/alerts/evaluate`
 - `GET /api/v1/notifications`
 - `POST /api/v1/notifications/read`
+- `GET|POST /api/v1/quantjudge/agents`
+- `POST /api/v1/quantjudge/agents/{id}/reports`
+- `GET /api/v1/quantjudge/reports/{id}/verify`
+- `POST /api/v1/quantjudge/reports/{id}/anchor`
+- `PUT /api/v1/quantjudge/reports/{id}/chain-transaction`
+- `GET|POST /api/v1/quantjudge/subscriptions`
+- `GET /api/v1/quantjudge/chain/status`
 
 ## 6. UI设计系统
 

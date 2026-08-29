@@ -14,6 +14,11 @@ import type {
   CustomStrategyRecord,
   CustomStrategySpec,
   ResearchJob,
+  QuantAgent,
+  QuantChainStatus,
+  QuantJudgeOverview,
+  QuantSubscription,
+  QuantVerification,
 } from './types'
 
 const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
@@ -118,5 +123,38 @@ export const api = {
   },
   markNotificationsRead() {
     return request<void>('/notifications/read', { method: 'POST' })
+  },
+  getQuantJudgeOverview() {
+    return request<QuantJudgeOverview>('/quantjudge/overview')
+  },
+  listQuantAgents(filters: { category?: string; reportType?: string; query?: string } = {}) {
+    const params = new URLSearchParams()
+    if (filters.category) params.set('category', filters.category)
+    if (filters.reportType) params.set('report_type', filters.reportType)
+    if (filters.query) params.set('q', filters.query)
+    const suffix = params.size ? `?${params.toString()}` : ''
+    return request<QuantAgent[]>(`/quantjudge/agents${suffix}`)
+  },
+  getQuantAgent(id: string) {
+    return request<QuantAgent>(`/quantjudge/agents/${encodeURIComponent(id)}`)
+  },
+  createQuantAgent(payload: Record<string, unknown>) {
+    return request<{ agent: QuantAgent; developer_token: string; token_shown_once: boolean }>('/quantjudge/agents', {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+  },
+  verifyQuantReport(id: string) {
+    return request<QuantVerification>(`/quantjudge/reports/${encodeURIComponent(id)}/verify`)
+  },
+  getQuantChainStatus() {
+    return request<QuantChainStatus>('/quantjudge/chain/status')
+  },
+  subscribeQuantAgent(id: string, payload: { investor_alias: string; billing_cycle: string }) {
+    return request<QuantSubscription>(`/quantjudge/agents/${encodeURIComponent(id)}/subscriptions`, {
+      method: 'POST', body: JSON.stringify(payload),
+    })
+  },
+  listQuantSubscriptions(investorAlias: string) {
+    return request<QuantSubscription[]>(`/quantjudge/subscriptions?investor_alias=${encodeURIComponent(investorAlias)}`)
   },
 }

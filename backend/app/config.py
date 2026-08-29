@@ -1,7 +1,7 @@
 from pathlib import Path
 
 APP_NAME = "Atlas Quant Lab API"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / ".data"
 CACHE_DIR = DATA_DIR / "cache"

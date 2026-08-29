@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, Response, status
+from fastapi import FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -26,6 +26,15 @@ from app.models import (
     RunSummary,
 )
 from app.research import ResearchService
+from app.quantjudge import QuantJudgeStore
+from app.quantjudge_models import (
+    AnchorRequest,
+    ChainTransactionAttach,
+    PerformanceReportCreate,
+    QuantAgentCreate,
+    SubscriptionCreate,
+)
+from app.supervisor_client import SupervisorRPCError
 from app.storage import RunStore
 from app.strategies import list_strategies
 from app.workspace import AlertMonitor, WorkspaceStore
@@ -35,6 +44,7 @@ run_store = RunStore()
 workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
+quantjudge_store = QuantJudgeStore()
 
 
 @asynccontextmanager
@@ -281,3 +291,103 @@ def list_notifications(limit: int = Query(default=100, ge=1, le=500)):
 def mark_notifications_read():
     workspace_store.mark_notifications_read()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/v1/quantjudge/overview")
+def quantjudge_overview():
+    return quantjudge_store.overview()
+
+
+@app.get("/api/v1/quantjudge/agents")
+def list_quant_agents(
+    category: str | None = None,
+    report_type: str | None = Query(default=None, pattern="^(backtest|live)$"),
+    q: str = Query(default="", max_length=100),
+):
+    return quantjudge_store.list_agents(category=category, report_type=report_type, query=q)
+
+
+@app.post("/api/v1/quantjudge/agents", status_code=status.HTTP_201_CREATED)
+def create_quant_agent(request: QuantAgentCreate):
+    return quantjudge_store.create_agent(request)
+
+
+@app.get("/api/v1/quantjudge/agents/{agent_id}")
+def get_quant_agent(agent_id: str):
+    try:
+        return quantjudge_store.get_agent(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+
+
+@app.post(
+    "/api/v1/quantjudge/agents/{agent_id}/reports",
+    status_code=status.HTTP_201_CREATED,
+)
+def publish_quant_report(
+    agent_id: str,
+    request: PerformanceReportCreate,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return quantjudge_store.publish_report(agent_id, request, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/reports/{report_id}/verify")
+def verify_quant_report(report_id: str, refresh_chain: bool = True):
+    try:
+        return quantjudge_store.verify_report(report_id, refresh_chain=refresh_chain)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="证明回执不存在") from exc
+
+
+@app.post("/api/v1/quantjudge/reports/{report_id}/anchor")
+def anchor_quant_report(
+    report_id: str,
+    request: AnchorRequest,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return quantjudge_store.submit_anchor(report_id, request.signed_raw_transaction, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="证明回执不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except SupervisorRPCError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/quantjudge/reports/{report_id}/chain-transaction")
+def attach_quant_report_transaction(
+    report_id: str,
+    request: ChainTransactionAttach,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return quantjudge_store.attach_transaction(report_id, request.transaction_hash, developer_token)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="证明回执不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/quantjudge/agents/{agent_id}/subscriptions", status_code=status.HTTP_201_CREATED)
+def subscribe_quant_agent(agent_id: str, request: SubscriptionCreate):
+    try:
+        return quantjudge_store.subscribe(agent_id, request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+
+
+@app.get("/api/v1/quantjudge/subscriptions")
+def list_quant_subscriptions(investor_alias: str = Query(min_length=2, max_length=60)):
+    return quantjudge_store.list_subscriptions(investor_alias)
+
+
+@app.get("/api/v1/quantjudge/chain/status")
+def quantjudge_chain_status():
+    return quantjudge_store.chain_status()

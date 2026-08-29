@@ -66,3 +66,24 @@ def test_portfolio_endpoint():
     assert payload["metrics"]["trade_count"] > 0
     assert payload["metrics"]["trade_count"] < 100
     assert 8 <= len(payload["weight_history"]) <= 20
+
+
+def test_quantjudge_public_market_and_receipt_verification():
+    overview = client.get("/api/v1/quantjudge/overview")
+    assert overview.status_code == 200
+    assert overview.json()["agents"] >= 6
+
+    agents = client.get("/api/v1/quantjudge/agents", params={"report_type": "live"})
+    assert agents.status_code == 200
+    payload = agents.json()
+    assert payload
+    assert all(agent["latest_report"]["report_type"] == "live" for agent in payload)
+    assert all("developer_token" not in agent for agent in payload)
+
+    receipt_id = payload[0]["latest_report"]["id"]
+    verification = client.get(
+        f"/api/v1/quantjudge/reports/{receipt_id}/verify", params={"refresh_chain": False}
+    )
+    assert verification.status_code == 200
+    assert verification.json()["attestation_signature_valid"] is True
+    assert verification.json()["chain"]["status"] == "not_anchored"

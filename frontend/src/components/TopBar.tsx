@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BarChart3, Bell, CandlestickChart, Clock3, FlaskConical, History, Layers3, Play, Settings2 } from 'lucide-react'
+import { BarChart3, Bell, CandlestickChart, Clock3, FlaskConical, Gavel, History, Layers3, Play, Settings2 } from 'lucide-react'
 import type { Adjustment, Asset, BaseCurrency, DataSource, Interval } from '../types'
 
 interface Props {
@@ -7,14 +7,14 @@ interface Props {
   interval: Interval
   source: DataSource
   chartType: 'candles' | 'line'
-  mode: 'single' | 'portfolio' | 'research'
+  mode: 'single' | 'portfolio' | 'research' | 'quantjudge'
   loading: boolean
   baseCurrency: BaseCurrency
   adjustment: Adjustment
   onInterval: (interval: Interval) => void
   onSource: (source: DataSource) => void
   onChartType: (type: 'candles' | 'line') => void
-  onMode: (mode: 'single' | 'portfolio' | 'research') => void
+  onMode: (mode: 'single' | 'portfolio' | 'research' | 'quantjudge') => void
   onHistory: () => void
   onRun: () => void
   onBaseCurrency: (currency: BaseCurrency) => void
@@ -40,9 +40,9 @@ export function TopBar(props: Props) {
         <span><strong>Atlas</strong><small>Quant Lab</small></span>
       </div>
       <div className="symbol-block">
-        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略研究' : (props.asset?.symbol ?? '—')}</strong>
-        <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 样本外验证` : props.asset?.name}</span>
-        <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
+        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略研究' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
+        <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 样本外验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
+        <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
       </div>
       <nav className="mode-tabs" aria-label="工作模式">
         <button className={props.mode === 'single' ? 'is-active' : ''} onClick={() => props.onMode('single')}>
@@ -53,6 +53,9 @@ export function TopBar(props: Props) {
         </button>
         <button className={props.mode === 'research' ? 'is-active' : ''} onClick={() => props.onMode('research')}>
           <FlaskConical size={15} /> 研究
+        </button>
+        <button className={props.mode === 'quantjudge' ? 'is-active' : ''} onClick={() => props.onMode('quantjudge')}>
+          <Gavel size={15} /> QuantJudge
         </button>
       </nav>
       <div className="toolbar-spacer" />
@@ -75,7 +78,7 @@ export function TopBar(props: Props) {
           </div>
         </>
       ) : null}
-      <label className="source-select">
+      {props.mode !== 'quantjudge' ? <label className="source-select">
         <span>数据</span>
         <select value={props.source} onChange={(event) => props.onSource(event.target.value as DataSource)}>
           <option value="auto">自动真实数据</option>
@@ -83,15 +86,15 @@ export function TopBar(props: Props) {
           <option value="binance">加密货币</option>
           <option value="demo">演示数据</option>
         </select>
-      </label>
-      <button className="icon-button" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
+      </label> : null}
+      {props.mode !== 'quantjudge' ? <><button className="icon-button" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
       <button className="icon-button alert-button" onClick={props.onAlerts} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button>
-      <button className="icon-button" title="本地设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button>
-      {props.mode !== 'research' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
+      <button className="icon-button" title="本地设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button></> : null}
+      {props.mode !== 'research' && props.mode !== 'quantjudge' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
         {props.loading ? <Clock3 size={15} className="spin" /> : <Play size={15} fill="currentColor" />}
         {props.loading ? '计算中' : '运行回测'}
       </button> : null}
-      {settingsOpen ? (
+      {settingsOpen && props.mode !== 'quantjudge' ? (
         <div className="settings-popover" role="dialog" aria-label="本地设置">
           <div><strong>本地研究设置</strong><small>自动保存在当前浏览器</small></div>
           <label><span>组合基准币种</span><select value={props.baseCurrency} onChange={(event) => props.onBaseCurrency(event.target.value as BaseCurrency)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="USDT">USDT</option></select></label>

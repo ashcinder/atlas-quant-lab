@@ -1,4 +1,5 @@
 .DS_Store
+Supervisor/
 .idea/
 .vscode/
 .env
