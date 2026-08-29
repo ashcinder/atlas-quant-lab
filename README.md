@@ -1,6 +1,6 @@
 # Atlas Quant Lab
 
-> Strategy developers: see [Atlas Strategy Studio](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
+> Strategy developers: see [Atlas Strategy Lab](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
 
 Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略研究与历史回测平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
 
@@ -18,8 +18,9 @@ Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略�
 - 流畅交互：行情定时增量刷新、短时缓存、响应压缩、请求取消与图表原位更新。
 - 可调布局：左侧市场、右侧策略、底部结果均可拖动调整，价格轴保留安全宽度；回测结果可收起、还原或最大化。
 - 参数化研究：每个单标的策略提供 4–5 个有实际信号影响的专属参数，并共享仓位上限、成交量参与率、止损和止盈等风控设置。
-- 策略研究：并行比较多个策略、受限参数网格、独立留出集、Walk-forward 滚动验证、过拟合警告和稳健性排名；任务在后端异步执行并可取消。
-- 可视化策略构建器：用指标、比较关系和 AND/OR 条件组合策略，模板持久化到本地；只执行受控 DSL，不执行用户代码。
+- 策略实验室：把规则构建、AI 工作流、研究验证、私密版本包和 SDK 收敛到 `DRAFT → COMPOSE → VALIDATE → VERSION` 生命周期；切换阶段保留编辑状态，并可从 QuantJudge 一键返回开发上下文。
+- 策略验证：并行比较多个策略、受限参数网格、独立留出集、Walk-forward 滚动验证、过拟合警告和稳健性排名；任务在后端异步执行并可取消。
+- 可视化规则构建器：用指标、比较关系和 AND/OR 条件组合策略，模板持久化到本地；只执行受控 DSL，不执行用户代码。
 - 历史回放：逐根推进 K 线且严格隐藏未来数据，支持播放、单步、带手续费与滑点的模拟买卖，并按标的恢复回放进度。
 - 提醒中心：支持价格、单根涨幅、RSI 和 MACD 条件；后端独立轮询、冷却去重、通知持久化，并可选浏览器桌面通知。
 - 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。

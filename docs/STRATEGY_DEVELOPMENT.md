@@ -1,6 +1,6 @@
-# Atlas Strategy Studio
+# Atlas Strategy Lab
 
-Atlas Strategy Studio is the private strategy-development plane behind QuantJudge. It supports source packages, safe rule strategies, and remote black-box runners while keeping execution results auditable.
+Atlas Strategy Lab is the unified development and validation plane behind QuantJudge. Its single lifecycle combines safe rule construction, AI workflow composition, IS/OOS and walk-forward validation, private version packages, and the developer SDK while keeping execution results auditable. QuantJudge remains the marketplace and publishing plane.
 
 ## Which strategy format should I use?
 

@@ -7,6 +7,8 @@ React/TypeScript UI
   ├─ 行情工作台与技术指标
   ├─ 单标的策略参数
   ├─ 多资产组合参数
+  ├─ 策略实验室（规则、AI 工作流、验证、版本与 SDK）
+  ├─ QuantJudge 市场、订阅与发布
   └─ 结果、历史与可信度轨道
              │ HTTP/JSON
 FastAPI API
@@ -20,10 +22,10 @@ FastAPI API
   ├─ Research Service  异步网格研究、留出集、Walk-forward
   ├─ Custom DSL        受限指标规则树与因果信号计算
   ├─ Alert Monitor     后台轮询、冷却去重、通知持久化
-├─ QuantJudge        Agent 市场、跑分、订阅与回执验证
-├─ Strategy Studio   私密策略包、AI 工作流、DAG 与硬风控校验
-├─ Proof Attestor    SHA-256 / Merkle / Ed25519 证据链
-├─ Supervisor RPC   链状态、交易载荷与回执校验
+  ├─ QuantJudge        Agent 市场、跑分、订阅与回执验证
+  ├─ Strategy Lab      规则、私密策略包、AI 工作流、验证与版本编排
+  ├─ Proof Attestor    SHA-256 / Merkle / Ed25519 证据链
+  ├─ Supervisor RPC    链状态、交易载荷与回执校验
   └─ Workspace Store   SQLite 回测、研究、模板、提醒与通知
              │
 Local files
@@ -138,5 +140,6 @@ Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它�
 - 布局为顶部工具栏、左侧资产栏、中间图表、右侧策略参数、底部结果面板。
 - 左右栏宽度和底部面板高度由无状态拖拽轨道调整；拖动过程直接更新 CSS 变量，结束后才写入本地偏好，避免高频 React 重渲染。
 - 产品的识别元素是“回测可信度轨道”，不增加无关装饰和大面积渐变。
+- 顶部“策略实验室”是唯一开发入口，按 `DRAFT → COMPOSE → VALIDATE → VERSION` 组织规则、AI 工作流、研究验证和私密包；QuantJudge 只承担市场、订阅、发布与验证。
 - 策略研究使用固定的 `IS → OOS → WF → 稳健性` 验证带，参数热力图明确标注只属于样本内，避免把优化面板误当最终绩效。
 - 回放状态作为图表内的紧凑工具条呈现；进入回放后图表、指标和系统交易标记都裁剪到当前时间点。

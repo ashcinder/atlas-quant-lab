@@ -40,9 +40,9 @@ export function TopBar(props: Props) {
         <span><strong>Atlas</strong><small>Quant Lab</small></span>
       </div>
       <div className="symbol-block">
-        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略研究' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
-        <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 样本外验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
-        <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
+        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
+        <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 开发 / 验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
+        <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'research' ? 'LAB' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
       </div>
       <nav className="mode-tabs" aria-label="工作模式">
         <button className={props.mode === 'single' ? 'is-active' : ''} onClick={() => props.onMode('single')}>
@@ -52,7 +52,7 @@ export function TopBar(props: Props) {
           <Layers3 size={15} /> 多资产
         </button>
         <button className={props.mode === 'research' ? 'is-active' : ''} onClick={() => props.onMode('research')}>
-          <FlaskConical size={15} /> 研究
+          <FlaskConical size={15} /> 策略实验室
         </button>
         <button className={props.mode === 'quantjudge' ? 'is-active' : ''} onClick={() => props.onMode('quantjudge')}>
           <Gavel size={15} /> QuantJudge

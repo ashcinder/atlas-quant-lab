@@ -12,9 +12,10 @@ import { StrategyPanel } from './components/StrategyPanel'
 import { TopBar } from './components/TopBar'
 import { loadPreferences, savePreferences } from './storage'
 import type { Asset, BacktestResult, DataSource, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
+import type { StrategyLabTab } from './components/StrategyLabWorkspace'
 
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
-const ResearchWorkspace = lazy(() => import('./components/ResearchWorkspace').then((module) => ({ default: module.ResearchWorkspace })))
+const StrategyLabWorkspace = lazy(() => import('./components/StrategyLabWorkspace').then((module) => ({ default: module.StrategyLabWorkspace })))
 const QuantJudgeWorkspace = lazy(() => import('./components/QuantJudgeWorkspace').then((module) => ({ default: module.QuantJudgeWorkspace })))
 const EMPTY_TRADES: BacktestResult['trades'] = []
 
@@ -61,6 +62,7 @@ export default function App() {
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setMode] = useState<'single' | 'portfolio' | 'research' | 'quantjudge'>('single')
+  const [strategyLabInitialTab, setStrategyLabInitialTab] = useState<StrategyLabTab>('validate')
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -222,6 +224,10 @@ export default function App() {
     }).then(setRuns).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
+  const changeMode = (nextMode: typeof mode) => {
+    if (nextMode === 'research' && mode !== 'research') setStrategyLabInitialTab('validate')
+    setMode(nextMode)
+  }
   const acceptPortfolioResult = useCallback((result: PortfolioResult | null) => {
     setPortfolioResult(result)
     if (result) api.listRuns().then(setRuns).catch(() => undefined)
@@ -274,7 +280,7 @@ export default function App() {
 
   return (
     <div className="app-shell" ref={shellRef} style={layoutStyle}>
-      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onMode={setMode} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
+      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onMode={changeMode} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
       {mode === 'quantjudge' ? <div className="qj-global-rail"><span>隐藏 1</span>策略源码 / Agent 参数不公开<i /> <span>隐藏 2</span>原始投资决策不公开<i /> <span>公开 3</span>经验算收益与密码学回执公开</div> : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
       {error ? <div className="error-banner"><AlertCircle size={15} /><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div> : null}
       {mode === 'single' ? (
@@ -293,8 +299,8 @@ export default function App() {
         </main>
       ) : mode === 'portfolio' ? (
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setLoading} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={loading && Boolean(portfolioRunSignal)} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
-      ) : mode === 'research' ? <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究工作区…</div>}><ResearchWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setLoading} onError={(message) => setError(message)} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense>
-      : <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={(message) => setError(message)} /></Suspense>}
+      ) : mode === 'research' ? <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace initialTab={strategyLabInitialTab} asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setLoading} onError={(message) => setError(message)} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense>
+      : <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={(message) => setError(message)} onOpenLab={() => { setStrategyLabInitialTab('workflow'); setMode('research') }} /></Suspense>}
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />
       <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={(message) => setError(message)} />
     </div>

@@ -17,7 +17,7 @@ import type {
   Strategy,
 } from '../types'
 
-interface Props {
+export interface ResearchWorkspaceProps {
   asset: Asset | null
   strategies: Strategy[]
   interval: Interval
@@ -31,6 +31,8 @@ interface Props {
   onLoading: (loading: boolean) => void
   onError: (message: string) => void
   onCustomResult: (result: BacktestResult) => void
+  view?: 'optimize' | 'builder'
+  showHeader?: boolean
 }
 
 type Objective = 'sharpe' | 'calmar' | 'cagr' | 'total_return'
@@ -168,8 +170,9 @@ function ValidationRibbon({ result }: { result: ResearchResult }) {
   </div>
 }
 
-export const ResearchWorkspace = memo(function ResearchWorkspace(props: Props) {
-  const [tab, setTab] = useState<'optimize' | 'builder'>('optimize')
+export const ResearchWorkspace = memo(function ResearchWorkspace(props: ResearchWorkspaceProps) {
+  const [localTab, setLocalTab] = useState<'optimize' | 'builder'>('optimize')
+  const tab = props.view ?? localTab
   const [selected, setSelected] = useState<Set<string>>(() => new Set(['sma_cross', 'ema_cross', 'macd']))
   const [gridStrategy, setGridStrategy] = useState('sma_cross')
   const [gridText, setGridText] = useState<Record<string, string>>(() => {
@@ -315,11 +318,11 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Props) {
     setEntryRules(ruleToConditions(record.spec.entry)); setExitRules(ruleToConditions(record.spec.exit))
   }
 
-  return <main className="research-workspace">
-    <header className="research-header">
+  return <main className={`research-workspace ${props.showHeader === false ? 'is-embedded' : ''}`}>
+    {props.showHeader === false ? null : <header className="research-header">
       <div><FlaskConical size={17} /><span><strong>策略研究中心</strong><small>{props.asset?.symbol ?? '请先选择标的'} · {props.interval}</small></span></div>
-      <nav><button className={tab === 'optimize' ? 'is-active' : ''} onClick={() => setTab('optimize')}>参数研究</button><button className={tab === 'builder' ? 'is-active' : ''} onClick={() => setTab('builder')}>策略构建</button></nav>
-    </header>
+      <nav><button className={tab === 'optimize' ? 'is-active' : ''} onClick={() => setLocalTab('optimize')}>参数研究</button><button className={tab === 'builder' ? 'is-active' : ''} onClick={() => setLocalTab('builder')}>策略构建</button></nav>
+    </header>}
     {tab === 'optimize' ? <div className="research-layout">
       <aside className="research-config">
         <section><h3>对比策略</h3><div className="strategy-checks">{props.strategies.map((strategy) => <label key={strategy.id}><input type="checkbox" checked={selected.has(strategy.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(strategy.id)) next.delete(strategy.id); else next.add(strategy.id); return next })} /><span><strong>{strategy.name}</strong><small>{strategy.category}</small></span></label>)}</div></section>

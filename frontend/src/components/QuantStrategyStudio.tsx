@@ -11,8 +11,13 @@ import type {
   StudioTemplate, StudioValidation, StudioWorkflow, StudioWorkflowNode,
 } from '../types'
 
-interface Props { onError: (message: string) => void }
-type StudioTab = 'workflow' | 'packages' | 'sdk'
+export type StudioTab = 'workflow' | 'packages' | 'sdk'
+interface Props {
+  onError: (message: string) => void
+  activeTab?: StudioTab
+  embedded?: boolean
+  onTabChange?: (tab: StudioTab) => void
+}
 
 const roleLabels: Record<StudioAIRole, string> = {
   regime_detection: '市场状态识别', signal_review: '信号复核', risk_control: 'AI 风险官',
@@ -71,8 +76,13 @@ function ValidationPanel({ validation }: { validation: StudioValidation | null }
   </div>
 }
 
-export function QuantStrategyStudio({ onError }: Props) {
-  const [tab, setTab] = useState<StudioTab>('workflow')
+export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTabChange }: Props) {
+  const [localTab, setLocalTab] = useState<StudioTab>('workflow')
+  const tab = activeTab ?? localTab
+  const goTab = (next: StudioTab) => {
+    setLocalTab(next)
+    onTabChange?.(next)
+  }
   const [spec, setSpec] = useState<StudioSpec | null>(null)
   const [templates, setTemplates] = useState<StudioTemplate[]>([])
   const [agents, setAgents] = useState<QuantAgent[]>([])
@@ -145,14 +155,14 @@ export function QuantStrategyStudio({ onError }: Props) {
     setUploading(true)
     try {
       await api.uploadStrategyPackage(agentId, token, file)
-      setPackages(await api.listStrategyPackages(agentId, token)); setTab('packages')
+      setPackages(await api.listStrategyPackages(agentId, token)); goTab('packages')
     } catch (reason) { onError(reason instanceof Error ? reason.message : '策略包上传失败') }
     finally { setUploading(false) }
   }
 
   const loadPackages = async () => {
     if (!agentId || !token) { onError('需要 Agent 和开发者凭证'); return }
-    try { setPackages(await api.listStrategyPackages(agentId, token)); setTab('packages') }
+    try { setPackages(await api.listStrategyPackages(agentId, token)); goTab('packages') }
     catch (reason) { onError(reason instanceof Error ? reason.message : '无法读取私密策略包') }
   }
 
@@ -168,10 +178,9 @@ export function QuantStrategyStudio({ onError }: Props) {
   if (!workflow) return <div className="qjs-loading"><Cpu className="spin" size={22} />加载策略开发套件…</div>
   const ordered = orderNodes(workflow.nodes)
 
-  return <section className="qjs-shell">
+  return <section className={`qjs-shell ${embedded ? 'is-embedded' : ''}`}>
     <header className="qjs-toolbar">
-      <div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div>
-      <nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => setTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => setTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav>
+      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} /><span><strong>私密开发上下文</strong><small>选择 Agent 后，工作流与策略包将绑定到同一版本链</small></span></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
       <form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <input className="qjs-hidden-username" name="username" autoComplete="username" value={agentId} readOnly tabIndex={-1} aria-hidden="true" />
         <label className="qjs-agent-select"><span>AGENT</span><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">选择我的 Agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} /></label>
