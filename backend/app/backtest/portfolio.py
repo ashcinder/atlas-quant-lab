@@ -13,6 +13,20 @@ from app.models import EquityPoint, PortfolioBacktestRequest, PortfolioResult, T
 from app.strategies import get_strategy
 
 
+def _portfolio_frame(bundle: DataBundle, interval: str) -> pd.DataFrame:
+    """Use a session-date key for daily/weekly bars across provider timezones."""
+    frame = bundle.frame.copy()
+    if interval not in {"1d", "1wk"}:
+        return frame
+    # Providers encode a session date as midnight in their local market timezone.
+    # After conversion to UTC that same date can appear at 04:00 or at 16:00 on
+    # the previous day. Rounding recovers the provider's intended session date.
+    frame.index = pd.DatetimeIndex(frame.index).round("D")
+    if frame.index.has_duplicates:
+        frame = frame.groupby(level=0).last()
+    return frame.sort_index()
+
+
 def _normalized(values: dict[str, float]) -> dict[str, float]:
     total = sum(max(value, 0) for value in values.values())
     if total <= 0:
@@ -84,19 +98,29 @@ def run_portfolio_backtest(
     request: PortfolioBacktestRequest, bundles: list[DataBundle]
 ) -> PortfolioResult:
     strategy = get_strategy(request.strategy_id)
+    aligned_frames = {
+        bundle.asset.symbol: _portfolio_frame(bundle, request.interval) for bundle in bundles
+    }
     close = pd.concat(
-        {bundle.asset.symbol: bundle.frame["close"] for bundle in bundles}, axis=1, join="inner"
+        {symbol: frame["close"] for symbol, frame in aligned_frames.items()},
+        axis=1,
+        join="inner",
     ).dropna()
     open_prices = (
         pd.concat(
-            {bundle.asset.symbol: bundle.frame["open"] for bundle in bundles}, axis=1, join="inner"
+            {symbol: frame["open"] for symbol, frame in aligned_frames.items()},
+            axis=1,
+            join="inner",
         )
         .reindex(close.index)
         .dropna()
     )
     close = close.reindex(open_prices.index)
     if len(close) < 60:
-        raise ValueError("多资产组合至少需要60个共同K线周期")
+        raise ValueError(
+            f"多资产组合对齐后仅有{len(close)}个共同K线周期，至少需要60个；"
+            "请改用日线/周线、减少跨市场标的，或选择历史更长的数据源"
+        )
 
     symbols = list(close.columns)
     cash = request.initial_capital
@@ -211,6 +235,8 @@ def run_portfolio_backtest(
         warnings.insert(0, f"不同币种行情已按历史汇率统一换算为 {request.base_currency}。")
     if any(bundle.source == "demo" for bundle in bundles):
         warnings.insert(0, "组合中包含演示行情，结果只用于验证产品流程。")
+    if request.interval in {"1d", "1wk"}:
+        warnings.insert(0, "跨市场日线/周线已按交易日期规范化，并仅保留共同交易日。")
     warnings.insert(0, "组合权重仅在再平衡日生成，并在对应开盘价计入滑点和手续费后成交。")
     drawdown = drawdown_series(equity_series)
     equity_points = [
