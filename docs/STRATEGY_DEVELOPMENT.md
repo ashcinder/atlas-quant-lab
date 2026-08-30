@@ -68,6 +68,42 @@ A package declares a research protocol. The default industrial baseline requires
 
 Notebook results and in-sample metrics never promote a package to live status by themselves. Backtest and live results must reference the strategy version/content hash, workflow graph hash, market-data hash, and an append-only decision commitment chain.
 
+## Strategy Project: the lifecycle spine
+
+The Strategy Lab does not treat the rule builder, AI workflow and research screen as unrelated tools. A **Strategy Project** is the versioned aggregate that binds their immutable artifacts into one reproducible research line:
+
+```text
+falsifiable hypothesis
+  -> rule / private package content hash
+  -> AI workflow graph hash + deterministic hard-risk gate
+  -> OOS and walk-forward research job
+  -> frozen semantic version + commitment hash
+  -> QuantJudge publication candidate
+```
+
+Create a project before editing a strategy. Record one testable hypothesis, a fixed asset and interval, benchmark, and primary objective. Saving a visual rule, workflow, research result or package attaches only its identifier and content hash to the project; private source, prompts and raw decisions are not copied into the project row. Changing the hypothesis, asset, interval, benchmark or objective increments the project revision and invalidates incompatible validation or a previously frozen version.
+
+Promotion is controlled by server-derived gates. The browser cannot mark them complete manually. The current baseline requires:
+
+1. a falsifiable hypothesis;
+2. a bound strategy artifact;
+3. a valid workflow with at least one deterministic hard-risk gate;
+4. a completed OOS research result using non-zero commission and slippage;
+5. the robustness threshold to pass;
+6. at least three completed walk-forward windows;
+7. at least 30 out-of-sample trades;
+8. an immutable semantic version commitment.
+
+The project API uses optimistic concurrency. Every mutation must send the current `revision`; stale editors receive HTTP `409` instead of silently overwriting another revision. Freezing hashes the project definition, selected artifact hashes and research context into a reproducible commitment. Any later mutation returns the project to an unfrozen state and requires a new version.
+
+### Recommended operating sequence
+
+1. **DRAFT** — state the market hypothesis, build a causal rule or upload a validated private package, and run a cheap smoke backtest.
+2. **COMPOSE** — add optional typed AI reviewers, define timeout/failure behavior, and ensure every execution path crosses deterministic hard risk.
+3. **VALIDATE** — bind the project rule, compare it with simple baselines, then run chronological IS/OOS and walk-forward validation with realistic costs.
+4. **VERSION** — review all server gates, freeze a semantic version, and retain the returned commitment hash.
+5. **PUBLISH** — submit only the frozen version and verifiable result material to QuantJudge; never publish an unfrozen working copy.
+
 ## Isolation and privacy boundary
 
 Uploading does not execute user code in the API process. Archives are bounded by compressed size, expanded size, file count and compression ratio; traversal paths, symlinks, unsupported binaries and credential files are rejected. Python AST and entrypoint checks happen before encrypted storage. Packages and workflows are AES-256-GCM encrypted with associated data binding their owner and version.

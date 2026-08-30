@@ -25,6 +25,9 @@ import type {
   StudioValidation,
   StudioWorkflow,
   StudioWorkflowRecord,
+  StrategyProject,
+  StrategyProjectArtifactKind,
+  StrategyProjectCreate,
 } from './types'
 
 const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
@@ -187,6 +190,27 @@ export const api = {
   saveStudioWorkflow(agentId: string, token: string, workflow: StudioWorkflow, changeNote = '') {
     return request<StudioWorkflowRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows/${encodeURIComponent(workflow.id)}`, {
       method: 'PUT', headers: { 'X-Developer-Token': token }, body: JSON.stringify({ workflow, change_note: changeNote }),
+    })
+  },
+  listStrategyProjects() {
+    return request<StrategyProject[]>('/strategy-projects')
+  },
+  createStrategyProject(payload: StrategyProjectCreate) {
+    return request<StrategyProject>('/strategy-projects', { method: 'POST', body: JSON.stringify(payload) })
+  },
+  updateStrategyProject(id: string, revision: number, payload: Partial<StrategyProjectCreate>) {
+    return request<StrategyProject>(`/strategy-projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ expected_revision: revision, ...payload }),
+    })
+  },
+  linkStrategyProjectArtifact(id: string, revision: number, kind: StrategyProjectArtifactKind, artifactId: string) {
+    return request<StrategyProject>(`/strategy-projects/${encodeURIComponent(id)}/artifacts`, {
+      method: 'POST', body: JSON.stringify({ expected_revision: revision, kind, artifact_id: artifactId }),
+    })
+  },
+  freezeStrategyProject(id: string, revision: number, version: string) {
+    return request<StrategyProject>(`/strategy-projects/${encodeURIComponent(id)}/freeze`, {
+      method: 'POST', body: JSON.stringify({ expected_revision: revision, version }),
     })
   },
 }

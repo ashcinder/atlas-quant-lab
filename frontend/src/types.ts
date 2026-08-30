@@ -166,6 +166,7 @@ export interface ResearchExperiment {
   strategy_id: string
   base_params: Record<string, number | string | boolean>
   parameter_grid: Record<string, Array<number | boolean>>
+  custom_strategy?: CustomStrategySpec | null
 }
 
 export interface ResearchCandidate {
@@ -443,4 +444,64 @@ export interface StudioWorkflowRecord {
   status: string
   created_at: string
   updated_at: string
+}
+
+export type StrategyProjectStage = 'draft' | 'composed' | 'validated' | 'versioned' | 'published'
+export type StrategyProjectArtifactKind = 'strategy' | 'workflow' | 'research' | 'package' | 'report'
+
+export interface StrategyProjectGate {
+  id: string
+  label: string
+  passed: boolean
+  stage: StrategyProjectStage
+}
+
+export interface StrategyProject {
+  id: string
+  name: string
+  thesis: string
+  asset_symbol: string
+  asset_class: string
+  interval: Interval
+  benchmark: string
+  objective: 'sharpe' | 'calmar' | 'cagr' | 'total_return'
+  deployment_mode: 'research' | 'paper' | 'live'
+  custom_strategy_id: string | null
+  strategy_hash: string | null
+  workflow_id: string | null
+  workflow_revision: number | null
+  workflow_hash: string | null
+  workflow_valid: boolean
+  hard_risk_gates: number
+  research_job_id: string | null
+  research_status: string | null
+  research_hash: string | null
+  research_robust: boolean
+  walk_forward_windows: number
+  oos_trade_count: number
+  average_oos_sharpe: number | null
+  package_id: string | null
+  package_content_hash: string | null
+  package_manifest_hash: string | null
+  quant_report_id: string | null
+  version: string | null
+  commitment: string | null
+  stage: StrategyProjectStage
+  revision: number
+  completion: number
+  gates: StrategyProjectGate[]
+  next_gate: StrategyProjectGate | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StrategyProjectCreate {
+  name: string
+  thesis: string
+  asset_symbol: string
+  asset_class: string
+  interval: Interval
+  benchmark: string
+  objective: StrategyProject['objective']
+  deployment_mode: StrategyProject['deployment_mode']
 }

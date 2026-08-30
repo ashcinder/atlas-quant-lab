@@ -8,7 +8,7 @@ import {
 import { api } from '../api'
 import type {
   QuantAgent, StrategyPackageRecord, StudioAIAuthority, StudioAIRole, StudioSpec,
-  StudioTemplate, StudioValidation, StudioWorkflow, StudioWorkflowNode,
+  StudioTemplate, StudioValidation, StudioWorkflow, StudioWorkflowNode, StudioWorkflowRecord,
 } from '../types'
 
 export type StudioTab = 'workflow' | 'packages' | 'sdk'
@@ -17,6 +17,8 @@ interface Props {
   activeTab?: StudioTab
   embedded?: boolean
   onTabChange?: (tab: StudioTab) => void
+  onWorkflowSaved?: (record: StudioWorkflowRecord) => void
+  onPackageUploaded?: (record: StrategyPackageRecord) => void
 }
 
 const roleLabels: Record<StudioAIRole, string> = {
@@ -76,7 +78,7 @@ function ValidationPanel({ validation }: { validation: StudioValidation | null }
   </div>
 }
 
-export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTabChange }: Props) {
+export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onPackageUploaded }: Props) {
   const [localTab, setLocalTab] = useState<StudioTab>('workflow')
   const tab = activeTab ?? localTab
   const goTab = (next: StudioTab) => {
@@ -154,8 +156,9 @@ export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTa
     if (!agentId || !token) { onError('先选择自己的 Agent 并填入开发者凭证'); return }
     setUploading(true)
     try {
-      await api.uploadStrategyPackage(agentId, token, file)
+      const uploaded = await api.uploadStrategyPackage(agentId, token, file)
       setPackages(await api.listStrategyPackages(agentId, token)); goTab('packages')
+      onPackageUploaded?.(uploaded)
     } catch (reason) { onError(reason instanceof Error ? reason.message : '策略包上传失败') }
     finally { setUploading(false) }
   }
@@ -170,7 +173,10 @@ export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTa
     if (!workflow || !agentId || !token) { onError('保存需要自己的 Agent 与开发者凭证'); return }
     if (!validation?.valid) { onError('工作流尚未通过硬风控与 DAG 校验'); return }
     setSaving(true)
-    try { await api.saveStudioWorkflow(agentId, token, workflow, '工作室可视化修订') }
+    try {
+      const record = await api.saveStudioWorkflow(agentId, token, workflow, '工作室可视化修订')
+      onWorkflowSaved?.(record)
+    }
     catch (reason) { onError(reason instanceof Error ? reason.message : '工作流保存失败') }
     finally { setSaving(false) }
   }

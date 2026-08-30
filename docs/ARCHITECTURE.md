@@ -20,6 +20,7 @@ FastAPI API
   ├─ Portfolio Engine  再平衡、风险平价、币种归一
   ├─ Risk Analytics    收益、风险、统计和市场阶段
   ├─ Research Service  异步网格研究、留出集、Walk-forward
+  ├─ Strategy Projects 假设、制品绑定、晋级门禁与不可变版本
   ├─ Custom DSL        受限指标规则树与因果信号计算
   ├─ Alert Monitor     后台轮询、冷却去重、通知持久化
   ├─ QuantJudge        Agent 市场、跑分、订阅与回执验证
@@ -97,6 +98,14 @@ bar[t+1] 开盘
 - 工作流明文不入库，当前图和每次修订均加密保存，并记录 graph hash。
 - 校验器拒绝环、逆阶段连线、禁用节点连线、未审计执行，以及任何绕过确定性 `risk_gate` 的决策路径。
 
+### strategy_projects
+
+- 保存可证伪假设、固定标的/周期、基准、主目标、当前修订号与生命周期阶段。
+- 只绑定规则、工作流、研究、私密包和报告的 ID 与内容哈希，不复制源码、提示词或逐笔决策。
+- 晋级门禁由后端根据真实制品和研究结果计算；前端不能手动伪造通过状态。
+- 更新采用 revision 乐观锁，过期写入返回 `409`；冻结版本生成覆盖项目定义与制品哈希的承诺值。
+- 修改研究上下文会使旧研究失效，修改冻结项目会解除冻结，防止结果与实际发布版本漂移。
+
 Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它交互，不导入或修改其源码。交易确认必须同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷精确匹配。
 
 ## 5. API
@@ -130,6 +139,10 @@ Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它�
 - `GET|POST /api/v1/quantjudge/agents/{id}/packages`
 - `GET /api/v1/quantjudge/agents/{id}/packages/{package_id}/download`
 - `GET|PUT /api/v1/quantjudge/agents/{id}/workflows`
+- `GET|POST /api/v1/strategy-projects`
+- `GET|PATCH /api/v1/strategy-projects/{id}`
+- `POST /api/v1/strategy-projects/{id}/artifacts`
+- `POST /api/v1/strategy-projects/{id}/freeze`
 
 ## 6. UI设计系统
 

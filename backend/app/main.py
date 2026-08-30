@@ -25,7 +25,6 @@ from app.models import (
     ResearchRequest,
     RunSummary,
 )
-from app.research import ResearchService
 from app.quantjudge import QuantJudgeStore
 from app.quantjudge_models import (
     AnchorRequest,
@@ -34,7 +33,18 @@ from app.quantjudge_models import (
     QuantAgentCreate,
     SubscriptionCreate,
 )
-from app.supervisor_client import SupervisorRPCError
+from app.research import ResearchService
+from app.storage import RunStore
+from app.strategies import list_strategies
+from app.strategy_projects import (
+    ProjectArtifactLink,
+    ProjectConflictError,
+    ProjectFreezeRequest,
+    ProjectGateError,
+    StrategyProjectCreate,
+    StrategyProjectStore,
+    StrategyProjectUpdate,
+)
 from app.strategy_studio import (
     MAX_ARCHIVE_BYTES,
     StrategyPackageError,
@@ -44,8 +54,7 @@ from app.strategy_studio import (
     workflow_templates,
 )
 from app.strategy_studio_models import StrategyWorkflow, WorkflowSaveRequest
-from app.storage import RunStore
-from app.strategies import list_strategies
+from app.supervisor_client import SupervisorRPCError
 from app.workspace import AlertMonitor, WorkspaceStore
 
 data_service = MarketDataService()
@@ -55,6 +64,7 @@ research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
 quantjudge_store = QuantJudgeStore()
 strategy_studio_store = StrategyStudioStore()
+strategy_project_store = StrategyProjectStore()
 
 
 @asynccontextmanager
@@ -260,6 +270,58 @@ def delete_custom_strategy(strategy_id: str):
     if not workspace_store.delete_custom_strategy(strategy_id):
         raise HTTPException(status_code=404, detail="自定义策略不存在")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/api/v1/strategy-projects")
+def list_strategy_projects():
+    return strategy_project_store.list()
+
+
+@app.post("/api/v1/strategy-projects", status_code=status.HTTP_201_CREATED)
+def create_strategy_project(request: StrategyProjectCreate):
+    return strategy_project_store.create(request)
+
+
+@app.get("/api/v1/strategy-projects/{project_id}")
+def get_strategy_project(project_id: str):
+    try:
+        return strategy_project_store.get(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="策略项目不存在") from exc
+
+
+@app.patch("/api/v1/strategy-projects/{project_id}")
+def update_strategy_project(project_id: str, request: StrategyProjectUpdate):
+    try:
+        return strategy_project_store.update(project_id, request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="策略项目不存在") from exc
+    except ProjectConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/strategy-projects/{project_id}/artifacts")
+def link_strategy_project_artifact(project_id: str, request: ProjectArtifactLink):
+    try:
+        return strategy_project_store.link_artifact(project_id, request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="策略项目不存在") from exc
+    except ProjectConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ProjectGateError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/strategy-projects/{project_id}/freeze")
+def freeze_strategy_project(project_id: str, request: ProjectFreezeRequest):
+    try:
+        return strategy_project_store.freeze(project_id, request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="策略项目不存在") from exc
+    except ProjectConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ProjectGateError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/alerts", response_model=list[AlertRule])

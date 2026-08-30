@@ -246,9 +246,15 @@ class ResearchExperiment(BaseModel):
     strategy_id: str
     base_params: dict[str, Any] = Field(default_factory=dict)
     parameter_grid: dict[str, list[float | int | bool]] = Field(default_factory=dict)
+    custom_strategy: CustomStrategySpec | None = None
 
     @model_validator(mode="after")
     def validate_grid(self) -> "ResearchExperiment":
+        if self.custom_strategy is not None:
+            if self.custom_strategy.id != self.strategy_id:
+                raise ValueError("自定义策略 ID 与研究实验 strategy_id 不一致")
+            if self.base_params or self.parameter_grid:
+                raise ValueError("视觉规则策略暂不接受参数网格；请复制策略版本后比较")
         combinations = 1
         for key, values in self.parameter_grid.items():
             if not key or not values or len(values) > 20:

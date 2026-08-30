@@ -31,6 +31,8 @@ export interface ResearchWorkspaceProps {
   onLoading: (loading: boolean) => void
   onError: (message: string) => void
   onCustomResult: (result: BacktestResult) => void
+  onStrategySaved?: (record: CustomStrategyRecord) => void
+  onResearchCompleted?: (job: ResearchJob) => void
   view?: 'optimize' | 'builder'
   showHeader?: boolean
 }
@@ -174,6 +176,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
   const [localTab, setLocalTab] = useState<'optimize' | 'builder'>('optimize')
   const tab = props.view ?? localTab
   const [selected, setSelected] = useState<Set<string>>(() => new Set(['sma_cross', 'ema_cross', 'macd']))
+  const [selectedCustom, setSelectedCustom] = useState<Set<string>>(() => new Set())
   const [gridStrategy, setGridStrategy] = useState('sma_cross')
   const [gridText, setGridText] = useState<Record<string, string>>(() => {
     const initial = props.strategies.find((item) => item.id === 'sma_cross') ?? props.strategies[0]
@@ -222,6 +225,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         if (!['queued', 'running'].includes(current.status)) {
           props.onLoading(false)
           if (current.status === 'failed') props.onError(current.error ?? '研究任务失败')
+          if (current.status === 'completed') props.onResearchCompleted?.(current)
           break
         }
         await new Promise((resolve) => window.setTimeout(resolve, 700))
@@ -237,7 +241,8 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
   const runResearch = async () => {
     if (!props.asset) return
     const chosen = props.strategies.filter((strategy) => selected.has(strategy.id))
-    if (!chosen.length) return props.onError('至少选择一个策略')
+    const customChosen = templates.filter((record) => selectedCustom.has(record.id))
+    if (!chosen.length && !customChosen.length) return props.onError('至少选择一个策略')
     const parameterGrid: Record<string, number[]> = {}
     if (selected.has(gridStrategy)) {
       Object.entries(gridText).forEach(([key, value]) => {
@@ -251,7 +256,10 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         symbol: props.asset.symbol, asset_class: props.asset.asset_class,
         interval: props.interval, data_source: props.source, adjustment: 'auto', objective,
         holdout_ratio: holdout,
-        experiments: chosen.map((strategy) => ({ strategy_id: strategy.id, base_params: strategyDefaults(strategy), parameter_grid: strategy.id === gridStrategy ? parameterGrid : {} })),
+        experiments: [
+          ...chosen.map((strategy) => ({ strategy_id: strategy.id, base_params: strategyDefaults(strategy), parameter_grid: strategy.id === gridStrategy ? parameterGrid : {} })),
+          ...customChosen.map((record) => ({ strategy_id: record.id, base_params: {}, parameter_grid: {}, custom_strategy: record.spec })),
+        ],
         walk_forward: { enabled: true, train_bars: trainBars, test_bars: testBars, step_bars: stepBars, max_windows: maxWindows },
         initial_capital: props.initialCapital, commission_rate: props.commission,
         slippage_rate: props.slippage, spread_rate: props.spread,
@@ -292,8 +300,10 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
   const saveBuilder = async () => {
     setSaving(true)
     try {
-      await api.saveCustomStrategy(buildSpec())
+      const record = await api.saveCustomStrategy(buildSpec())
       setTemplates(await api.listCustomStrategies())
+      setSelectedCustom((current) => new Set(current).add(record.id))
+      props.onStrategySaved?.(record)
     } catch (reason) { props.onError(reason instanceof Error ? reason.message : '保存失败') }
     finally { setSaving(false) }
   }
@@ -325,13 +335,13 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
     </header>}
     {tab === 'optimize' ? <div className="research-layout">
       <aside className="research-config">
-        <section><h3>对比策略</h3><div className="strategy-checks">{props.strategies.map((strategy) => <label key={strategy.id}><input type="checkbox" checked={selected.has(strategy.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(strategy.id)) next.delete(strategy.id); else next.add(strategy.id); return next })} /><span><strong>{strategy.name}</strong><small>{strategy.category}</small></span></label>)}</div></section>
+        <section><h3>对比策略</h3><div className="strategy-checks">{templates.map((record) => <label className="is-custom" key={record.id}><input type="checkbox" checked={selectedCustom.has(record.id)} onChange={() => setSelectedCustom((current) => { const next = new Set(current); if (next.has(record.id)) next.delete(record.id); else next.add(record.id); return next })} /><span><strong>{record.spec.name}</strong><small>视觉规则 · 当前项目制品</small></span></label>)}{props.strategies.map((strategy) => <label key={strategy.id}><input type="checkbox" checked={selected.has(strategy.id)} onChange={() => setSelected((current) => { const next = new Set(current); if (next.has(strategy.id)) next.delete(strategy.id); else next.add(strategy.id); return next })} /><span><strong>{strategy.name}</strong><small>{strategy.category}</small></span></label>)}</div></section>
         <section><h3>参数网格</h3><label className="field"><span>优化策略</span><select value={gridStrategy} onChange={(event) => { const id = event.target.value; setGridStrategy(id); const strategy = props.strategies.find((item) => item.id === id); if (strategy) setGridText(defaultGrid(strategy)) }}>{props.strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}</select></label>{activeGridStrategy?.parameters.filter((parameter) => parameter.kind === 'number' || parameter.kind === 'integer').slice(0, 2).map((parameter) => <label className="field" key={parameter.key}><span>{parameter.label}<small>逗号分隔，最多20个</small></span><input value={gridText[parameter.key] ?? ''} onChange={(event) => setGridText((current) => ({ ...current, [parameter.key]: event.target.value }))} /></label>)}</section>
         <section><h3>验证设置</h3><label className="field"><span>排名目标</span><select value={objective} onChange={(event) => setObjective(event.target.value as Objective)}><option value="sharpe">Sharpe</option><option value="calmar">Calmar</option><option value="cagr">CAGR</option><option value="total_return">总收益</option></select></label><label className="field"><span>留出集比例</span><input type="number" min={10} max={40} value={Math.round(holdout * 100)} onChange={(event) => setHoldout(Number(event.target.value) / 100)} /></label><div className="wf-grid"><label><span>训练</span><input type="number" value={trainBars} onChange={(event) => setTrainBars(Number(event.target.value))} /></label><label><span>测试</span><input type="number" value={testBars} onChange={(event) => setTestBars(Number(event.target.value))} /></label><label><span>步长</span><input type="number" value={stepBars} onChange={(event) => setStepBars(Number(event.target.value))} /></label><label><span>窗口</span><input type="number" value={maxWindows} onChange={(event) => setMaxWindows(Number(event.target.value))} /></label></div></section>
         {job && ['queued', 'running'].includes(job.status) ? <div className="research-progress"><span><LoaderCircle size={13} className="spin" />{job.message}</span><div><i style={{ width: `${job.progress * 100}%` }} /></div><button onClick={cancelJob}><X size={12} />取消</button></div> : <button className="research-run" onClick={runResearch} disabled={!props.asset}><Play size={14} fill="currentColor" />运行稳健性研究</button>}
       </aside>
       <section className="research-results">
-        {job?.result ? <><ValidationRibbon result={job.result} /><div className="research-summary"><div><small>平均 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.average_oos_sharpe ?? 0))}</strong></div><div><small>最差 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.worst_oos_sharpe ?? 0))}</strong></div><div><small>盈利窗口比例</small><strong>{metricText(Number(job.result.summary.profitable_window_ratio ?? 0), true)}</strong></div></div><div className="research-table-wrap"><table className="research-table"><thead><tr><th>#</th><th>策略 / 胜出参数</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS收益</th><th>OOS回撤</th><th>修正p值</th><th>稳健分</th></tr></thead><tbody>{bestCandidates.map((candidate) => <tr key={`${candidate.strategy_id}-${candidate.rank}`}><td>{candidate.rank}</td><td><strong>{props.strategies.find((item) => item.id === candidate.strategy_id)?.name ?? candidate.strategy_id}</strong><small>{Object.entries(candidate.params).map(([key, value]) => `${key}=${value}`).join(' · ')}</small>{candidate.warnings.length ? <em title={candidate.warnings.join('\n')}>{candidate.warnings.length}项风险</em> : <em className="pass"><Check size={10} />无硬性警告</em>}</td><td>{metricText(metric(candidate.train_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'total_return'), true)}</td><td>{metricText(metric(candidate.test_metrics, 'max_drawdown'), true)}</td><td>{metricText(candidate.adjusted_p_value)}</td><td><b>{candidate.robustness_score.toFixed(0)}</b></td></tr>)}</tbody></table></div>{heatmapKeys.length >= 2 && heatmapCandidates.length ? <section className="parameter-map"><header><strong>训练集参数地形</strong><small>颜色只表示 IS {objective}，不代表样本外结论</small></header><div className="heat-grid">{heatmapCandidates.map((candidate, index) => { const value = candidate.objective_train ?? heatMin; const intensity = (value - heatMin) / Math.max(heatMax - heatMin, 1e-9); return <div key={index} style={{ '--heat': intensity } as React.CSSProperties}><span>{heatmapKeys.map((key) => `${key} ${candidate.params[key]}`).join(' / ')}</span><strong>{metricText(value)}</strong></div> })}</div></section> : null}</> : <div className="research-empty"><FlaskConical size={28} /><strong>让策略离开样本内</strong><span>选择策略和参数网格，Atlas 会完成留出测试、多重测试修正与 Walk-forward 滚动验证。</span></div>}
+        {job?.result ? <><ValidationRibbon result={job.result} /><div className="research-summary"><div><small>平均 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.average_oos_sharpe ?? 0))}</strong></div><div><small>最差 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.worst_oos_sharpe ?? 0))}</strong></div><div><small>盈利窗口比例</small><strong>{metricText(Number(job.result.summary.profitable_window_ratio ?? 0), true)}</strong></div></div><div className="research-table-wrap"><table className="research-table"><thead><tr><th>#</th><th>策略 / 胜出参数</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS收益</th><th>OOS回撤</th><th>修正p值</th><th>稳健分</th></tr></thead><tbody>{bestCandidates.map((candidate) => <tr key={`${candidate.strategy_id}-${candidate.rank}`}><td>{candidate.rank}</td><td><strong>{props.strategies.find((item) => item.id === candidate.strategy_id)?.name ?? templates.find((item) => item.id === candidate.strategy_id)?.spec.name ?? candidate.strategy_id}</strong><small>{Object.entries(candidate.params).map(([key, value]) => `${key}=${value}`).join(' · ') || '固定规则版本'}</small>{candidate.warnings.length ? <em title={candidate.warnings.join('\n')}>{candidate.warnings.length}项风险</em> : <em className="pass"><Check size={10} />无硬性警告</em>}</td><td>{metricText(metric(candidate.train_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'total_return'), true)}</td><td>{metricText(metric(candidate.test_metrics, 'max_drawdown'), true)}</td><td>{metricText(candidate.adjusted_p_value)}</td><td><b>{candidate.robustness_score.toFixed(0)}</b></td></tr>)}</tbody></table></div>{heatmapKeys.length >= 2 && heatmapCandidates.length ? <section className="parameter-map"><header><strong>训练集参数地形</strong><small>颜色只表示 IS {objective}，不代表样本外结论</small></header><div className="heat-grid">{heatmapCandidates.map((candidate, index) => { const value = candidate.objective_train ?? heatMin; const intensity = (value - heatMin) / Math.max(heatMax - heatMin, 1e-9); return <div key={index} style={{ '--heat': intensity } as React.CSSProperties}><span>{heatmapKeys.map((key) => `${key} ${candidate.params[key]}`).join(' / ')}</span><strong>{metricText(value)}</strong></div> })}</div></section> : null}</> : <div className="research-empty"><FlaskConical size={28} /><strong>让策略离开样本内</strong><span>选择策略和参数网格，Atlas 会完成留出测试、多重测试修正与 Walk-forward 滚动验证。</span></div>}
       </section>
     </div> : <div className="builder-layout">
       <aside className="builder-library"><h3>我的策略</h3>{templates.length ? templates.map((record) => <div className="template-row" key={record.id}><button onClick={() => loadTemplate(record)}><strong>{record.spec.name}</strong><small>{record.id}</small></button><button title="删除模板" onClick={async () => { await api.deleteCustomStrategy(record.id); setTemplates(await api.listCustomStrategies()) }}><Trash2 size={12} /></button></div>) : <p>尚未保存模板。</p>}</aside>
