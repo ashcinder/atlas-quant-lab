@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import {
-  Beaker, Braces, FileArchive, FlaskConical, GitBranch, LoaderCircle,
-  PackageCheck, ShieldCheck, Sparkles,
+  Beaker, Braces, Check, FileArchive, FlaskConical, GitBranch, LoaderCircle,
+  ShieldCheck, Sparkles,
 } from 'lucide-react'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { StudioTab } from './QuantStrategyStudio'
@@ -32,6 +32,16 @@ const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: type
 
 const studioTabFor = (tab: StrategyLabTab): StudioTab => tab === 'packages' ? 'packages' : tab === 'proof' ? 'proof' : tab === 'sdk' ? 'sdk' : 'workflow'
 const isStudioTab = (tab: StrategyLabTab) => tab === 'workflow' || tab === 'packages' || tab === 'proof' || tab === 'sdk'
+
+function tabComplete(tab: StrategyLabTab, project: StrategyProject | null) {
+  if (!project) return false
+  if (tab === 'builder') return Boolean(project.strategy_hash)
+  if (tab === 'workflow') return project.workflow_valid
+  if (tab === 'validate') return project.research_robust
+  if (tab === 'packages') return Boolean(project.package_id || project.commitment)
+  if (tab === 'proof') return Boolean(project.quant_report_id)
+  return false
+}
 
 export function StrategyLabWorkspace({ initialTab = 'validate', ...researchProps }: Props) {
   const [tab, setTab] = useState<StrategyLabTab>(initialTab)
@@ -92,17 +102,13 @@ export function StrategyLabWorkspace({ initialTab = 'validate', ...researchProps
     <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={setProjectId} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
     <header className="strategy-lab-header">
       <div className="strategy-lab-identity"><span><Sparkles size={16} /></span><div><strong>策略实验室</strong><small>{researchProps.asset?.symbol ?? '未选标的'} · 开发→编排→验证→发布</small></div></div>
-      <nav aria-label="策略生命周期">{tabs.map((item) => { const Icon = item.icon; return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={tab === item.id ? 'is-active' : ''} onClick={() => chooseTab(item.id)}><Icon size={13} /><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}</nav>
-      <div className="strategy-lab-promotion"><ShieldCheck size={14} /><span><strong>验证后才能晋级</strong><small>保存版本后可绑定跑分回执</small></span></div>
+      <nav aria-label="策略生命周期">{tabs.map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}</nav>
+      <div className="strategy-lab-progress" aria-label={project ? `项目完成度 ${Math.round(project.completion * 100)}%` : '尚未创建项目'}>
+        <span><ShieldCheck size={14} /><strong>{project ? `${Math.round(project.completion * 100)}%` : '沙盒'}</strong></span>
+        <div><i style={{ width: `${project ? project.completion * 100 : 0}%` }} /></div>
+        <small>{project?.next_gate?.label ?? (project ? '发布门禁已完成' : '创建项目后归档版本')}</small>
+      </div>
     </header>
-
-    <div className="strategy-lab-lifecycle" aria-label="当前策略生命周期">
-      <span className={tab === 'builder' ? 'is-current' : ''}><i />定义逻辑</span><b />
-      <span className={tab === 'workflow' ? 'is-current' : ''}><i />组装 AI 与风控</span><b />
-      <span className={tab === 'validate' ? 'is-current' : ''}><i />IS / OOS / Walk-forward</span><b />
-      <span className={tab === 'packages' || tab === 'sdk' ? 'is-current' : ''}><i />锁定版本</span><b />
-      <span className={tab === 'proof' ? 'is-current' : ''}><PackageCheck size={12} />证明并发布</span>
-    </div>
 
     {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究引擎…</div>}>

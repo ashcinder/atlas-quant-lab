@@ -74,7 +74,7 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
 }
 
 function ValidationPanel({ validation }: { validation: StudioValidation | null }) {
-  if (!validation) return <div className="qjs-validation is-pending"><Cpu size={15} /><span><strong>等待编译</strong><small>修改图后自动校验</small></span></div>
+  if (!validation) return <div className="qjs-validation is-pending" aria-live="polite"><Cpu className="spin" size={15} /><span><strong>正在编译…</strong><small>检查 DAG、AI 权限与硬风控路径</small></span></div>
   return <div className={`qjs-validation ${validation.valid ? 'is-valid' : 'is-invalid'}`}>
     {validation.valid ? <ShieldCheck size={16} /> : <CircleAlert size={16} />}
     <span><strong>{validation.valid ? '可运行 · 风控路径完整' : `编译失败 · ${validation.errors.length} 项`}</strong><small>{validation.valid ? `${validation.summary.nodes} 节点 / ${validation.summary.ai_nodes} AI / ${validation.graph_hash.slice(0, 12)}…` : validation.errors[0]}</small></span>
@@ -108,26 +108,53 @@ export function QuantStrategyStudio({
   const [publishedProofReport, setPublishedProofReport] = useState<string | null>(null)
   const [proofBusy, setProofBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [activeTemplateId, setActiveTemplateId] = useState('')
+  const [saveNotice, setSaveNotice] = useState<{ tone: 'info' | 'error' | 'success'; text: string } | null>(null)
+  const [removeArmed, setRemoveArmed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const proofFileRef = useRef<HTMLInputElement>(null)
+  const validationRequest = useRef(0)
+
+  const markEdited = useCallback(() => {
+    validationRequest.current += 1
+    setValidation(null)
+    setDirty(true)
+    setSaveNotice(null)
+    setActiveTemplateId('')
+  }, [])
 
   useEffect(() => {
     Promise.all([api.getStudioSpec(), api.getStudioTemplates(), api.listQuantAgents(), api.listZkProfiles()]).then(([nextSpec, nextTemplates, nextAgents, nextProfiles]) => {
       setSpec(nextSpec); setTemplates(nextTemplates); setAgents(nextAgents.filter((agent) => !agent.is_demo))
       setZkProfiles(nextProfiles)
-      if (nextTemplates[0]) { const first = cloneWorkflow(nextTemplates[0].workflow); setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? '') }
+      if (nextTemplates[0]) {
+        const first = cloneWorkflow(nextTemplates[0].workflow)
+        setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? ''); setActiveTemplateId(nextTemplates[0].id)
+      }
     }).catch((reason) => onError(reason instanceof Error ? reason.message : '策略工作室加载失败'))
   }, [onError])
 
   useEffect(() => {
     if (!workflow) return
+    const requestId = ++validationRequest.current
     const timer = window.setTimeout(() => {
-      api.validateStudioWorkflow(workflow).then(setValidation).catch((reason) => {
+      api.validateStudioWorkflow(workflow).then((nextValidation) => {
+        if (requestId === validationRequest.current) setValidation(nextValidation)
+      }).catch((reason) => {
+        if (requestId !== validationRequest.current) return
         setValidation(null); onError(reason instanceof Error ? reason.message : '工作流校验失败')
       })
     }, 280)
     return () => window.clearTimeout(timer)
   }, [onError, workflow])
+
+  useEffect(() => {
+    if (!dirty) return undefined
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
   const selected = workflow?.nodes.find((node) => node.id === selectedId) ?? null
   const allowedAuthority = selected?.type === 'ai_guard'
@@ -135,16 +162,25 @@ export function QuantStrategyStudio({
 
   const loadTemplate = (template: StudioTemplate) => {
     const next = cloneWorkflow(template.workflow)
+    validationRequest.current += 1
     setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? ''); setValidation(null)
+    setActiveTemplateId(template.id); setDirty(true); setRemoveArmed(false)
+    setSaveNotice({ tone: 'info', text: `已载入“${template.name}”，保存后才会形成版本。` })
   }
 
   const patchSelected = useCallback((patch: Partial<StudioWorkflowNode>, configPatch?: Record<string, unknown>) => {
+    markEdited()
     setWorkflow((current) => {
       if (!current) return current
       const nodes = current.nodes.map((node) => node.id === selectedId ? { ...node, ...patch, config: { ...node.config, ...configPatch } } : node)
       return linearize(current, nodes)
     })
-  }, [selectedId])
+  }, [markEdited, selectedId])
+
+  const patchWorkflow = (patch: Partial<StudioWorkflow>) => {
+    markEdited()
+    setWorkflow((current) => current ? { ...current, ...patch } : current)
+  }
 
   const addAI = (role: StudioAIRole) => {
     if (!workflow) return
@@ -155,14 +191,16 @@ export function QuantStrategyStudio({
       id: `ai_${role}_${sequence}`, type: 'ai_guard', label: roleLabels[role],
       config: { role, authority, provider_ref: 'server:primary-model', timeout_ms: 2500, on_error: role === 'risk_control' ? 'deny' : 'use_baseline', instructions: '仅根据输入证据返回结构化决策和 reason_codes。' },
     }
-    setWorkflow(linearize(workflow, [...workflow.nodes, node])); setSelectedId(node.id)
+    markEdited(); setWorkflow(linearize(workflow, [...workflow.nodes, node])); setSelectedId(node.id)
+    setRemoveArmed(false)
   }
 
   const removeSelected = () => {
     if (!workflow || selected?.type !== 'ai_guard') return
     const remaining = workflow.nodes.filter((node) => node.id !== selectedId)
     const next = linearize(workflow, remaining)
-    setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? '')
+    markEdited(); setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? ''); setRemoveArmed(false)
+    setSaveNotice({ tone: 'info', text: `已删除“${selected.label}”，尚未保存。` })
   }
 
   const upload = async (file: File) => {
@@ -183,14 +221,21 @@ export function QuantStrategyStudio({
   }
 
   const save = async () => {
-    if (!workflow || !agentId || !token) { onError('保存需要自己的 Agent 与开发者凭证'); return }
-    if (!validation?.valid) { onError('工作流尚未通过硬风控与 DAG 校验'); return }
+    if (!workflow) return
+    if (!agentId) { setSaveNotice({ tone: 'error', text: '请选择自己的 Agent；没有 Agent 时请先在 QuantJudge 发布页创建。' }); return }
+    if (!token) { setSaveNotice({ tone: 'error', text: '请输入创建 Agent 时获得的开发者凭证。凭证只保存在当前页面内存。' }); return }
+    if (!validation?.valid) { setSaveNotice({ tone: 'error', text: '等待编译完成，并修复所有 DAG 或硬风控错误后再保存。' }); return }
     setSaving(true)
     try {
       const record = await api.saveStudioWorkflow(agentId, token, workflow, '工作室可视化修订')
+      setDirty(false)
+      setSaveNotice({ tone: 'success', text: `已保存 r${record.revision} · ${record.graph_hash.slice(0, 12)}…` })
       onWorkflowSaved?.(record)
     }
-    catch (reason) { onError(reason instanceof Error ? reason.message : '工作流保存失败') }
+    catch (reason) {
+      const message = reason instanceof Error ? reason.message : '工作流保存失败'
+      setSaveNotice({ tone: 'error', text: `${message}；请检查 Agent、凭证和网络后重试。` })
+    }
     finally { setSaving(false) }
   }
 
@@ -226,30 +271,31 @@ export function QuantStrategyStudio({
 
   return <section className={`qjs-shell ${embedded ? 'is-embedded' : ''}`}>
     <header className="qjs-toolbar">
-      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} /><span><strong>私密开发上下文</strong><small>证明绑定所选 Agent 与固定 profile；普通工作流和策略包不会自动获得 ZKP 等级</small></span></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
+      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} aria-hidden="true" /><span><strong>私密编译会话</strong><small>源码、提示词和凭证不进入公开跑分结果</small></span><em className={dirty ? 'is-dirty' : validation?.valid ? 'is-valid' : ''}>{dirty ? '未保存' : validation?.valid ? '已编译' : '校验中'}</em></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
       <form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <input className="qjs-hidden-username" name="username" autoComplete="username" value={agentId} readOnly tabIndex={-1} aria-hidden="true" />
-        <label className="qjs-agent-select"><span>AGENT</span><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">选择我的 Agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} /></label>
-        <label className="qjs-token"><KeyRound size={12} /><input name="developer-token" type="password" autoComplete="current-password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="开发者凭证（不持久化）" /></label>
-        <button className="qjs-save" type="submit" disabled={saving || !validation?.valid}><Save size={13} />{saving ? '保存中' : '保存版本'}</button>
+        <div className={`qjs-save-feedback ${saveNotice ? `is-${saveNotice.tone}` : ''}`} aria-live="polite">{saveNotice?.text ?? (agents.length ? '选择 Agent 并输入凭证后保存不可变修订' : '尚无自有 Agent · 先到 QuantJudge 创建')}</div>
+        <label className="qjs-agent-select"><span>AGENT</span><select name="agent-id" autoComplete="off" value={agentId} onChange={(event) => { setAgentId(event.target.value); setSaveNotice(null) }} aria-label="选择保存工作流的 Agent"><option value="">{agents.length ? '选择我的 Agent' : '暂无可用 Agent'}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label>
+        <label className="qjs-token"><KeyRound size={12} aria-hidden="true" /><input name="developer-token" type="password" autoComplete="current-password" spellCheck={false} value={token} onChange={(event) => { setToken(event.target.value); setSaveNotice(null) }} placeholder="开发者凭证…" aria-label="开发者凭证" /></label>
+        <button className="qjs-save" type="submit" disabled={saving}><Save size={13} />{saving ? '保存中…' : dirty ? '保存修订' : '保存版本'}</button>
       </form>
     </header>
 
     {tab === 'workflow' ? <div className="qjs-workflow-layout">
       <aside className="qjs-library">
-        <section><div className="qjs-side-title"><span>TEMPLATES</span><small>工业级树干</small></div>{templates.map((template) => <button className="qjs-template" key={template.id} onClick={() => loadTemplate(template)}><span><strong>{template.name}</strong><small>{template.description}</small></span><Play size={11} /></button>)}</section>
-        <section><div className="qjs-side-title"><span>AI ROLES</span><small>插入流程</small></div>{spec?.ai_roles.map((role) => <button className="qjs-role" key={role.id} onClick={() => addAI(role.id)}><Bot size={13} /><span><strong>{role.label}</strong><small>{role.allowed_authority.map((item) => authorityLabels[item]).join(' / ')}</small></span><Plus size={11} /></button>)}</section>
+        <section><div className="qjs-side-title"><span>策略树干<em>TEMPLATES</em></span><small>替换当前草稿</small></div>{templates.map((template) => <button className={`qjs-template ${activeTemplateId === template.id ? 'is-active' : ''}`} aria-pressed={activeTemplateId === template.id} key={template.id} onClick={() => loadTemplate(template)}><span><strong>{template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={12} /> : <Play size={11} />}</button>)}</section>
+        <section><div className="qjs-side-title"><span>AI 职责<em>INSERT ROLE</em></span><small>按安全阶段插入</small></div>{spec?.ai_roles.map((role) => <button className="qjs-role" key={role.id} onClick={() => addAI(role.id)}><Bot size={13} /><span><strong>{role.label}</strong><small>{role.allowed_authority.map((item) => authorityLabels[item]).join(' / ')}</small></span><Plus size={11} /></button>)}</section>
         <div className="qjs-safety-note"><LockKeyhole size={14} /><span><strong>硬风控不可被 AI 绕过</strong><small>无论模型权限多高，订单都必须经过确定性限额。</small></span></div>
       </aside>
 
       <main className="qjs-canvas">
-        <header><div><Field label="WORKFLOW ID"><input value={workflow.id} onChange={(event) => setWorkflow({ ...workflow, id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })} /></Field><Field label="NAME"><input value={workflow.name} onChange={(event) => setWorkflow({ ...workflow, name: event.target.value })} /></Field></div><ValidationPanel validation={validation} /></header>
+        <header><div><Field label="工作流 ID" hint="版本内唯一"><input name="workflow-id" autoComplete="off" spellCheck={false} value={workflow.id} onChange={(event) => patchWorkflow({ id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })} /></Field><Field label="工作流名称"><input name="workflow-name" autoComplete="off" value={workflow.name} onChange={(event) => patchWorkflow({ name: event.target.value })} /></Field></div><ValidationPanel validation={validation} /></header>
         <div className="qjs-flow">
-          <div className="qjs-flow-ruler"><span>INGEST</span><span>ALPHA</span><span>CONTROL</span><span>EXECUTE</span><span>PROVE</span></div>
+          <div className="qjs-flow-summary"><span><strong>{ordered.length}</strong> 个节点</span><span><strong>{ordered.filter((node) => node.type === 'ai_guard').length}</strong> 个 AI 职责</span><span><ShieldCheck size={12} /><strong>{ordered.filter((node) => node.type === 'risk_gate').length}</strong> 道硬风控</span><code>数据 → 信号 → 仓位 → 风控 → 执行 → 证明</code></div>
           {ordered.map((node, index) => <div className="qjs-flow-row" key={node.id}>
-            <button className={`qjs-node type-${node.type} ${selectedId === node.id ? 'is-selected' : ''}`} onClick={() => setSelectedId(node.id)}>
+            <button className={`qjs-node type-${node.type} ${selectedId === node.id ? 'is-selected' : ''}`} aria-pressed={selectedId === node.id} onClick={() => { setSelectedId(node.id); setRemoveArmed(false) }}>
               <i>{node.type === 'ai_guard' ? <Bot size={15} /> : node.type === 'risk_gate' ? <ShieldCheck size={15} /> : node.type === 'strategy' ? <Braces size={15} /> : node.type === 'audit' ? <Fingerprint size={15} /> : <Box size={14} />}</i>
-              <span><em>{typeMeta[node.type]?.tag}</em><strong>{node.label}</strong><small>{typeMeta[node.type]?.hint}</small></span>
+              <span><em>{typeMeta[node.type]?.tag}</em><strong>{node.label}</strong><small>{typeMeta[node.type]?.hint}<code>#{node.id}</code></small></span>
               {node.type === 'ai_guard' ? <b>{authorityLabels[node.config.authority as StudioAIAuthority]}</b> : null}
               {node.type === 'risk_gate' ? <b className="locked"><LockKeyhole size={10} /> FINAL GATE</b> : null}
               <SlidersHorizontal size={13} />
@@ -261,15 +307,15 @@ export function QuantStrategyStudio({
       </main>
 
       <aside className="qjs-inspector">
-        {selected ? <><header><div><small>{typeMeta[selected.type]?.tag}</small><strong>{selected.label}</strong></div>{selected.type === 'ai_guard' ? <button onClick={removeSelected} title="删除 AI 节点"><Trash2 size={14} /></button> : <ShieldCheck size={16} />}</header>
-          <section><div className="qjs-inspector-title">BASIC</div><Field label="节点名称"><input value={selected.label} onChange={(event) => patchSelected({ label: event.target.value })} /></Field><Field label="节点 ID" hint="版本内稳定"><input value={selected.id} disabled /></Field></section>
-          {selected.type === 'ai_guard' ? <><section><div className="qjs-inspector-title">AI RESPONSIBILITY</div><Field label="责任"><select value={selected.config.role as string} onChange={(event) => { const role = event.target.value as StudioAIRole; const allowed = spec?.ai_roles.find((item) => item.id === role)?.allowed_authority ?? ['advisory']; patchSelected({}, { role, authority: allowed[0] }) }}>{spec?.ai_roles.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select></Field><Field label="权限边界"><select value={selected.config.authority as string} onChange={(event) => patchSelected({}, { authority: event.target.value })}>{allowedAuthority.map((item) => <option value={item} key={item}>{authorityLabels[item]}</option>)}</select></Field>{selected.config.authority === 'bounded_adjustment' ? <Field label="最大调整" hint="BPS"><input type="number" min="1" max="2000" value={selected.config.max_adjustment_bps as number ?? 100} onChange={(event) => patchSelected({}, { max_adjustment_bps: Number(event.target.value) })} /></Field> : null}</section>
-            <section><div className="qjs-inspector-title">MODEL CONTRACT</div><Field label="Provider 引用" hint="不存密钥"><input value={selected.config.provider_ref as string} onChange={(event) => patchSelected({}, { provider_ref: event.target.value })} /></Field><Field label="超时" hint="ms"><input type="number" min="100" max="60000" value={selected.config.timeout_ms as number} onChange={(event) => patchSelected({}, { timeout_ms: Number(event.target.value) })} /></Field><Field label="失败回退"><select value={selected.config.on_error as string} onChange={(event) => patchSelected({}, { on_error: event.target.value })}><option value="deny">拒绝交易（fail closed）</option><option value="use_baseline">使用基准策略输出</option><option value="skip">跳过本建议节点</option></select></Field><Field label="私密指令" hint="加密存储"><textarea value={selected.config.instructions as string ?? ''} onChange={(event) => patchSelected({}, { instructions: event.target.value })} /></Field></section></> : null}
-          {selected.type === 'strategy' ? <section><div className="qjs-inspector-title">PRIVATE ARTIFACT</div><Field label="绑定策略包" hint="按 content hash 锁定"><select value={workflow.package_id ?? ''} onChange={(event) => setWorkflow({ ...workflow, package_id: event.target.value || null })}><option value="">尚未绑定</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}</select></Field><button className="qjs-inspector-action" onClick={loadPackages}><FileArchive size={12} />验证凭证并读取策略包</button><small className="qjs-help">运行与审计回执将同时锁定 package content hash 和 workflow graph hash。</small></section> : null}
-          {selected.type === 'risk_gate' ? <section className="qjs-risk-fields"><div className="qjs-inspector-title">DETERMINISTIC LIMITS</div>{[
+        {selected ? <><header><div><small>{typeMeta[selected.type]?.tag} · #{selected.id}</small><strong>{selected.label}</strong></div>{selected.type === 'ai_guard' ? <div className="qjs-inspector-actions">{removeArmed ? <button className="is-confirm" onClick={removeSelected}>确认删除</button> : null}<button aria-label={removeArmed ? '取消删除 AI 节点' : '删除 AI 节点'} onClick={() => setRemoveArmed((armed) => !armed)} title={removeArmed ? '取消删除' : '删除 AI 节点'}>{removeArmed ? <X size={14} /> : <Trash2 size={14} />}</button></div> : <ShieldCheck size={16} aria-label="受工作流校验保护" />}</header>
+          <section><div className="qjs-inspector-title">基础信息 <em>BASIC</em></div><Field label="节点名称"><input name="node-label" autoComplete="off" value={selected.label} onChange={(event) => patchSelected({ label: event.target.value })} /></Field><Field label="节点 ID" hint="版本内稳定"><input name="node-id" value={selected.id} disabled /></Field></section>
+          {selected.type === 'ai_guard' ? <><section><div className="qjs-inspector-title">AI 责任与权限 <em>RESPONSIBILITY</em></div><Field label="责任"><select name="ai-role" value={selected.config.role as string} onChange={(event) => { const role = event.target.value as StudioAIRole; const allowed = spec?.ai_roles.find((item) => item.id === role)?.allowed_authority ?? ['advisory']; patchSelected({}, { role, authority: allowed[0] }) }}>{spec?.ai_roles.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select></Field><Field label="权限边界"><select name="ai-authority" value={selected.config.authority as string} onChange={(event) => patchSelected({}, { authority: event.target.value })}>{allowedAuthority.map((item) => <option value={item} key={item}>{authorityLabels[item]}</option>)}</select></Field>{selected.config.authority === 'bounded_adjustment' ? <Field label="最大调整" hint="BPS"><input name="max-adjustment-bps" type="number" inputMode="numeric" min="1" max="2000" value={selected.config.max_adjustment_bps as number ?? 100} onChange={(event) => patchSelected({}, { max_adjustment_bps: Number(event.target.value) })} /></Field> : null}</section>
+            <section><div className="qjs-inspector-title">模型契约 <em>MODEL CONTRACT</em></div><Field label="Provider 引用" hint="不存密钥"><input name="provider-reference" autoComplete="off" spellCheck={false} value={selected.config.provider_ref as string} onChange={(event) => patchSelected({}, { provider_ref: event.target.value })} /></Field><Field label="超时" hint="ms"><input name="model-timeout" type="number" inputMode="numeric" min="100" max="60000" value={selected.config.timeout_ms as number} onChange={(event) => patchSelected({}, { timeout_ms: Number(event.target.value) })} /></Field><Field label="失败回退"><select name="on-model-error" value={selected.config.on_error as string} onChange={(event) => patchSelected({}, { on_error: event.target.value })}><option value="deny">拒绝交易（fail closed）</option><option value="use_baseline">使用基准策略输出</option><option value="skip">跳过本建议节点</option></select></Field><Field label="私密指令" hint="加密存储"><textarea name="private-instructions" autoComplete="off" value={selected.config.instructions as string ?? ''} onChange={(event) => patchSelected({}, { instructions: event.target.value })} /></Field></section></> : null}
+          {selected.type === 'strategy' ? <section><div className="qjs-inspector-title">私密制品 <em>PRIVATE ARTIFACT</em></div><Field label="绑定策略包" hint="按 content hash 锁定"><select name="strategy-package" value={workflow.package_id ?? ''} onChange={(event) => patchWorkflow({ package_id: event.target.value || null })}><option value="">尚未绑定</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}</select></Field><button className="qjs-inspector-action" onClick={loadPackages}><FileArchive size={12} />验证凭证并读取策略包</button><small className="qjs-help">运行与审计回执将同时锁定 package content hash 和 workflow graph hash。</small></section> : null}
+          {selected.type === 'risk_gate' ? <section className="qjs-risk-fields"><div className="qjs-inspector-title">确定性限额 <em>HARD LIMITS</em></div>{[
             ['max_gross_exposure', '总暴露'], ['max_single_position', '单标的仓位'], ['max_daily_loss', '日损失'], ['max_drawdown', '回撤停机'], ['max_participation_rate', '成交参与率'],
-          ].map(([key, label]) => <Field label={label} hint="0–1" key={key}><input type="number" min="0.0001" max="1" step="0.01" value={selected.config[key] as number} onChange={(event) => patchSelected({}, { [key]: Number(event.target.value) })} /></Field>)}</section> : null}
-          {selected.type === 'execution' ? <section><div className="qjs-inspector-title">EXECUTION MODEL</div><Field label="手续费率"><input type="number" step="0.0001" value={selected.config.commission as number ?? 0} onChange={(event) => patchSelected({}, { commission: Number(event.target.value) })} /></Field><Field label="滑点率"><input type="number" step="0.0001" value={selected.config.slippage as number ?? 0} onChange={(event) => patchSelected({}, { slippage: Number(event.target.value) })} /></Field></section> : null}
+          ].map(([key, label]) => <Field label={label} hint="0–1" key={key}><input name={key} type="number" inputMode="decimal" min="0.0001" max="1" step="0.01" value={selected.config[key] as number} onChange={(event) => patchSelected({}, { [key]: Number(event.target.value) })} /></Field>)}</section> : null}
+          {selected.type === 'execution' ? <section><div className="qjs-inspector-title">执行模型 <em>EXECUTION</em></div><Field label="手续费率"><input name="execution-commission" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.commission as number ?? 0} onChange={(event) => patchSelected({}, { commission: Number(event.target.value) })} /></Field><Field label="滑点率"><input name="execution-slippage" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.slippage as number ?? 0} onChange={(event) => patchSelected({}, { slippage: Number(event.target.value) })} /></Field></section> : null}
           <div className="qjs-node-contract"><Check size={12} /><span><strong>输出将被结构化校验</strong><small>运行时记录输入摘要、决策、回退与耗时。</small></span></div>
         </> : null}
       </aside>
