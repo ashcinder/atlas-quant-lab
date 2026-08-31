@@ -266,7 +266,26 @@ STRATEGIES = [
         suitable_for="长期多资产配置",
         risk_level="中",
         mode="portfolio",
-        parameters=[],
+        parameters=[
+            number(
+                "rebalance_band",
+                "再平衡偏离阈值",
+                0,
+                0,
+                0.5,
+                0.005,
+                "0 表示每个计划日都再平衡；大于 0 时只在偏离超限后调仓",
+            ),
+            number(
+                "min_trade_rate",
+                "最小调仓比例",
+                0.001,
+                0,
+                0.05,
+                0.0005,
+                "小于组合净值该比例的调仓交易会被忽略",
+            ),
+        ],
     ),
     StrategyDefinition(
         id="risk_parity",
@@ -276,7 +295,20 @@ STRATEGIES = [
         suitable_for="多资产分散",
         risk_level="中",
         mode="portfolio",
-        parameters=[integer("lookback", "协方差回看", 126, 40, 756)],
+        parameters=[
+            integer("lookback", "协方差回看", 126, 40, 756),
+            number(
+                "covariance_shrinkage",
+                "协方差收缩",
+                0.1,
+                0,
+                1,
+                0.05,
+                "向对角阵收缩，降低小样本协方差噪声",
+            ),
+            number("rebalance_band", "再平衡偏离阈值", 0, 0, 0.5, 0.005),
+            number("min_trade_rate", "最小调仓比例", 0.001, 0, 0.05, 0.0005),
+        ],
     ),
     StrategyDefinition(
         id="sixty_forty",
@@ -286,7 +318,19 @@ STRATEGIES = [
         suitable_for="长期基准比较",
         risk_level="中",
         mode="portfolio",
-        parameters=[],
+        parameters=[
+            number(
+                "equity_target",
+                "权益资产目标",
+                0.6,
+                0.1,
+                0.9,
+                0.05,
+                "第一项权益资产的目标权重，余下权重由其他资产分配",
+            ),
+            number("rebalance_band", "再平衡偏离阈值", 0, 0, 0.5, 0.005),
+            number("min_trade_rate", "最小调仓比例", 0.001, 0, 0.05, 0.0005),
+        ],
     ),
 ]
 

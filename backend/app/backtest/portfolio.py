@@ -9,8 +9,15 @@ from scipy.optimize import minimize
 
 from app.backtest.metrics import calculate_metrics, drawdown_series, safe_float
 from app.data.service import DataBundle
-from app.models import EquityPoint, PortfolioBacktestRequest, PortfolioResult, Trade
+from app.models import (
+    EquityPoint,
+    PortfolioBacktestRequest,
+    PortfolioResult,
+    StrategyDefinition,
+    Trade,
+)
 from app.strategies import get_strategy
+from app.strategies.catalog import default_params
 
 
 def _portfolio_frame(bundle: DataBundle, interval: str) -> pd.DataFrame:
@@ -34,35 +41,127 @@ def _normalized(values: dict[str, float]) -> dict[str, float]:
     return {key: max(value, 0) / total for key, value in values.items()}
 
 
+def _constrained_weights(
+    values: dict[str, float], cash_buffer: float, max_asset_weight: float
+) -> dict[str, float]:
+    """Normalize long-only weights, reserve cash, then apply a deterministic cap."""
+    normalized = _normalized(values)
+    target_total = 1 - cash_buffer
+    remaining = target_total
+    active = list(normalized)
+    result = {symbol: 0.0 for symbol in normalized}
+    while active:
+        active_total = sum(normalized[symbol] for symbol in active)
+        provisional = {
+            symbol: remaining * normalized[symbol] / active_total
+            if active_total > 0
+            else remaining / len(active)
+            for symbol in active
+        }
+        capped = [
+            symbol for symbol, value in provisional.items() if value > max_asset_weight
+        ]
+        if not capped:
+            result.update(provisional)
+            break
+        for symbol in capped:
+            result[symbol] = max_asset_weight
+            remaining -= max_asset_weight
+            active.remove(symbol)
+    return result
+
+
+def _validated_params(
+    strategy: StrategyDefinition, supplied: dict[str, object]
+) -> dict[str, float | int | str | bool]:
+    definitions = {parameter.key: parameter for parameter in strategy.parameters}
+    unknown = sorted(set(supplied) - set(definitions))
+    if unknown:
+        raise ValueError(f"策略包含未知参数: {', '.join(unknown)}")
+    validated = default_params(strategy.id)
+    for key, raw in supplied.items():
+        parameter = definitions[key]
+        if parameter.kind == "boolean":
+            if not isinstance(raw, bool):
+                raise ValueError(f"{parameter.label} 必须为布尔值")
+            value: float | int | str | bool = raw
+        elif parameter.kind == "select":
+            options = {option["value"] for option in parameter.options or []}
+            if not isinstance(raw, str) or raw not in options:
+                raise ValueError(f"{parameter.label} 不是有效选项")
+            value = raw
+        else:
+            if isinstance(raw, bool):
+                raise ValueError(f"{parameter.label} 必须为数字")
+            try:
+                numeric = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{parameter.label} 必须为数字") from exc
+            if not np.isfinite(numeric):
+                raise ValueError(f"{parameter.label} 必须为有限数字")
+            if parameter.minimum is not None and numeric < parameter.minimum:
+                raise ValueError(f"{parameter.label} 不能小于 {parameter.minimum:g}")
+            if parameter.maximum is not None and numeric > parameter.maximum:
+                raise ValueError(f"{parameter.label} 不能大于 {parameter.maximum:g}")
+            if parameter.kind == "integer":
+                if not numeric.is_integer():
+                    raise ValueError(f"{parameter.label} 必须为整数")
+                value = int(numeric)
+            else:
+                value = numeric
+        validated[key] = value
+    return validated
+
+
 def _fixed_weights(
-    request: PortfolioBacktestRequest, bundles: list[DataBundle]
+    request: PortfolioBacktestRequest,
+    bundles: list[DataBundle],
+    params: dict[str, float | int | str | bool],
 ) -> dict[str, float]:
     supplied = {item.symbol: item.weight for item in request.assets if item.weight is not None}
-    if len(supplied) == len(request.assets):
-        return _normalized({key: float(value) for key, value in supplied.items()})
     symbols = [bundle.asset.symbol for bundle in bundles]
     if request.strategy_id == "sixty_forty":
-        return _normalized(
+        equity_target = float(params.get("equity_target", 0.6))
+        values = _normalized(
             {
-                symbol: 0.6 if i == 0 else 0.4 / max(len(symbols) - 1, 1)
+                symbol: equity_target
+                if i == 0
+                else (1 - equity_target) / max(len(symbols) - 1, 1)
                 for i, symbol in enumerate(symbols)
             }
+        )
+        return _constrained_weights(values, request.cash_buffer, request.max_asset_weight)
+    if len(supplied) == len(request.assets):
+        return _constrained_weights(
+            {key: float(value) for key, value in supplied.items()},
+            request.cash_buffer,
+            request.max_asset_weight,
         )
     if request.strategy_id == "all_weather":
         # Positional defaults follow the conventional stock, long bond,
         # intermediate bond, gold and commodity input order.
         template = [0.30, 0.40, 0.15, 0.075, 0.075]
         if len(symbols) == 5:
-            return dict(zip(symbols, template, strict=True))
-    return {symbol: 1 / len(symbols) for symbol in symbols}
+            return _constrained_weights(
+                dict(zip(symbols, template, strict=True)),
+                request.cash_buffer,
+                request.max_asset_weight,
+            )
+    return _constrained_weights(
+        {symbol: 1 / len(symbols) for symbol in symbols},
+        request.cash_buffer,
+        request.max_asset_weight,
+    )
 
 
-def _risk_parity_weights(returns: pd.DataFrame) -> dict[str, float]:
+def _risk_parity_weights(returns: pd.DataFrame, shrinkage: float = 0.1) -> dict[str, float]:
     clean = returns.dropna()
     n = len(clean.columns)
     if len(clean) < 30:
         return {column: 1 / n for column in clean.columns}
-    covariance = clean.cov().values * 252
+    sample_covariance = clean.cov().values * 252
+    diagonal = np.diag(np.diag(sample_covariance))
+    covariance = (1 - shrinkage) * sample_covariance + shrinkage * diagonal
 
     def objective(weights: np.ndarray) -> float:
         variance = float(weights @ covariance @ weights)
@@ -98,6 +197,7 @@ def run_portfolio_backtest(
     request: PortfolioBacktestRequest, bundles: list[DataBundle]
 ) -> PortfolioResult:
     strategy = get_strategy(request.strategy_id)
+    params = _validated_params(strategy, request.params)
     aligned_frames = {
         bundle.asset.symbol: _portfolio_frame(bundle, request.interval) for bundle in bundles
     }
@@ -125,7 +225,7 @@ def run_portfolio_backtest(
     symbols = list(close.columns)
     cash = request.initial_capital
     units = {symbol: 0.0 for symbol in symbols}
-    target_weights = _fixed_weights(request, bundles)
+    target_weights = _fixed_weights(request, bundles, params)
     trades: list[dict] = []
     equity_values: list[float] = []
     exposure_values: list[float] = []
@@ -138,25 +238,65 @@ def run_portfolio_backtest(
         equity_at_open = cash + sum(units[symbol] * float(open_row[symbol]) for symbol in symbols)
 
         if i == 0 or bool(rebalance_mask.loc[timestamp]):
+            history = close.iloc[:0]
             if request.strategy_id == "risk_parity" and i > 0:
-                lookback = 126
+                lookback = int(params.get("lookback", 126))
+                shrinkage = float(params.get("covariance_shrinkage", 0.1))
                 # Use closes known strictly before this open; this avoids
                 # look-ahead while allowing the new weights to execute now.
                 history = close.iloc[max(0, i - lookback) : i].pct_change().dropna()
                 execution_weights = (
-                    _risk_parity_weights(history) if len(history) >= 30 else target_weights
+                    _constrained_weights(
+                        _risk_parity_weights(history, shrinkage),
+                        request.cash_buffer,
+                        request.max_asset_weight,
+                    )
+                    if len(history) >= 30
+                    else target_weights
                 )
             else:
                 execution_weights = target_weights
+
+            if request.volatility_target is not None and i > 0:
+                if history.empty:
+                    history = close.iloc[max(0, i - 252) : i].pct_change().dropna()
+                if len(history) >= 30:
+                    covariance = history.cov().values * 252
+                    vector = np.array([execution_weights.get(symbol, 0) for symbol in symbols])
+                    estimated_volatility = np.sqrt(max(float(vector @ covariance @ vector), 1e-16))
+                    volatility_scale = min(1.0, request.volatility_target / estimated_volatility)
+                    execution_weights = {
+                        symbol: weight * volatility_scale
+                        for symbol, weight in execution_weights.items()
+                    }
+
+            current_weights = {
+                symbol: units[symbol] * float(open_row[symbol]) / equity_at_open
+                if equity_at_open > 0
+                else 0
+                for symbol in symbols
+            }
+            rebalance_band = float(params.get("rebalance_band", 0))
+            if i > 0 and max(
+                abs(current_weights.get(symbol, 0) - execution_weights.get(symbol, 0))
+                for symbol in symbols
+            ) < rebalance_band:
+                # Keep the period in the equity path, but generate no orders.
+                execution_weights = current_weights
+
+            min_trade_rate = float(params.get("min_trade_rate", 0.001))
             for symbol in symbols:
                 desired_value = equity_at_open * execution_weights.get(symbol, 0)
                 desired_units = desired_value / float(open_row[symbol])
                 delta = desired_units - units[symbol]
-                if abs(delta * float(open_row[symbol])) < max(equity_at_open * 0.001, 1):
+                if abs(delta * float(open_row[symbol])) < max(
+                    equity_at_open * min_trade_rate, 1
+                ):
                     continue
                 side = "buy" if delta > 0 else "sell"
+                execution_cost_rate = request.slippage_rate + request.spread_rate / 2
                 execution_price = float(open_row[symbol]) * (
-                    1 + request.slippage_rate if side == "buy" else 1 - request.slippage_rate
+                    1 + execution_cost_rate if side == "buy" else 1 - execution_cost_rate
                 )
                 quantity = abs(delta)
                 if side == "buy":
@@ -238,6 +378,16 @@ def run_portfolio_backtest(
     if request.interval in {"1d", "1wk"}:
         warnings.insert(0, "跨市场日线/周线已按交易日期规范化，并仅保留共同交易日。")
     warnings.insert(0, "组合权重仅在再平衡日生成，并在对应开盘价计入滑点和手续费后成交。")
+    if request.cash_buffer > 0:
+        warnings.insert(0, f"组合保留 {request.cash_buffer:.1%} 现金缓冲。")
+    if request.volatility_target is not None:
+        warnings.insert(
+            0,
+            (
+                f"目标年化波动率为 {request.volatility_target:.1%}，"
+                "只会降低暴露，不使用杠杆。"
+            ),
+        )
     drawdown = drawdown_series(equity_series)
     equity_points = [
         EquityPoint(

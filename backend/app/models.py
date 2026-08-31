@@ -147,11 +147,23 @@ class PortfolioBacktestRequest(BaseModel):
     end: datetime | None = None
     initial_capital: float = Field(default=100_000, gt=0)
     rebalance: Literal["monthly", "quarterly", "yearly"] = "quarterly"
+    params: dict[str, Any] = Field(default_factory=dict)
     commission_rate: float = Field(default=0.001, ge=0, le=0.1)
     slippage_rate: float = Field(default=0.0005, ge=0, le=0.1)
+    spread_rate: float = Field(default=0.0005, ge=0, le=0.1)
+    cash_buffer: float = Field(default=0.0, ge=0, lt=0.5)
+    max_asset_weight: float = Field(default=1.0, gt=0, le=1)
+    volatility_target: float | None = Field(default=None, gt=0, le=1)
     data_source: Literal["auto", "yahoo", "demo"] = "auto"
     base_currency: Literal["CNY", "USD", "USDT"] = "CNY"
     persist: bool = True
+
+    @model_validator(mode="after")
+    def validate_portfolio_constraints(self) -> "PortfolioBacktestRequest":
+        investable = 1 - self.cash_buffer
+        if self.max_asset_weight * len(self.assets) + 1e-12 < investable:
+            raise ValueError("max_asset_weight is too low for the selected asset count")
+        return self
 
 
 class PortfolioResult(BaseModel):

@@ -4,6 +4,7 @@ import { api } from '../api'
 import { formatPercent } from '../format'
 import { normalizeWeightValues } from '../portfolio'
 import type { Asset, BaseCurrency, DataSource, Interval, PortfolioResult, Strategy } from '../types'
+import { PortfolioParametersPanel } from './PortfolioParametersPanel'
 
 interface Props {
   catalog: Asset[]
@@ -33,6 +34,18 @@ const assetClasses = [
 function normalizeWeights(items: Array<{ asset: Asset; weight: number }>) {
   const weights = normalizeWeightValues(items.map((item) => item.weight))
   return items.map((item, index) => ({ ...item, weight: weights[index] }))
+}
+
+function strategyDefaults(strategy?: Strategy) {
+  return Object.fromEntries(strategy?.parameters.map((parameter) => [parameter.key, parameter.default]) ?? [])
+}
+
+function sixtyFortyWeights(items: Array<{ asset: Asset; weight: number }>, equityTarget: number) {
+  const target = Math.min(0.9, Math.max(0.1, equityTarget))
+  return items.map((item, index) => ({
+    ...item,
+    weight: index === 0 ? target : (1 - target) / Math.max(items.length - 1, 1),
+  }))
 }
 
 interface AssetPickerProps {
@@ -107,6 +120,13 @@ export function PortfolioWorkspace(props: Props) {
   const [strategyId, setStrategyId] = useState('all_weather')
   const [capital, setCapital] = useState(100_000)
   const [rebalance, setRebalance] = useState('quarterly')
+  const [commission, setCommission] = useState(0.001)
+  const [slippage, setSlippage] = useState(0.0005)
+  const [spread, setSpread] = useState(0.0005)
+  const [cashBuffer, setCashBuffer] = useState(0)
+  const [maxAssetWeight, setMaxAssetWeight] = useState(1)
+  const [volatilityTarget, setVolatilityTarget] = useState(0)
+  const [strategyValues, setStrategyValues] = useState<Record<string, number | string | boolean>>({})
   const [selected, setSelected] = useState<Array<{ asset: Asset; weight: number }>>([])
   const [assetPickerOpen, setAssetPickerOpen] = useState(false)
   const [allocationNotice, setAllocationNotice] = useState<string | null>(null)
@@ -122,6 +142,12 @@ export function PortfolioWorkspace(props: Props) {
     }))
   }, [catalog, selected])
 
+  const strategy = strategies.find((item) => item.id === strategyId)
+  const effectiveStrategyValues = useMemo(
+    () => ({ ...strategyDefaults(strategy), ...strategyValues }),
+    [strategy, strategyValues],
+  )
+
   useEffect(() => {
     if (runSignal === 0 || runSignal === lastRun.current || activeSelected.length < 2) return
     lastRun.current = runSignal
@@ -134,17 +160,59 @@ export function PortfolioWorkspace(props: Props) {
         weight: strategyId === 'risk_parity' ? null : item.weight,
       })),
       strategy_id: strategyId,
+      params: effectiveStrategyValues,
       interval,
       data_source: source === 'binance' ? 'auto' : source,
       initial_capital: capital,
       rebalance,
+      commission_rate: commission,
+      slippage_rate: slippage,
+      spread_rate: spread,
+      cash_buffer: cashBuffer,
+      max_asset_weight: maxAssetWeight,
+      volatility_target: volatilityTarget > 0 ? volatilityTarget : null,
       base_currency: baseCurrency,
       persist: true,
     }).then(onResult).catch((error: Error) => onError(error.message)).finally(() => onLoading(false))
   }, [
-    activeSelected, baseCurrency, capital, interval, onError, onLoading, onResult,
-    rebalance, runSignal, source, strategyId,
+    activeSelected, baseCurrency, capital, cashBuffer, commission, interval, maxAssetWeight,
+    onError, onLoading, onResult, rebalance, runSignal, slippage, source, spread,
+    effectiveStrategyValues, strategyId, volatilityTarget,
   ])
+
+  const selectStrategy = (id: string) => {
+    const nextStrategy = strategies.find((item) => item.id === id)
+    const defaults = strategyDefaults(nextStrategy)
+    setStrategyId(id)
+    setStrategyValues(defaults)
+    if (id === 'sixty_forty') {
+      setSelected(sixtyFortyWeights(activeSelected, Number(defaults.equity_target ?? 0.6)))
+    }
+    setAllocationNotice(null)
+  }
+
+  const updateStrategyValue = (key: string, value: number | string | boolean) => {
+    setStrategyValues((current) => ({ ...current, [key]: value }))
+    if (strategyId === 'sixty_forty' && key === 'equity_target') {
+      setSelected(sixtyFortyWeights(activeSelected, Number(value)))
+    }
+  }
+
+  const resetParameters = () => {
+    const defaults = strategyDefaults(strategy)
+    setCapital(100_000)
+    setRebalance('quarterly')
+    setCommission(0.001)
+    setSlippage(0.0005)
+    setSpread(0.0005)
+    setCashBuffer(0)
+    setMaxAssetWeight(1)
+    setVolatilityTarget(0)
+    setStrategyValues(defaults)
+    if (strategyId === 'sixty_forty') {
+      setSelected(sixtyFortyWeights(activeSelected, Number(defaults.equity_target ?? 0.6)))
+    }
+  }
 
   const updateWeight = (symbol: string, weight: number) => {
     const boundedWeight = Math.min(1, Math.max(0, Number.isFinite(weight) ? weight : 0))
@@ -152,11 +220,14 @@ export function PortfolioWorkspace(props: Props) {
     setAllocationNotice(null)
   }
   const remove = (symbol: string) => {
-    setSelected(activeSelected.filter((item) => item.asset.symbol !== symbol))
+    const next = activeSelected.filter((item) => item.asset.symbol !== symbol)
+    setSelected(strategyId === 'sixty_forty' ? sixtyFortyWeights(next, Number(effectiveStrategyValues.equity_target ?? 0.6)) : next)
+    setMaxAssetWeight((current) => Math.max(current, (1 - cashBuffer) / next.length))
     setAllocationNotice(`已移除 ${symbol}，请检查并归一化剩余权重。`)
   }
   const addAssets = (assets: Asset[]) => {
-    setSelected([...activeSelected, ...assets.map((asset) => ({ asset, weight: 0 }))])
+    const next = [...activeSelected, ...assets.map((asset) => ({ asset, weight: 0 }))]
+    setSelected(strategyId === 'sixty_forty' ? sixtyFortyWeights(next, Number(effectiveStrategyValues.equity_target ?? 0.6)) : next)
     setAssetPickerOpen(false)
     setAllocationNotice(`已添加 ${assets.map((asset) => asset.symbol).join('、')}；请设置目标权重后归一化。`)
   }
@@ -171,28 +242,26 @@ export function PortfolioWorkspace(props: Props) {
     setAllocationNotice(changed ? '已按当前比例归一化，显示权重合计为 100.0%。' : '当前权重已经是 100.0%，无需调整。')
   }
   const totalWeight = activeSelected.reduce((sum, item) => sum + item.weight, 0)
-  const strategy = strategies.find((item) => item.id === strategyId)
+  const minimumMaxAssetWeight = (1 - cashBuffer) / Math.max(activeSelected.length, 1)
 
   return (
     <div className="portfolio-workspace">
       <section className="portfolio-builder">
         <div className="workspace-title"><div><small>PORTFOLIO LAB</small><h2>多资产组合构建</h2><p>在同一时间轴上再平衡，并拆解每项资产的风险贡献。</p></div><Scale size={30} /></div>
-        <div className="portfolio-controls">
-          <label><span>组合策略</span><select value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>{strategies.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-          <label><span>初始资金（{baseCurrency}）</span><input type="number" value={capital} min={1000} step={10000} onChange={(event) => setCapital(Number(event.target.value))} /></label>
-          <label><span>再平衡</span><select value={rebalance} onChange={(event) => setRebalance(event.target.value)}><option value="monthly">每月</option><option value="quarterly">每季度</option><option value="yearly">每年</option></select></label>
+        <div className="portfolio-controls portfolio-strategy-control">
+          <label><span>组合策略</span><select value={strategyId} onChange={(event) => selectStrategy(event.target.value)}>{strategies.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+          <div><strong>参数已在右侧展开</strong><span>成本、再平衡、风险约束与当前策略参数均可编辑。</span></div>
         </div>
-        {strategy ? <div className="portfolio-strategy-note"><strong>{strategy.name}</strong><span>{strategy.description}</span><em>{strategy.risk_level}风险</em></div> : null}
         <div className="allocation-header"><span>组合成分</span><div><button onClick={normalize} title="保持各资产相对比例，将合计权重调整为100%"><Equal size={14} />归一化至100%</button><button disabled={activeSelected.length >= maximumAssets} onClick={() => setAssetPickerOpen(true)}><Plus size={14} />选择资产</button></div></div>
         {allocationNotice ? <div className="allocation-feedback" role="status"><Check size={13} /><span>{allocationNotice}</span><button onClick={() => setAllocationNotice(null)} title="关闭提示"><X size={12} /></button></div> : null}
         <div className="allocation-table">
           <div className="allocation-row header"><span>标的</span><span>市场</span><span>币种</span><span>目标权重</span><span /></div>
-          {activeSelected.map((item) => <div className="allocation-row" key={item.asset.symbol}><span><strong>{item.asset.symbol}</strong><small>{item.asset.name}</small></span><span>{item.asset.exchange}</span><span>{item.asset.currency}</span><span><input aria-label={`${item.asset.symbol} 目标权重`} disabled={strategyId === 'risk_parity'} type="number" min={0} max={100} step={0.5} value={(item.weight * 100).toFixed(1)} onChange={(event) => updateWeight(item.asset.symbol, Number(event.target.value) / 100)} /><em>%</em></span><button aria-label={`移除 ${item.asset.symbol}`} title={`移除 ${item.asset.symbol}`} onClick={() => remove(item.asset.symbol)} disabled={activeSelected.length <= 2}><Trash2 size={14} /></button></div>)}
+          {activeSelected.map((item) => <div className="allocation-row" key={item.asset.symbol}><span><strong>{item.asset.symbol}</strong><small>{item.asset.name}</small></span><span>{item.asset.exchange}</span><span>{item.asset.currency}</span><span>{strategyId === 'risk_parity' ? <b className="automatic-weight">自动计算</b> : <><input aria-label={`${item.asset.symbol} 目标权重`} disabled={strategyId === 'sixty_forty'} type="number" min={0} max={100} step={0.5} value={(item.weight * 100).toFixed(1)} onChange={(event) => updateWeight(item.asset.symbol, Number(event.target.value) / 100)} /><em>%</em></>}</span><button aria-label={`移除 ${item.asset.symbol}`} title={`移除 ${item.asset.symbol}`} onClick={() => remove(item.asset.symbol)} disabled={activeSelected.length <= 2}><Trash2 size={14} /></button></div>)}
         </div>
         <div className={`weight-total ${Math.abs(totalWeight - 1) > 0.001 && strategyId !== 'risk_parity' ? 'invalid' : ''}`}><span>目标权重合计</span><strong>{strategyId === 'risk_parity' ? '由风险平价计算' : formatPercent(totalWeight)}</strong>{Math.abs(totalWeight - 1) > 0.001 && strategyId !== 'risk_parity' ? <em><AlertCircle size={13} />运行前请归一化至100%</em> : null}</div>
-        <div className="allocation-bar" aria-label="组合权重">{activeSelected.map((item, index) => <i key={item.asset.symbol} style={{ width: `${item.weight * 100}%`, background: `hsl(${160 + index * 42} 58% 52%)` }} title={`${item.asset.symbol} ${formatPercent(item.weight)}`} />)}</div>
+        {strategyId === 'risk_parity' ? <div className="allocation-bar automatic-allocation" aria-label="风险平价权重将在回测时自动计算"><span>回测时根据历史协方差生成权重</span></div> : <div className="allocation-bar" aria-label="组合权重">{activeSelected.map((item, index) => <i key={item.asset.symbol} style={{ width: `${item.weight * 100}%`, background: `hsl(${160 + index * 42} 58% 52%)` }} title={`${item.asset.symbol} ${formatPercent(item.weight)}`} />)}</div>}
       </section>
-      <aside className="portfolio-guide"><h3>组合回测口径</h3><ul><li>各资产在共同交易日期对齐。</li><li>权重在再平衡日确定并计入交易成本。</li><li>风险平价只使用当时可知的滚动协方差。</li><li>混合币种结果会显示汇率口径提示。</li></ul><div className="guide-callout"><Scale size={17} /><p><strong>权重不是风险贡献</strong><span>低波动资产可能权重大，但风险贡献仍较低；结果页会分别展示。</span></p></div></aside>
+      <PortfolioParametersPanel strategy={strategy ?? null} values={effectiveStrategyValues} capital={capital} baseCurrency={baseCurrency} commission={commission} slippage={slippage} spread={spread} rebalance={rebalance} cashBuffer={cashBuffer} maxAssetWeight={maxAssetWeight} volatilityTarget={volatilityTarget} minimumMaxAssetWeight={minimumMaxAssetWeight} onValue={updateStrategyValue} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onRebalance={setRebalance} onCashBuffer={(value) => { setCashBuffer(value); setMaxAssetWeight((current) => Math.max(current, (1 - value) / Math.max(activeSelected.length, 1))) }} onMaxAssetWeight={setMaxAssetWeight} onVolatilityTarget={setVolatilityTarget} onReset={resetParameters} />
       {assetPickerOpen ? <PortfolioAssetPicker catalog={catalog} excludedSymbols={activeSelected.map((item) => item.asset.symbol)} availableSlots={maximumAssets - activeSelected.length} onAdd={addAssets} onClose={() => setAssetPickerOpen(false)} /> : null}
     </div>
   )
