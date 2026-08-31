@@ -17,6 +17,7 @@ import type {
   QuantAgent,
   QuantChainStatus,
   QuantJudgeOverview,
+  QuantReport,
   QuantSubscription,
   QuantVerification,
   StrategyPackageRecord,
@@ -28,6 +29,9 @@ import type {
   StrategyProject,
   StrategyProjectArtifactKind,
   StrategyProjectCreate,
+  ZkMarketDataset,
+  ZkProfile,
+  ZkProofRecord,
 } from './types'
 
 const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
@@ -155,6 +159,25 @@ export const api = {
   },
   verifyQuantReport(id: string) {
     return request<QuantVerification>(`/quantjudge/reports/${encodeURIComponent(id)}/verify`)
+  },
+  listZkProfiles() {
+    return request<ZkProfile[]>('/quantjudge/zkp/profiles')
+  },
+  createZkMarketDataset(symbol: string, assetClass: string, interval: Interval) {
+    const params = new URLSearchParams({ symbol, asset_class: assetClass, interval, source: 'auto', adjustment: 'raw' })
+    return request<ZkMarketDataset>(`/quantjudge/zkp/market-datasets?${params.toString()}`, { method: 'POST' })
+  },
+  uploadZkProof(agentId: string, token: string, profile: string, file: File) {
+    const body = new FormData()
+    body.append('file', file)
+    return request<ZkProofRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/zk-proofs?proof_profile=${encodeURIComponent(profile)}`, {
+      method: 'POST', headers: { 'X-Developer-Token': token }, body,
+    })
+  },
+  publishZkReport(agentId: string, token: string, proofId: string) {
+    return request<QuantReport>(`/quantjudge/agents/${encodeURIComponent(agentId)}/reports/zkp`, {
+      method: 'POST', headers: { 'X-Developer-Token': token }, body: JSON.stringify({ proof_id: proofId }),
+    })
   },
   getQuantChainStatus() {
     return request<QuantChainStatus>('/quantjudge/chain/status')

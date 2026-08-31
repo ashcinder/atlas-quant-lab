@@ -11,16 +11,20 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import fmean, stdev
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
-from cryptography.exceptions import InvalidSignature
 
 from app.config import DATA_DIR, DB_PATH
 from app.quantjudge_models import PerformanceReportCreate, QuantAgentCreate, SubscriptionCreate
 from app.supervisor_client import SupervisorClient, SupervisorRPCError
+from app.zkp_models import ZkPublicStatement
+
+if TYPE_CHECKING:
+    from app.zkp import ZkProofStore
 
 
 def utc_now() -> datetime:
@@ -170,12 +174,14 @@ class QuantJudgeStore:
         *,
         attestor: ReceiptAttestor | None = None,
         supervisor: SupervisorClient | None = None,
+        proof_store: ZkProofStore | None = None,
         seed_demo: bool = True,
     ):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.attestor = attestor or ReceiptAttestor(self.path.parent / "quantjudge_attestation.key")
         self.supervisor = supervisor or SupervisorClient()
+        self.proof_store = proof_store
         self._initialize()
         if seed_demo:
             self._seed_demo()
@@ -251,6 +257,17 @@ class QuantJudgeStore:
                     ON qj_subscriptions(investor_alias, created_at DESC);
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(qj_reports)")}
+            if "zk_proof_id" not in columns:
+                connection.execute("ALTER TABLE qj_reports ADD COLUMN zk_proof_id TEXT")
+            if "evidence_level" not in columns:
+                connection.execute(
+                    "ALTER TABLE qj_reports ADD COLUMN evidence_level TEXT NOT NULL "
+                    "DEFAULT 'platform_attested'"
+                )
+
+    def bind_proof_store(self, proof_store: ZkProofStore) -> None:
+        self.proof_store = proof_store
 
     @staticmethod
     def _token_hash(token: str) -> str:
@@ -298,11 +315,18 @@ class QuantJudgeStore:
         ).fetchone()
 
     @staticmethod
-    def _score(metrics: dict[str, Any], report_type: str, chain_status: str, external_proof: Any) -> float:
+    def _score(
+        metrics: dict[str, Any], report_type: str, chain_status: str, zk_verified: bool
+    ) -> float:
         sharpe = max(-1, min(float(metrics.get("sharpe", 0)), 4))
         drawdown = abs(min(float(metrics.get("max_drawdown", 0)), 0))
         annualized = max(-0.5, min(float(metrics.get("annualized_return", 0)), 2))
-        evidence = 4 + (7 if report_type == "live" else 0) + (8 if chain_status == "confirmed" else 0) + (6 if external_proof else 0)
+        evidence = (
+            4
+            + (7 if report_type == "live" else 0)
+            + (8 if chain_status == "confirmed" else 0)
+            + (10 if zk_verified else 0)
+        )
         return round(max(0, min(100, 48 + sharpe * 10 + annualized * 12 - drawdown * 35 + evidence)), 1)
 
     def _report_public(self, row: sqlite3.Row) -> dict[str, Any]:
@@ -325,6 +349,7 @@ class QuantJudgeStore:
         )
         metrics = payload.get("metrics", {}) if receipt_integrity else {}
         external = payload.get("external_proof") if receipt_integrity else None
+        zk_verified = bool(row["zk_proof_id"]) and row["evidence_level"] == "zk_verified"
         return {
             "id": row["id"],
             "report_type": payload.get("report_type", row["report_type"]),
@@ -340,10 +365,14 @@ class QuantJudgeStore:
             "attestation_key_id": row["attestation_key_id"],
             "attestation_signature": row["attestation_signature"],
             "external_proof": external,
+            "zk_proof_id": row["zk_proof_id"],
+            "evidence_level": row["evidence_level"],
             "chain_tx_hash": row["chain_tx_hash"],
             "chain_status": row["chain_status"],
             "chain_block_number": row["chain_block_number"],
-            "score": self._score(metrics, row["report_type"], row["chain_status"], external) if receipt_integrity else 0,
+            "score": self._score(metrics, row["report_type"], row["chain_status"], zk_verified)
+            if receipt_integrity
+            else 0,
             "created_at": payload.get("created_at", row["created_at"]),
             "receipt_integrity_valid": receipt_integrity,
             "public_curve_integrity_valid": curve_integrity,
@@ -470,16 +499,142 @@ class QuantJudgeStore:
                     request.period_end.isoformat(), canonical_json(metrics), curve_json,
                     len(request.decision_commitments), root, request.market_data_hash,
                     previous["receipt_hash"] if previous else None, payload_json, receipt_hash,
-                    self.attestor.key_id, signature, canonical_json(external) if external else None, created_at,
+                    self.attestor.key_id,
+                    signature,
+                    canonical_json(external) if external else None,
+                    created_at,
                 ),
             )
-            connection.execute("UPDATE qj_agents SET updated_at = ? WHERE id = ?", (created_at, agent_id))
+            connection.execute(
+                "UPDATE qj_agents SET updated_at = ? WHERE id = ?",
+                (created_at, agent_id),
+            )
         # Full equity values and decisions are intentionally not persisted.
         return self.get_report(report_id)
 
+    def publish_zk_report(
+        self, agent_id: str, proof_id: str, developer_token: str | None
+    ) -> dict[str, Any]:
+        """Publish directly from a verified zkVM journal; no private witness is uploaded."""
+        agent = self._assert_token(agent_id, developer_token)
+        if self.proof_store is None:
+            raise RuntimeError("ZKP proof store 未配置")
+        proof = self.proof_store.get_verified_for_agent(proof_id, agent_id)
+        statement = ZkPublicStatement.model_validate_json(proof["public_statement_json"])
+        metrics = statement.metrics.as_public_metrics()
+        curve = [point.as_public_point() for point in statement.public_curve]
+        curve_json = canonical_json(curve)
+        if not hmac.compare_digest(statement.curve_commitment(), statement.equity_curve_hash):
+            raise ValueError("ZKP journal 的公开净值曲线哈希不匹配")
+        report_id = f"qjr_{uuid4().hex[:18]}"
+        external = {
+            "proof_type": "zk_stark",
+            "proof_profile": statement.proof_profile,
+            "proof_id": proof_id,
+            "proof_hash": proof["proof_hash"],
+            "public_inputs_hash": proof["public_inputs_hash"],
+            "image_id": proof["image_id"],
+            "verifier": "risc0-zkvm",
+            "verifier_version": proof["verifier_version"],
+            "receipt_kind": proof["receipt_kind"],
+        }
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = connection.execute(
+                """SELECT receipt_hash FROM qj_reports
+                   WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1""",
+                (agent_id,),
+            ).fetchone()
+            expected_previous = previous["receipt_hash"] if previous else None
+            if statement.previous_receipt_hash != expected_previous:
+                raise ValueError("证明已过期：Agent 回执链在证明生成后发生变化，请重新生成证明")
+            consumed = connection.execute(
+                "SELECT report_id FROM qj_zk_proofs WHERE id = ?", (proof_id,)
+            ).fetchone()
+            if consumed is None or consumed["report_id"] is not None:
+                raise ValueError("证明不存在或已经发布，禁止重复使用")
+            created_at = utc_now().isoformat()
+            payload = {
+                "schema": "atlas.quantjudge.receipt.v2",
+                "report_id": report_id,
+                "agent_id": agent_id,
+                "strategy_commitment": agent["strategy_commitment"],
+                "workflow_commitment": statement.workflow_commitment,
+                "report_type": statement.report_type,
+                "period_start": datetime.fromtimestamp(statement.period_start, UTC).isoformat(),
+                "period_end": datetime.fromtimestamp(statement.period_end, UTC).isoformat(),
+                "metrics": metrics,
+                "public_curve_hash": statement.equity_curve_hash,
+                "decision_count": statement.decision_count,
+                "decision_merkle_root": statement.decision_merkle_root,
+                "market_data_hash": statement.market_data_hash,
+                "cost_model_hash": statement.cost_model_hash,
+                "previous_receipt_hash": expected_previous,
+                "external_proof": external,
+                "nullifier": statement.nullifier,
+                "created_at": created_at,
+            }
+            payload_json = canonical_json(payload)
+            receipt_hash = sha256_hex(payload_json)
+            signature = self.attestor.sign(receipt_hash)
+            connection.execute(
+                """
+                INSERT INTO qj_reports (
+                    id, agent_id, report_type, period_start, period_end, metrics_json, curve_json,
+                    decision_count, decision_merkle_root, market_data_hash, previous_receipt_hash,
+                    receipt_payload_json, receipt_hash, attestation_key_id, attestation_signature,
+                    external_proof_json, zk_proof_id, evidence_level, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'zk_verified', ?)
+                """,
+                (
+                    report_id,
+                    agent_id,
+                    statement.report_type,
+                    payload["period_start"],
+                    payload["period_end"],
+                    canonical_json(metrics),
+                    curve_json,
+                    statement.decision_count,
+                    statement.decision_merkle_root,
+                    statement.market_data_hash,
+                    expected_previous,
+                    payload_json,
+                    receipt_hash,
+                    self.attestor.key_id,
+                    signature,
+                    canonical_json(external),
+                    proof_id,
+                    created_at,
+                ),
+            )
+            connection.execute(
+                "UPDATE qj_zk_proofs SET report_id = ? WHERE id = ? AND report_id IS NULL",
+                (report_id, proof_id),
+            )
+            connection.execute(
+                "UPDATE qj_agents SET updated_at = ? WHERE id = ?", (created_at, agent_id)
+            )
+        return self.get_report(report_id)
+
+    @staticmethod
+    def _expected_anchor_input(row: sqlite3.Row) -> str:
+        if row["zk_proof_id"]:
+            external = json_object(row["external_proof_json"])
+            fields = [
+                row["receipt_hash"],
+                str(external.get("proof_hash", "")),
+                str(external.get("public_inputs_hash", "")),
+                str(json_object(row["receipt_payload_json"]).get("nullifier", "")),
+            ]
+            if all(len(value) == 64 for value in fields):
+                return "0x" + b"ATLASZK2".hex() + "".join(fields)
+        return "0x" + b"ATLASQJ1".hex() + row["receipt_hash"]
+
     def get_report(self, report_id: str) -> dict[str, Any]:
         with self._connect() as connection:
-            row = connection.execute("SELECT * FROM qj_reports WHERE id = ?", (report_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM qj_reports WHERE id = ?", (report_id,)
+            ).fetchone()
         if row is None:
             raise KeyError(report_id)
         return self._report_public(row)
@@ -497,7 +652,9 @@ class QuantJudgeStore:
         payload = json_object(row["receipt_payload_json"])
         payload_hash = sha256_hex(row["receipt_payload_json"])
         hash_valid = hmac.compare_digest(payload_hash, row["receipt_hash"])
-        signature_valid = hash_valid and self.attestor.verify(row["receipt_hash"], row["attestation_signature"])
+        signature_valid = hash_valid and self.attestor.verify(
+            row["receipt_hash"], row["attestation_signature"]
+        )
         record_integrity_valid = all(
             [
                 payload.get("report_id") == row["id"],
@@ -506,7 +663,8 @@ class QuantJudgeStore:
                 payload.get("report_type") == row["report_type"],
                 payload.get("period_start") == row["period_start"],
                 payload.get("period_end") == row["period_end"],
-                canonical_json(payload.get("metrics")) == canonical_json(json_object(row["metrics_json"])),
+                canonical_json(payload.get("metrics"))
+                == canonical_json(json_object(row["metrics_json"])),
                 payload.get("decision_count") == row["decision_count"],
                 payload.get("decision_merkle_root") == row["decision_merkle_root"],
                 payload.get("market_data_hash") == row["market_data_hash"],
@@ -520,7 +678,9 @@ class QuantJudgeStore:
             else None
         )
         chain_result: dict[str, Any] = {
-            "status": row["chain_status"], "transaction_hash": row["chain_tx_hash"], "block_number": row["chain_block_number"]
+            "status": row["chain_status"],
+            "transaction_hash": row["chain_tx_hash"],
+            "block_number": row["chain_block_number"],
         }
         if refresh_chain and row["chain_tx_hash"]:
             try:
@@ -528,14 +688,20 @@ class QuantJudgeStore:
                 if not supervisor_status.connected:
                     raise SupervisorRPCError(supervisor_status.error or "Supervisor RPC 不可用")
                 if supervisor_status.chain_id != 1051:
-                    chain_result.update(status="wrong_chain", observed_chain_id=supervisor_status.chain_id)
+                    chain_result.update(
+                        status="wrong_chain",
+                        observed_chain_id=supervisor_status.chain_id,
+                    )
                     raise SupervisorRPCError(
                         f"Supervisor 链 ID 不匹配: {supervisor_status.chain_id}, 期望 1051"
                     )
                 receipt = self.supervisor.transaction_receipt(row["chain_tx_hash"])
                 transaction = self.supervisor.transaction(row["chain_tx_hash"])
-                expected_input = "0x" + b"ATLASQJ1".hex() + row["receipt_hash"]
-                input_matches = bool(transaction) and str(transaction.get("input", "")).lower() == expected_input
+                expected_input = self._expected_anchor_input(row)
+                input_matches = (
+                    bool(transaction)
+                    and str(transaction.get("input", "")).lower() == expected_input
+                )
                 chain_result["payload_matches"] = input_matches
                 chain_result["expected_input"] = expected_input
                 if receipt and receipt.get("status") == "0x1" and input_matches:
@@ -543,7 +709,9 @@ class QuantJudgeStore:
                     chain_result.update(status="confirmed", block_number=block)
                     with self._connect() as connection:
                         connection.execute(
-                            "UPDATE qj_reports SET chain_status = 'confirmed', chain_block_number = ? WHERE id = ?",
+                            """UPDATE qj_reports
+                               SET chain_status = 'confirmed', chain_block_number = ?
+                               WHERE id = ?""",
                             (block, report_id),
                         )
                 elif receipt and receipt.get("status") == "0x1":
@@ -555,6 +723,44 @@ class QuantJudgeStore:
                     chain_result["status"] = "unreachable"
                 chain_result["error"] = str(exc)
         external = json.loads(row["external_proof_json"]) if row["external_proof_json"] else None
+        proof_record_valid = False
+        proof_file_valid = False
+        proof_cryptographic_valid = False
+        if row["zk_proof_id"]:
+            with self._connect() as connection:
+                proof = connection.execute(
+                    "SELECT * FROM qj_zk_proofs WHERE id = ? AND status = 'verified'",
+                    (row["zk_proof_id"],),
+                ).fetchone()
+            if proof is not None and external:
+                statement = json_object(proof["public_statement_json"])
+                proof_record_valid = all(
+                    [
+                        hmac.compare_digest(
+                            proof["proof_hash"], str(external.get("proof_hash", ""))
+                        ),
+                        hmac.compare_digest(
+                            proof["public_inputs_hash"], str(external.get("public_inputs_hash", ""))
+                        ),
+                        hmac.compare_digest(
+                            proof["public_inputs_hash"], sha256_hex(proof["public_statement_json"])
+                        ),
+                        statement.get("strategy_commitment") == payload.get("strategy_commitment"),
+                        statement.get("market_data_hash") == payload.get("market_data_hash"),
+                        statement.get("decision_merkle_root")
+                        == payload.get("decision_merkle_root"),
+                        statement.get("nullifier") == payload.get("nullifier"),
+                    ]
+                )
+                if self.proof_store is not None:
+                    try:
+                        self.proof_store.reverify(row["zk_proof_id"])
+                        proof_file_valid = True
+                        proof_cryptographic_valid = True
+                    except (KeyError, ValueError, RuntimeError):
+                        proof_file_valid = False
+                        proof_cryptographic_valid = False
+        external_verified = proof_record_valid and proof_cryptographic_valid
         return {
             "report_id": report_id,
             "receipt_hash": row["receipt_hash"],
@@ -566,23 +772,40 @@ class QuantJudgeStore:
             "decision_merkle_root": row["decision_merkle_root"],
             "strategy_commitment": payload.get("strategy_commitment", ""),
             "external_proof": external,
-            "external_proof_verified": False,
+            "external_proof_verified": external_verified,
+            "zk_proof_id": row["zk_proof_id"],
+            "evidence_level": row["evidence_level"],
+            "proof_file_integrity_valid": proof_file_valid if row["zk_proof_id"] else None,
+            "proof_cryptographic_valid": (
+                proof_cryptographic_valid if row["zk_proof_id"] else None
+            ),
             "chain": chain_result,
             "proof_scope": [
-                "业绩由平台根据提交的净值序列重算",
+                "ZKP 报告由登记的固定 zkVM 程序执行并验证 receipt；传统报告仍由平台重算",
                 "策略源码、Agent 参数、提示词与原始决策未公开且未持久化",
                 "决策 Merkle 根可证明后续披露的决策属于当时提交集合",
                 "只有 chain.status=confirmed 时才表示回执哈希已在 Supervisor 链确认",
             ],
             "limitations": [
-                "Ed25519 签名证明平台已验算与封存回执，不等同于零知证明",
-                "外部 ZK/TEE 证明只记录摘要，未配置对应 verifier 前不标记为已验证",
+                "只有 evidence_level=zk_verified 且 external_proof_verified=true "
+                "才是零知识证明报告",
+                "当前 ZKP profile 仅覆盖确定性 SMA 回测；任意 Python、外部 AI "
+                "与实盘成交不在证明范围",
+                "Supervisor 当前锚定证明/公开输入/回执/nullifier 哈希，"
+                "不在链上重新执行 zkVM verifier",
             ],
         }
 
-    def submit_anchor(self, report_id: str, signed_raw_transaction: str, developer_token: str | None) -> dict[str, Any]:
+    def submit_anchor(
+        self,
+        report_id: str,
+        signed_raw_transaction: str,
+        developer_token: str | None,
+    ) -> dict[str, Any]:
         with self._connect() as connection:
-            report = connection.execute("SELECT agent_id FROM qj_reports WHERE id = ?", (report_id,)).fetchone()
+            report = connection.execute(
+                "SELECT agent_id FROM qj_reports WHERE id = ?", (report_id,)
+            ).fetchone()
         if report is None:
             raise KeyError(report_id)
         self._assert_token(report["agent_id"], developer_token)

@@ -9,6 +9,7 @@ Atlas Strategy Lab is the unified development and validation plane behind QuantJ
 | Python SDK | research teams and full portfolio logic | isolated runner | Native Atlas format; typed event and portfolio contracts |
 | JSON rule DSL | no-code and simple technical rules | safe interpreter | No arbitrary code; easiest to inspect and reproduce |
 | Remote Runner contract | proprietary or C++/Rust/institutional systems | signed HTTPS/gRPC adapter | Source never reaches Atlas; only signed inputs and decisions cross the boundary |
+| ZK-native profile | privacy-preserving, publicly scored strategies | fixed reviewed zkVM guest | Phase 1 supports deterministic long-only SMA only; every new family needs a new image ID |
 | Pine Script | TradingView prototypes | importer/converter | Import target, not the production runtime |
 | Jupyter Notebook | exploration and reports | research attachment | Not deterministic enough to be a live strategy artifact |
 | MQL/other broker scripts | existing broker strategies | adapter/converter | Convert signals or expose a private Runner |
@@ -103,6 +104,12 @@ The project API uses optimistic concurrency. Every mutation must send the curren
 3. **VALIDATE** — bind the project rule, compare it with simple baselines, then run chronological IS/OOS and walk-forward validation with realistic costs.
 4. **VERSION** — review all server gates, freeze a semantic version, and retain the returned commitment hash.
 5. **PUBLISH** — submit only the frozen version and verifiable result material to QuantJudge; never publish an unfrozen working copy.
+
+### ZKP promotion path
+
+The ZKP path is deliberately narrower than the general Strategy Lab. A normal visual rule, Python package or AI workflow can be researched and platform-attested, but it is not automatically a zero-knowledge program. To receive the `zk_verified` evidence level, select a registered ZK-native profile, generate its witness locally, prove it with the fixed guest, upload only the receipt, and publish the server-verified journal. The first profile proves long-only SMA crossover semantics; unsupported nodes and deployment modes are blocked rather than relabelled as ZKP.
+
+See [ZKP.md](ZKP.md) for the exact public/private boundary, threat model, Supervisor payload and extension requirements.
 
 ## Isolation and privacy boundary
 

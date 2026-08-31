@@ -15,7 +15,7 @@ import { StrategyProjectBar } from './StrategyProjectBar'
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspace').then((module) => ({ default: module.ResearchWorkspace })))
 const QuantStrategyStudio = lazy(() => import('./QuantStrategyStudio').then((module) => ({ default: module.QuantStrategyStudio })))
 
-export type StrategyLabTab = 'builder' | 'workflow' | 'validate' | 'packages' | 'sdk'
+export type StrategyLabTab = 'builder' | 'workflow' | 'validate' | 'packages' | 'proof' | 'sdk'
 
 interface Props extends Omit<ResearchWorkspaceProps, 'view' | 'showHeader'> {
   initialTab?: StrategyLabTab
@@ -26,11 +26,12 @@ const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: type
   { id: 'workflow', label: 'AI 工作流', stage: '02 COMPOSE', icon: GitBranch },
   { id: 'validate', label: '研究验证', stage: '03 VALIDATE', icon: FlaskConical },
   { id: 'packages', label: '版本包', stage: '04 VERSION', icon: FileArchive },
+  { id: 'proof', label: 'ZKP 证明', stage: '05 PROVE', icon: ShieldCheck },
   { id: 'sdk', label: 'SDK 与格式', stage: 'DEVKIT', icon: Beaker },
 ]
 
-const studioTabFor = (tab: StrategyLabTab): StudioTab => tab === 'packages' ? 'packages' : tab === 'sdk' ? 'sdk' : 'workflow'
-const isStudioTab = (tab: StrategyLabTab) => tab === 'workflow' || tab === 'packages' || tab === 'sdk'
+const studioTabFor = (tab: StrategyLabTab): StudioTab => tab === 'packages' ? 'packages' : tab === 'proof' ? 'proof' : tab === 'sdk' ? 'sdk' : 'workflow'
+const isStudioTab = (tab: StrategyLabTab) => tab === 'workflow' || tab === 'packages' || tab === 'proof' || tab === 'sdk'
 
 export function StrategyLabWorkspace({ initialTab = 'validate', ...researchProps }: Props) {
   const [tab, setTab] = useState<StrategyLabTab>(initialTab)
@@ -100,7 +101,7 @@ export function StrategyLabWorkspace({ initialTab = 'validate', ...researchProps
       <span className={tab === 'workflow' ? 'is-current' : ''}><i />组装 AI 与风控</span><b />
       <span className={tab === 'validate' ? 'is-current' : ''}><i />IS / OOS / Walk-forward</span><b />
       <span className={tab === 'packages' || tab === 'sdk' ? 'is-current' : ''}><i />锁定版本</span><b />
-      <span><PackageCheck size={12} />发布 QuantJudge</span>
+      <span className={tab === 'proof' ? 'is-current' : ''}><PackageCheck size={12} />证明并发布</span>
     </div>
 
     {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
@@ -110,7 +111,7 @@ export function StrategyLabWorkspace({ initialTab = 'validate', ...researchProps
     </section> : null}
     {studioVisited ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载私密策略工作室…</div>}>
-        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord) => void linkArtifact('workflow', record.id)} onPackageUploaded={(record: StrategyPackageRecord) => void linkArtifact('package', record.id)} />
+        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord) => void linkArtifact('workflow', record.id)} onPackageUploaded={(record: StrategyPackageRecord) => void linkArtifact('package', record.id)} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
       </Suspense>
     </section> : null}
   </main>

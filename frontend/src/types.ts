@@ -280,6 +280,8 @@ export interface QuantReport {
   attestation_key_id: string
   attestation_signature: string
   external_proof: { proof_type: string; proof_hash: string; verifier: string; verifier_reference?: string | null } | null
+  zk_proof_id?: string | null
+  evidence_level?: 'platform_attested' | 'zk_verified'
   chain_tx_hash: string | null
   chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable'
   chain_block_number: number | null
@@ -346,9 +348,58 @@ export interface QuantVerification {
   decision_merkle_root: string
   strategy_commitment: string
   external_proof_verified: boolean
+  zk_proof_id?: string | null
+  evidence_level?: string
+  proof_file_integrity_valid?: boolean | null
+  proof_cryptographic_valid?: boolean | null
   chain: { status: string; transaction_hash: string | null; block_number: number | null; error?: string; payload_matches?: boolean }
   proof_scope: string[]
   limitations: string[]
+}
+
+export interface ZkProfile {
+  id: string
+  image_id: string
+  status: 'active' | 'revoked'
+  proof_system: string
+  guest_version: string
+  scope: string
+  verifier_ready: boolean
+  privacy_scope: string[]
+  unsupported: string[]
+}
+
+export interface ZkMarketDataset {
+  market_data_hash: string
+  source: string
+  symbol: string
+  interval: string
+  adjustment: string
+  period_start: number
+  period_end: number
+  bar_count: number
+  trust_model: string
+  fetched_at: string
+  dataset: Record<string, unknown>
+  download_url: string
+  limitation: string
+}
+
+export interface ZkProofRecord {
+  id: string
+  agent_id: string
+  proof_profile: string
+  image_id: string
+  public_statement: Record<string, unknown>
+  public_inputs_hash: string
+  proof_hash: string
+  receipt_size: number
+  receipt_kind: string
+  verifier_version: string
+  nullifier: string
+  status: 'verified' | 'revoked'
+  verified_at: string
+  private_witness_stored: false
 }
 
 export interface QuantSubscription {

@@ -15,6 +15,7 @@ backend/quant_lab.db
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+zkvm/target/
 coverage/
 .playwright-cli/
 output/

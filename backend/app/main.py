@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import UTC
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +57,14 @@ from app.strategy_studio import (
 from app.strategy_studio_models import StrategyWorkflow, WorkflowSaveRequest
 from app.supervisor_client import SupervisorRPCError
 from app.workspace import AlertMonitor, WorkspaceStore
+from app.zkp import (
+    MAX_RECEIPT_BYTES,
+    ZkProofError,
+    ZkProofStore,
+    ZkVerifierUnavailable,
+    make_market_dataset,
+)
+from app.zkp_models import ZkReportPublishCreate
 
 data_service = MarketDataService()
 run_store = RunStore()
@@ -63,6 +72,8 @@ workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
 quantjudge_store = QuantJudgeStore()
+zk_proof_store = ZkProofStore()
+quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
 strategy_project_store = StrategyProjectStore()
 
@@ -407,6 +418,149 @@ def publish_quant_report(
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/zkp/profiles")
+def list_zkp_profiles():
+    try:
+        return zk_proof_store.profiles()
+    except ZkVerifierUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/quantjudge/zkp/market-datasets")
+def create_zkp_market_dataset(
+    symbol: str = Query(default="BTC-USD", min_length=1, max_length=40),
+    asset_class: str = Query(default="crypto", min_length=1, max_length=40),
+    interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$"),
+    source: str = Query(default="auto", pattern="^(auto|yahoo|binance)$"),
+    adjustment: str = Query(default="raw", pattern="^(auto|raw|forward|backward)$"),
+    refresh: bool = False,
+):
+    try:
+        bundle = data_service.fetch(
+            symbol, asset_class, interval, None, None, adjustment, source, refresh
+        )
+        dataset = make_market_dataset(
+            source=bundle.source,
+            symbol=bundle.asset.symbol,
+            interval=interval,
+            adjustment=adjustment,
+            bars=[
+                {
+                    "time": int(index.timestamp()),
+                    "open": row.open,
+                    "high": row.high,
+                    "low": row.low,
+                    "close": row.close,
+                    "volume": row.volume,
+                }
+                for index, row in bundle.frame.iterrows()
+            ],
+        )
+        record = zk_proof_store.register_market_dataset(
+            dataset,
+            fetched_at=bundle.fetched_at or bundle.frame.index[-1].to_pydatetime().astimezone(UTC),
+        )
+        return {
+            **record,
+            "dataset": dataset,
+            "download_url": f"/api/v1/quantjudge/zkp/market-datasets/{record['market_data_hash']}",
+            "limitation": (
+                "市场数据根由平台从公开数据源获取并登记；"
+                "当前数据源未提供可独立验证的签名。"
+            ),
+        }
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ZkProofError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/zkp/market-datasets/{market_hash}")
+def download_zkp_market_dataset(market_hash: str):
+    try:
+        _, path = zk_proof_store.market_dataset(market_hash)
+        content = path.read_bytes()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="市场数据集不存在") from exc
+    except ZkProofError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{market_hash}.json"'},
+    )
+
+
+@app.post(
+    "/api/v1/quantjudge/agents/{agent_id}/zk-proofs",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_zk_proof(
+    agent_id: str,
+    proof_profile: str = Query(min_length=3, max_length=100),
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI dependency declaration
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    receipt = await file.read(MAX_RECEIPT_BYTES + 1)
+    try:
+        return zk_proof_store.register_receipt(
+            agent_id, proof_profile, receipt, developer_token
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except ZkVerifierUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ZkProofError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/quantjudge/zk-proofs/{proof_id}")
+def get_zk_proof(proof_id: str):
+    try:
+        return zk_proof_store.get(proof_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="ZKP 证明不存在") from exc
+
+
+@app.get("/api/v1/quantjudge/zk-proofs/{proof_id}/receipt")
+def download_zk_receipt(proof_id: str):
+    try:
+        path = zk_proof_store.receipt_path(proof_id)
+        content = path.read_bytes()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="ZKP 证明不存在") from exc
+    except ZkProofError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{proof_id}.r0"'},
+    )
+
+
+@app.post(
+    "/api/v1/quantjudge/agents/{agent_id}/reports/zkp",
+    status_code=status.HTTP_201_CREATED,
+)
+def publish_zkp_report(
+    agent_id: str,
+    request: ZkReportPublishCreate,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    try:
+        return quantjudge_store.publish_zk_report(
+            agent_id, request.proof_id, developer_token
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 或 ZKP 证明不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except (ValueError, ZkProofError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/quantjudge/reports/{report_id}/verify")

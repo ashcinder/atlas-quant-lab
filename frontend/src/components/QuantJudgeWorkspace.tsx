@@ -58,6 +58,7 @@ function Sparkline({ report }: { report: QuantReport | null }) {
 
 function ProofRail({ report, verification, chain }: { report: QuantReport | null; verification: QuantVerification | null; chain: QuantChainStatus | null }) {
   const signed = verification?.calculation_verified ?? Boolean(report?.attestation_signature)
+  const zkVerified = verification?.external_proof_verified ?? report?.evidence_level === 'zk_verified'
   const anchored = verification?.chain.status === 'confirmed' || report?.chain_status === 'confirmed'
   return (
     <div className="qj-proof-rail">
@@ -65,8 +66,8 @@ function ProofRail({ report, verification, chain }: { report: QuantReport | null
         <span><Fingerprint size={15} /></span><div><strong>策略承诺</strong><small>源码与 Agent 参数不公开</small></div><Check size={14} />
       </div>
       <i />
-      <div className={`qj-proof-node ${signed ? 'is-ok' : ''}`}>
-        <span><ShieldCheck size={15} /></span><div><strong>业绩重算</strong><small>Ed25519 回执签名</small></div>{signed ? <Check size={14} /> : <em>待验</em>}
+      <div className={`qj-proof-node ${zkVerified || signed ? 'is-ok' : ''}`}>
+        <span><ShieldCheck size={15} /></span><div><strong>{zkVerified ? 'zkVM 执行证明' : '平台业绩重算'}</strong><small>{zkVerified ? '固定 image · receipt 已验证' : 'Ed25519 平台回执，非 ZKP'}</small></div>{zkVerified || signed ? <Check size={14} /> : <em>待验</em>}
       </div>
       <i />
       <div className={`qj-proof-node ${anchored ? 'is-ok' : 'is-pending'}`}>
@@ -83,11 +84,12 @@ function Metric({ label, value, tone = '' }: { label: string; value: string; ton
 interface PublishState {
   name: string; developerAlias: string; agentType: 'ai_agent' | 'traditional'; category: QuantCategory
   description: string; assetClasses: string[]; riskLevel: 'low' | 'medium' | 'high' | 'extreme'; price: number; secret: string
+  commitmentMode: 'browser' | 'zkp'; zkpCommitment: string
 }
 
 const initialPublish: PublishState = {
   name: '', developerAlias: '', agentType: 'ai_agent', category: 'multi_factor', description: '',
-  assetClasses: ['equity'], riskLevel: 'medium', price: 199, secret: '',
+  assetClasses: ['equity'], riskLevel: 'medium', price: 199, secret: '', commitmentMode: 'browser', zkpCommitment: '',
 }
 
 async function privateCommitment(secret: string) {
@@ -110,7 +112,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [query, setQuery] = useState('')
   const [publishOpen, setPublishOpen] = useState(false)
   const [publish, setPublish] = useState<PublishState>(initialPublish)
-  const [credential, setCredential] = useState<{ token: string; salt: string } | null>(null)
+  const [credential, setCredential] = useState<{ token: string; salt: string | null } | null>(null)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem('quantjudge-investor') ?? '')
   const [subscriptions, setSubscriptions] = useState<QuantSubscription[]>([])
@@ -147,15 +149,16 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   }
 
   const createAgent = async () => {
-    if (!publish.secret || publish.secret.length < 12) { onError('私密承诺材料至少 12 个字符'); return }
+    if (publish.commitmentMode === 'browser' && (!publish.secret || publish.secret.length < 12)) { onError('私密承诺材料至少 12 个字符'); return }
+    if (publish.commitmentMode === 'zkp' && !/^[0-9a-f]{64}$/.test(publish.zkpCommitment)) { onError('请粘贴本地 atlas-zkvm inspect 输出的 64 位 strategy_commitment'); return }
     try {
-      const { salt, commitment } = await privateCommitment(publish.secret)
+      const local = publish.commitmentMode === 'browser' ? await privateCommitment(publish.secret) : { salt: null, commitment: publish.zkpCommitment }
       const result = await api.createQuantAgent({
         name: publish.name, developer_alias: publish.developerAlias, agent_type: publish.agentType,
         category: publish.category, asset_classes: publish.assetClasses, description: publish.description,
-        risk_level: publish.riskLevel, monthly_price: publish.price, price_currency: 'CNY', strategy_commitment: commitment,
+        risk_level: publish.riskLevel, monthly_price: publish.price, price_currency: 'CNY', strategy_commitment: local.commitment,
       })
-      setCredential({ token: result.developer_token, salt })
+      setCredential({ token: result.developer_token, salt: local.salt })
       setPublish((current) => ({ ...current, secret: '' }))
       await load(false)
       setSelected(result.agent)
@@ -253,7 +256,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
                 <div><span>决策 Merkle 根</span><code>{shortHash(report?.decision_merkle_root)}</code><em>{report?.decision_count ?? 0} 次决策</em></div>
                 <div><span>证明回执</span><code>{shortHash(report?.receipt_hash)}</code><em>{report?.attestation_key_id}</em></div>
               </section>
-              {verification ? <div className={`qj-verified-note ${verification.calculation_verified ? '' : 'is-error'}`}>{verification.calculation_verified ? <Check size={14} /> : <X size={14} />}<span><strong>{verification.calculation_verified ? '本地验算通过' : '展示记录完整性异常'}</strong>{verification.calculation_verified ? `回执哈希、展示记录与 Ed25519 签名有效。${verification.chain.status !== 'confirmed' ? '尚未获得 Supervisor 链上确认。' : '已获得链上确认。'}` : '请勿依赖当前展示数据；回执与数据库公开字段不一致。'}</span></div> : null}
+              {verification ? <div className={`qj-verified-note ${verification.calculation_verified ? '' : 'is-error'}`}>{verification.calculation_verified ? <Check size={14} /> : <X size={14} />}<span><strong>{verification.calculation_verified ? (verification.external_proof_verified ? 'zkVM 证明与公开结果均已验证' : '平台回执验算通过') : '展示记录完整性异常'}</strong>{verification.calculation_verified ? `${verification.external_proof_verified ? '固定 image 的 RISC Zero receipt、公开 journal、报告绑定与 Ed25519 平台回执有效。' : '回执哈希、展示记录与 Ed25519 签名有效；该证据等级不是 ZKP。'}${verification.chain.status !== 'confirmed' ? '尚未获得 Supervisor 链上确认。' : '已获得链上确认。'}` : '请勿依赖当前展示数据；回执与数据库公开字段不一致。'}</span></div> : null}
               <div className="qj-subscribe"><div><small>月度订阅</small><strong>{selected.monthly_price.toFixed(0)} <em>{selected.price_currency}</em></strong></div><button onClick={() => setSubscribeOpen(true)}><CircleDollarSign size={15} />订阅策略</button></div>
               <small className="qj-disclaimer">跑分不构成投资建议。演示样本未上链；仅当证据节点显示“已确认”时，才代表 Supervisor 链回执校验成功。
               </small>
@@ -264,12 +267,13 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
 
       {publishOpen ? <div className="qj-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setPublishOpen(false)}><section className="qj-modal">
         <header><div><Fingerprint size={18} /><span><strong>发布私密策略 / Agent</strong><small>浏览器本地生成承诺，私密内容不会发送到服务器</small></span></div><button onClick={() => setPublishOpen(false)}><X size={17} /></button></header>
-        {credential ? <div className="qj-credential"><ShieldCheck size={30} /><strong>Agent 已发布</strong><p>以下开发者凭证和盐值只显示一次。后续提交跑分使用凭证，未来披露验证使用盐值。</p><label>开发者凭证<code>{credential.token}</code><button onClick={() => navigator.clipboard.writeText(credential.token)}><Copy size={13} />复制</button></label><label>承诺盐值<code>{credential.salt}</code><button onClick={() => navigator.clipboard.writeText(credential.salt)}><Copy size={13} />复制</button></label><button className="qj-primary" onClick={() => setPublishOpen(false)}>我已安全保存</button></div> : <div className="qj-publish-form">
+        {credential ? <div className="qj-credential"><ShieldCheck size={30} /><strong>Agent 已发布</strong><p>开发者凭证只显示一次。后续提交证明与跑分都需要它；ZKP 的 salt 只保留在本地 witness。</p><label>开发者凭证<code>{credential.token}</code><button onClick={() => navigator.clipboard.writeText(credential.token)}><Copy size={13} />复制</button></label>{credential.salt ? <label>承诺盐值<code>{credential.salt}</code><button onClick={() => navigator.clipboard.writeText(credential.salt ?? '')}><Copy size={13} />复制</button></label> : null}<button className="qj-primary" onClick={() => setPublishOpen(false)}>我已安全保存</button></div> : <div className="qj-publish-form">
           <div className="qj-form-row"><label>Agent 名称<input value={publish.name} onChange={(event) => setPublish({ ...publish, name: event.target.value })} placeholder="例：Aurora Alpha" /></label><label>开发者别名<input value={publish.developerAlias} onChange={(event) => setPublish({ ...publish, developerAlias: event.target.value })} placeholder="不需真实姓名" /></label></div>
           <div className="qj-form-row"><label>形态<select value={publish.agentType} onChange={(event) => setPublish({ ...publish, agentType: event.target.value as PublishState['agentType'] })}><option value="ai_agent">AI Agent</option><option value="traditional">传统量化策略</option></select></label><label>核心能力<select value={publish.category} onChange={(event) => setPublish({ ...publish, category: event.target.value as QuantCategory })}>{categories.slice(1).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label></div>
           <label>公开说明<textarea value={publish.description} onChange={(event) => setPublish({ ...publish, description: event.target.value })} placeholder="只描述适用市场、风险和目标，不要填入源码、提示词或参数。" /></label>
           <div className="qj-form-row"><label>资产类别<select value={publish.assetClasses[0]} onChange={(event) => setPublish({ ...publish, assetClasses: [event.target.value] })}><option value="equity">股票</option><option value="crypto">加密货币</option><option value="etf">ETF / 多资产</option><option value="commodity">商品</option></select></label><label>风险等级<select value={publish.riskLevel} onChange={(event) => setPublish({ ...publish, riskLevel: event.target.value as PublishState['riskLevel'] })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="extreme">极高</option></select></label><label>月费 CNY<input type="number" min="0" value={publish.price} onChange={(event) => setPublish({ ...publish, price: Number(event.target.value) })} /></label></div>
-          <label className="qj-secret-field"><span><KeyRound size={14} />私密承诺材料</span><textarea value={publish.secret} onChange={(event) => setPublish({ ...publish, secret: event.target.value })} placeholder="粘贴源码版本指纹、Agent 配置摘要或任意私密长文。它只在当前浏览器中计算 SHA-256 承诺。" /><small><LockKeyhole size={12} />不会离开本浏览器；服务器只收到 64 位承诺哈希。</small></label>
+          <label>承诺来源<select value={publish.commitmentMode} onChange={(event) => setPublish({ ...publish, commitmentMode: event.target.value as PublishState['commitmentMode'] })}><option value="browser">浏览器承诺（平台签名报告）</option><option value="zkp">zkVM 策略承诺（ZKP 报告）</option></select></label>
+          {publish.commitmentMode === 'browser' ? <label className="qj-secret-field"><span><KeyRound size={14} />私密承诺材料</span><textarea value={publish.secret} onChange={(event) => setPublish({ ...publish, secret: event.target.value })} placeholder="粘贴源码版本指纹、Agent 配置摘要或任意私密长文。它只在当前浏览器中计算 SHA-256 承诺。" /><small><LockKeyhole size={12} />不会离开本浏览器；服务器只收到 64 位承诺哈希。该模式本身不是 ZKP。</small></label> : <label className="qj-secret-field"><span><Fingerprint size={14} />strategy_commitment</span><textarea value={publish.zkpCommitment} onChange={(event) => setPublish({ ...publish, zkpCommitment: event.target.value.trim().toLowerCase() })} placeholder="先在本地运行 atlas-zkvm inspect --witness witness.json，再粘贴输出的 strategy_commitment。" /><small><LockKeyhole size={12} />必须与 proof journal 完全一致；参数与 salt 不上传。</small></label>}
           <footer><button onClick={() => setPublishOpen(false)}>取消</button><button className="qj-primary" onClick={createAgent} disabled={publish.name.length < 2 || publish.developerAlias.length < 2 || publish.description.length < 12}><Fingerprint size={14} />生成承诺并发布</button></footer>
         </div>}
       </section></div> : null}

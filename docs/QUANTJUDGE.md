@@ -1,76 +1,67 @@
 # QuantJudge 证明与 Supervisor 接入
 
-QuantJudge 是 Atlas Quant Lab 中的量化策略 / AI Agent 展示、跑分与订阅市场。它实现“隐藏策略和原始决策，公开可验证业绩”的产品边界，同时不对当前证明强度做夸大声明。
+QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。它把证据分为平台验算与真正的 zkVM 执行证明，UI 和 API 不把两者混为一谈。
 
-## 公开层级
+## 隐私层级
 
-| 层 | 内容 | 默认状态 | 平台处理 |
+| 层 | 内容 | 默认状态 | ZKP 报告处理 |
 |---|---|---|---|
-| 1 | 策略源码、Agent 参数、提示词 | 隐藏 | 浏览器本地加盐 SHA-256，服务器只接收承诺哈希 |
-| 2 | 原始买卖、选股、择时与仓位决策 | 隐藏 | 只接收每条决策的哈希承诺，计算 Merkle 根后丢弃列表 |
-| 3 | 收益、回撤、波动、Sharpe 与降采样收益曲线 | 公开 | 后端从一次性净值序列重算，并签发不可变回执 |
+| 1 | 策略源码、参数、提示词、salt | 隐藏 | 仅存在于本地 witness，服务器接收承诺 |
+| 2 | 买卖、选股、择时与仓位决策 | 隐藏 | guest 计算逐条承诺并公开 Merkle 根 |
+| 3 | 收益、回撤、波动、Sharpe、降采样曲线 | 公开 | guest 输出 journal，后端验证 receipt 后直接发布 |
 
-原始净值序列只在请求内存中参与重算，持久化层只保存已公开的降采样收益曲线。
+非 ZKP 报告仍可由平台从一次性净值序列重算并签发 `atlas.quantjudge.receipt.v1`。ZKP 报告使用 `atlas.quantjudge.receipt.v2`，来源是已验证的公开 journal，不能由普通报告接口或浏览器字段创建。
 
-## 回执结构
+## 证据等级
 
-每份报告生成 `atlas.quantjudge.receipt.v1` 规范化 JSON，包含：
+1. **浏览器承诺 / 平台报告**：策略承诺、平台重算、Ed25519 回执有效；这是中心化可验签报告，不是 ZKP。
+2. **zkVM 已验证**：RISC Zero receipt 对固定 image ID 验证通过，journal 与 Agent、行情、成本、指标、曲线和回执链完全绑定。
+3. **Supervisor 已锚定**：链、交易状态和 input 精确匹配。ZKP 报告锚定 receipt、proof、public-input 与 nullifier 四个哈希。
 
-- Agent ID 与策略承诺；
-- 统计周期、报告类型和平台重算指标；
-- 决策数量、决策 Merkle 根和市场数据哈希；
-- 上一份回执哈希，形成 Agent 级别的追加链；
-- 外部 ZK / TEE 证明摘要（可选）。
+跑分只给真正的 `evidence_level=zk_verified` 证明加 ZK 证据分。用户提交的 proof 类型说明或外部摘要不能影响该字段。
 
-规范化 JSON 还包含公开收益曲线的 SHA-256，经 SHA-256 得到 `receipt_hash`，再由平台 Ed25519 密钥签名。验真时会逐字段比对已签名载荷与展示记录，避免“签名有效但展示值被改”。公钥和 key ID 通过 `/api/v1/quantjudge/overview` 公开。开发者凭证仅在创建 Agent 时返回一次，数据库中只保存其 SHA-256。
-
-## 证明等级
-
-UI 中的证据链不将不同强度的保证混为一谈：
-
-1. **承诺完整性**：策略承诺、决策 Merkle 根和前序回执链存在。
-2. **平台验算**：收益指标由平台重算，回执哈希与 Ed25519 签名通过。这是可公开验签的中心化证明，不是 ZK 证明。
-3. **Supervisor 链上确认**：交易状态成功，且 input 必须精确等于 `ATLASQJ1` 的 ASCII 字节加 32 字节 `receipt_hash`。
-4. **ZK / TEE 证明**：API 允许登记证明摘要和 verifier 引用，但在实际 verifier 未配置前始终显示“未验证”。
-
-## Supervisor 适配边界
-
-- Supervisor 源码目录被项目根 `.gitignore` 排除，Atlas 不导入、修改或复制其代码与配置。
-- 默认 RPC：`http://127.0.0.1:42515`；环境变量：`QUANTJUDGE_SUPERVISOR_RPC_URL`。
-- 期望链 ID：`1051` (`0x41b`)。
-- 读取方法：`eth_chainId`、`eth_blockNumber`、`eth_getTransactionByHash`、`eth_getTransactionReceipt`。
-- 写入方法：只向 `eth_sendRawTransaction` 转发外部钱包已签名原始交易。Atlas 后端不生成、导入或保管区块链私钥。
-
-锚定 input 的构造规则：
-
-```text
-0x + hex("ATLASQJ1") + receipt_hash
-```
-
-对于已由外部钱包提交的交易，可使用 `PUT /api/v1/quantjudge/reports/{report_id}/chain-transaction` 附加交易哈希；对于已签名原始交易，使用 `POST /api/v1/quantjudge/reports/{report_id}/anchor`。两者都需要 `X-Developer-Token`。
-
-## API 概览
+## ZKP API
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
-| GET | `/api/v1/quantjudge/overview` | 市场概览与验签公钥 |
+| GET | `/api/v1/quantjudge/zkp/profiles` | 获取固定 profile、image ID、支持范围与 verifier 状态 |
+| POST | `/api/v1/quantjudge/zkp/market-datasets` | 从平台真实行情注册规范化数据集 |
+| GET | `/api/v1/quantjudge/zkp/market-datasets/{hash}` | 下载按哈希锁定的公开 witness 行情 |
+| POST | `/api/v1/quantjudge/agents/{id}/zk-proofs` | 上传并验证 receipt；需要开发者凭证 |
+| GET | `/api/v1/quantjudge/zk-proofs/{id}` | 获取证明元数据和公开 journal |
+| GET | `/api/v1/quantjudge/zk-proofs/{id}/receipt` | 下载 receipt，供独立验证 |
+| POST | `/api/v1/quantjudge/agents/{id}/reports/zkp` | 原子消费证明并发布 ZKP 报告 |
+
+完整协议、数据库边界与命令见 [ZKP.md](ZKP.md)。
+
+## Supervisor 适配边界
+
+- `Supervisor/` 被根目录 `.gitignore` 排除；Atlas 不导入、修改或复制其代码与配置。
+- 默认 RPC 为 `http://127.0.0.1:42515`，环境变量为 `QUANTJUDGE_SUPERVISOR_RPC_URL`。
+- 期望链 ID 为 `1051` (`0x41b`)。
+- 只读取 `eth_chainId`、`eth_blockNumber`、交易和回执；写入只转发外部钱包签名的原始交易。
+- Atlas 不生成、导入或保管链上私钥。
+
+传统报告沿用 `ATLASQJ1 || receipt_hash`。ZKP 报告使用版本化的 `ATLASZK2` payload；具体字段见 [ZKP.md](ZKP.md)。Supervisor 当前负责不可篡改锚定，不在链上执行 RISC Zero verifier。
+
+## 其他 QuantJudge API
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
 | GET / POST | `/api/v1/quantjudge/agents` | 查询 / 发布 Agent |
-| POST | `/api/v1/quantjudge/agents/{id}/reports` | 提交净值、决策承诺与业绩报告 |
-| GET | `/api/v1/quantjudge/reports/{id}/verify` | 重算回执完整性并查询链上状态 |
+| POST | `/api/v1/quantjudge/agents/{id}/reports` | 发布平台验算报告（非 ZKP） |
+| GET | `/api/v1/quantjudge/reports/{id}/verify` | 验证展示、平台签名、ZKP 文件绑定与链状态 |
 | POST | `/api/v1/quantjudge/agents/{id}/subscriptions` | 建立沙盒或外部支付引用订阅 |
 | GET | `/api/v1/quantjudge/chain/status` | Supervisor 连接、链 ID 与区块高度 |
 | GET / POST | `/api/v1/quantjudge/agents/{id}/packages` | 查询 / 上传加密 `.qstrategy` 包 |
-| POST | `/api/v1/quantjudge/studio/workflows/validate` | 校验 AI 权限、DAG、审计路径与硬风控不可绕过性 |
-| GET / PUT | `/api/v1/quantjudge/agents/{id}/workflows/{workflow_id}` | 读取 / 保存加密工作流修订 |
+| POST | `/api/v1/quantjudge/studio/workflows/validate` | 验证 AI 权限、DAG、审计路径与硬风控 |
 
-策略开发格式、Python SDK、AI 责任边界和隔离 Runner 要求见 [STRATEGY_DEVELOPMENT.md](STRATEGY_DEVELOPMENT.md)。
+## 上线前要求
 
-FastAPI 的完整请求模型与交互调试页位于 `http://127.0.0.1:8000/api/docs`。
+- 多租户公网版本仍需真实账户、MFA、组织权限、限流、审计、凭证撤销与支付对账。
+- 平台 Ed25519 私钥需迁移到 KMS/HSM 并保留轮换公钥档案。
+- 市场数据注册需要提供方签名或独立受证明的摄取流水线；当前证明只保证对已注册数据的计算正确。
+- 每个新增策略或 AI 执行环境都必须发布独立、可复现、经审查的 profile/image，不能复用 SMA profile 名义。
+- 公布收益曲线本身可能泄露风格特征；高敏策略应降低采样频率并预先约定公开统计。
 
-## 当前局限与上线前清单
-
-- 默认订阅是明确标记的本地沙盒账本，不会发生真实扣款。接入支付后应将异步 webhook、幂等键、退款与对账纳入状态机。
-- 当前项目是个人本地工作台，Agent 写入使用一次性开发者凭证保护，演示 Agent 强制只读。对公网开放前还必须接入真实账户、MFA、组织权限、全局限流、审计日志与凭证撤销。
-- 当前 Ed25519 私钥位于本地 `.data` 且权限为 `0600`。多实例生产环境应迁移到 KMS/HSM，并实施密钥轮换和旧公钥档案。
-- 平台重算仍依赖平台作为可信验算方。要去中心化地证明“隐藏决策确实产生公开收益”，需要针对固定执行语义实现 ZK 电路或可验证 TEE 执行器，不能只用哈希和签名替代。
-- 公开收益曲线仍可能泄露部分风格特征。高敏感策略应进一步限制公开频率，并在 ZK/TEE 内输出预先约定的聚合统计。
+FastAPI 交互文档位于 `http://127.0.0.1:8000/api/docs`。

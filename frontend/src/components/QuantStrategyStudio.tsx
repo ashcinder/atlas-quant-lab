@@ -11,7 +11,7 @@ import type {
   StudioTemplate, StudioValidation, StudioWorkflow, StudioWorkflowNode, StudioWorkflowRecord,
 } from '../types'
 
-export type StudioTab = 'workflow' | 'packages' | 'sdk'
+export type StudioTab = 'workflow' | 'packages' | 'proof' | 'sdk'
 interface Props {
   onError: (message: string) => void
   activeTab?: StudioTab
@@ -19,6 +19,9 @@ interface Props {
   onTabChange?: (tab: StudioTab) => void
   onWorkflowSaved?: (record: StudioWorkflowRecord) => void
   onPackageUploaded?: (record: StrategyPackageRecord) => void
+  assetSymbol?: string
+  assetClass?: string
+  interval?: string
 }
 
 const roleLabels: Record<StudioAIRole, string> = {
@@ -78,7 +81,10 @@ function ValidationPanel({ validation }: { validation: StudioValidation | null }
   </div>
 }
 
-export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onPackageUploaded }: Props) {
+export function QuantStrategyStudio({
+  onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onPackageUploaded,
+  assetSymbol = 'BTC-USD', assetClass = 'crypto', interval = '1d',
+}: Props) {
   const [localTab, setLocalTab] = useState<StudioTab>('workflow')
   const tab = activeTab ?? localTab
   const goTab = (next: StudioTab) => {
@@ -96,12 +102,19 @@ export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTa
   const [packages, setPackages] = useState<StrategyPackageRecord[]>([])
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [zkProfiles, setZkProfiles] = useState<import('../types').ZkProfile[]>([])
+  const [zkDataset, setZkDataset] = useState<import('../types').ZkMarketDataset | null>(null)
+  const [zkProof, setZkProof] = useState<import('../types').ZkProofRecord | null>(null)
+  const [publishedProofReport, setPublishedProofReport] = useState<string | null>(null)
+  const [proofBusy, setProofBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const proofFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    Promise.all([api.getStudioSpec(), api.getStudioTemplates(), api.listQuantAgents()]).then(([nextSpec, nextTemplates, nextAgents]) => {
+    Promise.all([api.getStudioSpec(), api.getStudioTemplates(), api.listQuantAgents(), api.listZkProfiles()]).then(([nextSpec, nextTemplates, nextAgents, nextProfiles]) => {
       setSpec(nextSpec); setTemplates(nextTemplates); setAgents(nextAgents.filter((agent) => !agent.is_demo))
+      setZkProfiles(nextProfiles)
       if (nextTemplates[0]) { const first = cloneWorkflow(nextTemplates[0].workflow); setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? '') }
     }).catch((reason) => onError(reason instanceof Error ? reason.message : '策略工作室加载失败'))
   }, [onError])
@@ -181,12 +194,39 @@ export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTa
     finally { setSaving(false) }
   }
 
+  const prepareDataset = async () => {
+    setProofBusy(true)
+    try { setZkDataset(await api.createZkMarketDataset(assetSymbol, assetClass, interval as import('../types').Interval)) }
+    catch (reason) { onError(reason instanceof Error ? reason.message : '可信市场数据集生成失败') }
+    finally { setProofBusy(false) }
+  }
+
+  const uploadProof = async (file: File) => {
+    const profile = zkProfiles.find((item) => item.status === 'active')
+    if (!agentId || !token) { onError('上传证明前需要选择 Agent 并填写开发者凭证'); return }
+    if (!profile?.verifier_ready) { onError('生产 verifier 尚未构建或 profile 未激活'); return }
+    setProofBusy(true)
+    try { setZkProof(await api.uploadZkProof(agentId, token, profile.id, file)) }
+    catch (reason) { onError(reason instanceof Error ? reason.message : 'ZKP receipt 验证失败') }
+    finally { setProofBusy(false) }
+  }
+
+  const publishProof = async () => {
+    if (!agentId || !token || !zkProof) return
+    setProofBusy(true)
+    try {
+      const report = await api.publishZkReport(agentId, token, zkProof.id)
+      setPublishedProofReport(`${report.id} · ${report.evidence_level ?? 'zk_verified'}`)
+    } catch (reason) { onError(reason instanceof Error ? reason.message : 'ZKP 报告发布失败') }
+    finally { setProofBusy(false) }
+  }
+
   if (!workflow) return <div className="qjs-loading"><Cpu className="spin" size={22} />加载策略开发套件…</div>
   const ordered = orderNodes(workflow.nodes)
 
   return <section className={`qjs-shell ${embedded ? 'is-embedded' : ''}`}>
     <header className="qjs-toolbar">
-      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} /><span><strong>私密开发上下文</strong><small>选择 Agent 后，工作流与策略包将绑定到同一版本链</small></span></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
+      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} /><span><strong>私密开发上下文</strong><small>证明绑定所选 Agent 与固定 profile；普通工作流和策略包不会自动获得 ZKP 等级</small></span></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
       <form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <input className="qjs-hidden-username" name="username" autoComplete="username" value={agentId} readOnly tabIndex={-1} aria-hidden="true" />
         <label className="qjs-agent-select"><span>AGENT</span><select value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">选择我的 Agent</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} /></label>
@@ -240,6 +280,24 @@ export function QuantStrategyStudio({ onError, activeTab, embedded = false, onTa
       <input ref={fileRef} hidden type="file" accept=".qstrategy,.zip" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       <div className={`qjs-dropzone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) upload(file) }}><FileArchive size={27} /><strong>{uploading ? '正在进行结构、入口与安全校验…' : '拖入 .qstrategy 策略包'}</strong><span>最大 10 MB · 解压最大 50 MB · 禁止凭证、链接与可执行二进制</span></div>
       <div className="qjs-package-list">{packages.map((item) => <article key={item.id}><span><PackageCheck size={18} /></span><div><strong>{item.name} <em>v{item.version}</em></strong><small>{item.strategy_key} · {item.language} · {item.file_count} files</small></div><code>{item.content_hash.slice(0, 12)}…</code><b><LockKeyhole size={11} /> PRIVATE</b><time>{new Date(item.created_at).toLocaleString('zh-CN')}</time>{item.warnings.length ? <p>{item.warnings.join(' · ')}</p> : null}</article>)}{!packages.length ? <div className="qjs-empty"><FileArchive size={24} />选择 Agent 并输入凭证后读取，或上传第一个策略包。</div> : null}</div>
+    </div> : null}
+
+    {tab === 'proof' ? <div className="qjs-proof">
+      <header><div><strong>零知识证明发布流水线</strong><small>本地生成 witness 与 receipt；平台只验证公开 journal，不接收策略参数、salt、逐笔决策或完整净值。</small></div><span className={zkProfiles.some((item) => item.verifier_ready) ? 'is-ready' : 'is-blocked'}><ShieldCheck size={13} />{zkProfiles.some((item) => item.verifier_ready) ? 'PRODUCTION VERIFIER READY' : 'VERIFIER NOT BUILT'}</span></header>
+      <section className="qjs-proof-profile">
+        {zkProfiles.map((profile) => <article key={profile.id}><div><Fingerprint size={20} /><span><em>REGISTERED IMAGE</em><strong>{profile.id}</strong><code>{profile.image_id}</code></span></div><dl><div><dt>证明系统</dt><dd>{profile.proof_system}</dd></div><div><dt>覆盖范围</dt><dd>{profile.scope}</dd></div><div><dt>Guest</dt><dd>v{profile.guest_version}</dd></div><div><dt>状态</dt><dd>{profile.status}</dd></div></dl><p><ShieldCheck size={12} />证明：{profile.privacy_scope.join('；')}</p><p className="is-warning"><CircleAlert size={12} />不证明：{profile.unsupported.join('、')}</p></article>)}
+        {!zkProfiles.length ? <div className="qjs-empty"><CircleAlert size={20} />尚无已激活的 proof profile；运行 zkvm/scripts/build.sh 后才允许上传。</div> : null}
+      </section>
+      <ol className="qjs-proof-steps">
+        <li className={zkDataset ? 'is-done' : ''}><span>01</span><div><strong>锁定可信市场数据</strong><small>{assetSymbol} · {interval} · 平台公开数据根</small>{zkDataset ? <code>{zkDataset.market_data_hash}</code> : null}</div><button disabled={proofBusy} onClick={prepareDataset}>{zkDataset ? '重新登记' : '生成数据集'}</button></li>
+        <li><span>02</span><div><strong>在开发者设备创建私有 witness</strong><small>参数、salt 与 nullifier nonce 只保留在本地；inspect 输出的 strategy_commitment 用于创建 Agent</small></div><code>atlas-zkvm inspect --witness witness.json</code></li>
+        <li><span>03</span><div><strong>本地生成生产证明</strong><small>disable-dev-mode 已强制启用，禁止伪 receipt</small></div><code>zkvm/target/release/atlas-zkvm prove --witness witness.json --receipt proof.r0</code></li>
+        <li className={zkProof ? 'is-done' : ''}><span>04</span><div><strong>上传并独立验证 receipt</strong><small>固定 image ID · 45 秒 fail-closed · 最大 16 MB</small>{zkProof ? <code>{zkProof.proof_hash}</code> : null}</div><button disabled={proofBusy || !zkDataset} onClick={() => proofFileRef.current?.click()}>{proofBusy ? '处理中…' : '选择 proof.r0'}</button><input ref={proofFileRef} hidden type="file" accept=".r0,.bin" onChange={(event) => event.target.files?.[0] && uploadProof(event.target.files[0])} /></li>
+        <li className={zkProof ? '' : 'is-locked'}><span>05</span><div><strong>发布 ZKP 跑分回执</strong><small>指标和抽样曲线直接来自已验证 journal；proof/nullifier 只能使用一次</small></div><button disabled={proofBusy || !zkProof} onClick={publishProof}>发布 QuantJudge</button></li>
+        <li><span>06</span><div><strong>外部钱包锚定 Supervisor</strong><small>链上仅保存回执、证明、公开输入和 nullifier 的哈希；Supervisor 源码保持只读</small></div><code>ATLASZK2 · receipt · proof · public-input · nullifier</code></li>
+      </ol>
+      {publishedProofReport ? <div className="qjs-proof-published"><ShieldCheck size={15} /><span><strong>ZKP 报告已发布</strong><code>{publishedProofReport}</code></span></div> : null}
+      <aside className="qjs-proof-boundary"><LockKeyhole size={16} /><div><strong>隐私边界不是营销标签</strong><p>当前 profile 真正覆盖确定性、long-only、下一根 K 线开盘成交的 SMA 回测。Python 策略、AI/LLM 节点和实盘成交仍可开发，但在有对应 zkVM/zkML/交易所签名或 TEE 证明前，不会显示“ZKP 已验证”。</p>{zkDataset ? <small>{zkDataset.limitation}</small> : null}</div></aside>
     </div> : null}
 
     {tab === 'sdk' ? <div className="qjs-sdk">

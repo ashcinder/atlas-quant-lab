@@ -1,0 +1,12 @@
+{
+  "schema": "atlas.quantjudge.zk.profiles.v1",
+  "profiles": {
+    "atlas_sma_backtest_risc0_v1": {
+      "guest_version": "0.1.0",
+      "image_id": "91409cbbef6fe55f5e7ac6d5199e31d259b4167788facbbb26dc7ee09740ea43",
+      "proof_system": "risc0-zkvm",
+      "scope": "deterministic_sma_long_only_backtest",
+      "status": "active"
+    }
+  }
+}

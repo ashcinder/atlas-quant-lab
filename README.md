@@ -26,7 +26,7 @@ Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略�
 - 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。
 - 本地优先：不需要注册，行情缓存、策略模板和回测历史保存在本机。
 - QuantJudge 市场：量化策略 / AI Agent 公开跑分、分类排行、证据账本、本地沙盒订阅和开发者发布流程。
-- 隐私证明：源码 / Agent 参数与原始决策默认隐藏，只持久化策略承诺、决策 Merkle 根、经重算的公开业绩和 Ed25519 回执。
+- 隐私证明：固定 RISC Zero zkVM guest 可证明私密 SMA 参数确实在指定行情和成本模型上生成公开业绩；服务器只持久化 receipt、公开 journal 和承诺，不保存 witness、参数或逐笔决策。其他策略类型不会冒充 ZKP。
 - Supervisor 验证：通过独立 JSON-RPC 适配器读取链 ID、区块与交易回执；只接收外部钱包已签名交易，平台不保管链上私钥。
 
 ## 目录
@@ -72,7 +72,7 @@ cd frontend && pnpm test && pnpm build
 
 QuantJudge 默认使用 `http://127.0.0.1:42515` 读取 Supervisor JSON-RPC，可通过 `QUANTJUDGE_SUPERVISOR_RPC_URL` 修改。未连接 Supervisor 时仍可发布和验证本地密码学回执，但界面会明确标记为“待锚定”，不会冒充链上确认。
 
-更多信息见 [产品规格](docs/PRD.md)、[系统架构](docs/ARCHITECTURE.md) 和 [QuantJudge 证明与链接入](docs/QUANTJUDGE.md)。
+更多信息见 [产品规格](docs/PRD.md)、[系统架构](docs/ARCHITECTURE.md)、[ZKP 协议与威胁模型](docs/ZKP.md) 和 [QuantJudge 证明与链接入](docs/QUANTJUDGE.md)。
 
 ## 界面预览
 
