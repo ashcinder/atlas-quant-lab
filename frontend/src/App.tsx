@@ -281,7 +281,7 @@ export default function App() {
   return (
     <div className="app-shell" ref={shellRef} style={layoutStyle}>
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onMode={changeMode} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><span>隐藏 1</span>策略源码 / Agent 参数不公开<i /> <span>隐藏 2</span>原始投资决策不公开<i /> <span>公开 3</span>经验算收益与密码学回执公开</div> : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
+      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>私密</b>策略源码与 Agent 参数</span><span><b>私密</b>原始投资决策</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
       {error ? <div className="error-banner"><AlertCircle size={15} /><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div> : null}
       {mode === 'single' ? (
         <main className="terminal-grid">
