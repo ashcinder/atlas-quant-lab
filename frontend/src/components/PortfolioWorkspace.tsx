@@ -79,9 +79,9 @@ function PortfolioAssetPicker({ catalog, excludedSymbols, availableSlots, onAdd,
 
   return <div className="asset-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className="asset-picker" role="dialog" aria-modal="true" aria-labelledby="asset-picker-title">
-      <header><div><small>ASSET UNIVERSE</small><strong id="asset-picker-title">选择组合标的</strong><span>搜索并批量加入，最多 {maximumAssets} 项资产</span></div><button onClick={onClose} title="关闭资产选择器"><X size={16} /></button></header>
-      <div className="asset-picker-search"><Search size={15} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索代码、名称、市场或类别" /><kbd>{candidates.length} 项可选</kbd></div>
-      <nav aria-label="资产类别">{assetClasses.map((item) => <button key={item.value} className={assetClass === item.value ? 'is-active' : ''} onClick={() => setAssetClass(item.value)}>{item.label}</button>)}</nav>
+      <header><div><small>ASSET UNIVERSE</small><strong id="asset-picker-title">选择组合标的</strong><span>搜索并批量加入，最多 {maximumAssets} 项资产</span></div><button aria-label="关闭资产选择器" onClick={onClose} title="关闭资产选择器"><X size={16} /></button></header>
+      <div className="asset-picker-search"><Search size={15} /><input aria-label="搜索可添加资产" ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索代码、名称、市场或类别" /><kbd>{candidates.length} 项可选</kbd></div>
+      <nav aria-label="资产类别">{assetClasses.map((item) => <button key={item.value} aria-pressed={assetClass === item.value} className={assetClass === item.value ? 'is-active' : ''} onClick={() => setAssetClass(item.value)}>{item.label}</button>)}</nav>
       <div className="asset-picker-list">
         {candidates.length ? candidates.map((asset) => {
           const checked = pending.has(asset.symbol)

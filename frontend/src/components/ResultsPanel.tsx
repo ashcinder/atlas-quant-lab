@@ -31,19 +31,19 @@ export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls
   const [tab, setTab] = useState<'summary' | 'trades' | 'risk' | 'warnings'>('summary')
   const metrics = result?.metrics ?? {}
   return (
-    <section className={`results-panel panel-${panelMode}`}>
-      <div className="result-tabs">
-        <button className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}><BarChart3 size={14} />概览</button>
-        <button className={tab === 'trades' ? 'is-active' : ''} onClick={() => setTab('trades')}><ListOrdered size={14} />交易记录 <em>{result?.trades.length ?? 0}</em></button>
-        <button className={tab === 'risk' ? 'is-active' : ''} onClick={() => setTab('risk')}><ShieldAlert size={14} />风险分析</button>
-        <button className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}><AlertTriangle size={14} />可信度 <em>{result?.warnings.length ?? 0}</em></button>
+    <section className={`results-panel panel-${panelMode}`} aria-label="回测结果">
+      <div className="result-tabs" role="tablist" aria-label="回测结果分类">
+        <button role="tab" aria-selected={tab === 'summary'} className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}><BarChart3 size={14} />概览</button>
+        <button role="tab" aria-selected={tab === 'trades'} className={tab === 'trades' ? 'is-active' : ''} onClick={() => setTab('trades')}><ListOrdered size={14} />交易记录 <em>{result?.trades.length ?? 0}</em></button>
+        <button role="tab" aria-selected={tab === 'risk'} className={tab === 'risk' ? 'is-active' : ''} onClick={() => setTab('risk')}><ShieldAlert size={14} />风险分析</button>
+        <button role="tab" aria-selected={tab === 'warnings'} className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}><AlertTriangle size={14} />可信度 <em>{result?.warnings.length ?? 0}</em></button>
         {controls ? <span className="result-panel-actions">
-          {panelMode === 'maximized' ? <button onClick={() => onPanelMode('normal')} title="还原回测面板"><Minimize2 size={13} /></button> : <button onClick={() => onPanelMode('maximized')} title="最大化回测面板"><Maximize2 size={13} /></button>}
-          {panelMode === 'collapsed' ? <button onClick={() => onPanelMode('normal')} title="展开回测面板"><ChevronUp size={14} /></button> : <button onClick={() => onPanelMode('collapsed')} title="收起回测面板"><ChevronDown size={14} /></button>}
+          {panelMode === 'maximized' ? <button aria-label="还原回测面板" onClick={() => onPanelMode('normal')} title="还原回测面板"><Minimize2 size={13} /></button> : <button aria-label="最大化回测面板" onClick={() => onPanelMode('maximized')} title="最大化回测面板"><Maximize2 size={13} /></button>}
+          {panelMode === 'collapsed' ? <button aria-label="展开回测面板" onClick={() => onPanelMode('normal')} title="展开回测面板"><ChevronUp size={14} /></button> : <button aria-label="收起回测面板" onClick={() => onPanelMode('collapsed')} title="收起回测面板"><ChevronDown size={14} /></button>}
         </span> : null}
       </div>
-      <div className="result-content">
-        {loading ? <div className="result-loading"><span className="pulse-line" /><span>正在标准化行情、生成信号并逐笔撮合…</span></div> : null}
+      <div className="result-content" role="tabpanel">
+        {loading ? <div className="result-loading" role="status" aria-live="polite"><span className="pulse-line" /><span>正在标准化行情、生成信号并逐笔撮合…</span></div> : null}
         {!loading && !result ? <div className="result-empty"><BarChart3 size={18} /><span>运行回测后，这里会显示收益、风险与逐笔交易。</span></div> : null}
         {!loading && result && tab === 'summary' ? (
           <div className="summary-grid">

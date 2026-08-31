@@ -45,16 +45,16 @@ export function TopBar(props: Props) {
         <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'research' ? 'LAB' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
       </div>
       <nav className="mode-tabs" aria-label="工作模式">
-        <button className={props.mode === 'single' ? 'is-active' : ''} onClick={() => props.onMode('single')}>
+        <button aria-current={props.mode === 'single' ? 'page' : undefined} className={props.mode === 'single' ? 'is-active' : ''} onClick={() => props.onMode('single')}>
           <CandlestickChart size={15} /> 单标的
         </button>
-        <button className={props.mode === 'portfolio' ? 'is-active' : ''} onClick={() => props.onMode('portfolio')}>
+        <button aria-current={props.mode === 'portfolio' ? 'page' : undefined} className={props.mode === 'portfolio' ? 'is-active' : ''} onClick={() => props.onMode('portfolio')}>
           <Layers3 size={15} /> 多资产
         </button>
-        <button className={props.mode === 'research' ? 'is-active' : ''} onClick={() => props.onMode('research')}>
+        <button aria-current={props.mode === 'research' ? 'page' : undefined} className={props.mode === 'research' ? 'is-active' : ''} onClick={() => props.onMode('research')}>
           <FlaskConical size={15} /> 策略实验室
         </button>
-        <button className={props.mode === 'quantjudge' ? 'is-active' : ''} onClick={() => props.onMode('quantjudge')}>
+        <button aria-current={props.mode === 'quantjudge' ? 'page' : undefined} className={props.mode === 'quantjudge' ? 'is-active' : ''} onClick={() => props.onMode('quantjudge')}>
           <Gavel size={15} /> QuantJudge
         </button>
       </nav>
@@ -63,16 +63,16 @@ export function TopBar(props: Props) {
         <>
           <div className="segmented compact" aria-label="K线周期">
             {intervals.map((item) => (
-              <button key={item.value} className={props.interval === item.value ? 'is-active' : ''} onClick={() => props.onInterval(item.value)}>
+              <button key={item.value} aria-pressed={props.interval === item.value} className={props.interval === item.value ? 'is-active' : ''} onClick={() => props.onInterval(item.value)}>
                 {item.label}
               </button>
             ))}
           </div>
           <div className="segmented compact" aria-label="图表类型">
-            <button className={props.chartType === 'candles' ? 'is-active' : ''} onClick={() => props.onChartType('candles')} title="K线">
+            <button aria-label="K线图" aria-pressed={props.chartType === 'candles'} className={props.chartType === 'candles' ? 'is-active' : ''} onClick={() => props.onChartType('candles')} title="K线">
               <CandlestickChart size={15} />
             </button>
-            <button className={props.chartType === 'line' ? 'is-active' : ''} onClick={() => props.onChartType('line')} title="折线">
+            <button aria-label="折线图" aria-pressed={props.chartType === 'line'} className={props.chartType === 'line' ? 'is-active' : ''} onClick={() => props.onChartType('line')} title="折线">
               <BarChart3 size={15} />
             </button>
           </div>
@@ -87,9 +87,9 @@ export function TopBar(props: Props) {
           <option value="demo">演示数据</option>
         </select>
       </label> : null}
-      {props.mode !== 'quantjudge' ? <><button className="icon-button" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
-      <button className="icon-button alert-button" onClick={props.onAlerts} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button>
-      <button className="icon-button" title="本地设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button></> : null}
+      {props.mode !== 'quantjudge' ? <><button className="icon-button" aria-label="回测历史" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
+      <button className="icon-button alert-button" aria-label={`提醒中心${props.unreadAlerts > 0 ? `，${props.unreadAlerts} 条未读` : ''}`} onClick={props.onAlerts} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button>
+      <button className="icon-button" aria-label="本地设置" title="本地设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button></> : null}
       {props.mode !== 'research' && props.mode !== 'quantjudge' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
         {props.loading ? <Clock3 size={15} className="spin" /> : <Play size={15} fill="currentColor" />}
         {props.loading ? '计算中' : '运行回测'}

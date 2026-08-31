@@ -422,9 +422,9 @@ export const TradingChart = memo(function TradingChart({
         </div>
         <div className="indicator-toggles">
           <span className="market-freshness" title={`数据源最后可用K线：${marketTime(lastBarTime)}`}>{isStale ? '刷新失败 · ' : ''}{marketTime(lastBarTime)}</span>
-          {indicatorControls.map((item) => <button key={item.key} className={visibleIndicators.has(item.key) ? 'is-active' : ''} onClick={() => toggleIndicator(item.key)}>{item.label}</button>)}
-          <button className={`pane-toggle ${showVolume ? 'is-active' : ''}`} onClick={() => onShowVolume(!showVolume)} title={showVolume ? '隐藏成交量窗格' : '显示成交量窗格'}>{showVolume ? <Eye size={11} /> : <EyeOff size={11} />}VOL</button>
-          <button className={`pane-toggle ${showMacd ? 'is-active' : ''}`} onClick={() => onShowMacd(!showMacd)} title={showMacd ? '隐藏MACD窗格' : '显示MACD窗格'}>{showMacd ? <Eye size={11} /> : <EyeOff size={11} />}MACD</button>
+          {indicatorControls.map((item) => <button key={item.key} aria-pressed={visibleIndicators.has(item.key)} className={visibleIndicators.has(item.key) ? 'is-active' : ''} onClick={() => toggleIndicator(item.key)}>{item.label}</button>)}
+          <button aria-pressed={showVolume} className={`pane-toggle ${showVolume ? 'is-active' : ''}`} onClick={() => onShowVolume(!showVolume)} title={showVolume ? '隐藏成交量窗格' : '显示成交量窗格'}>{showVolume ? <Eye size={11} /> : <EyeOff size={11} />}VOL</button>
+          <button aria-pressed={showMacd} className={`pane-toggle ${showMacd ? 'is-active' : ''}`} onClick={() => onShowMacd(!showMacd)} title={showMacd ? '隐藏MACD窗格' : '显示MACD窗格'}>{showMacd ? <Eye size={11} /> : <EyeOff size={11} />}MACD</button>
           {!replayMode ? <button className="replay-launch" onClick={startReplay} title="从历史时点逐根回放"><RotateCcw size={11} />回放</button> : null}
           <span className={`source-pill ${isDemo ? 'demo' : isStale ? 'stale' : ''}`}>{source ?? '等待数据'}</span>
         </div>
@@ -432,8 +432,8 @@ export const TradingChart = memo(function TradingChart({
       {replayMode ? <div className="replay-toolbar"><span className="replay-status"><i />REPLAY <b>{replayIndex + 1}</b><em>/ {bars.length}</em></span><button onClick={() => setReplayPlaying((value) => !value)} title={replayPlaying ? '暂停' : '播放'}>{replayPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}</button><button onClick={stepReplay} title="下一根K线"><StepForward size={13} /></button><span className="replay-clock">{rangeTime(latest?.time ?? 0, interval)}</span><span className="replay-account"><small>模拟权益</small><strong>{formatNumber(replayEquity, 2)}</strong><em>仓位 {formatNumber(replayAccount.quantity, 4)}</em></span><button className="paper-buy" onClick={() => placeReplayOrder('buy')}>买入25%</button><button className="paper-sell" onClick={() => placeReplayOrder('sell')}>全部卖出</button><button className="replay-exit" onClick={() => { setReplayMode(false); setReplayPlaying(false) }} title="返回实时图表"><X size={13} /></button></div> : null}
       <div className="chart-canvas-wrap" ref={canvasWrapRef}>
         <div className="chart-canvas" ref={containerRef} aria-label="金融K线、成交量与MACD技术指标图" />
-        {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}
-        {showMacd ? <div className="pane-caption macd-caption" ref={macdCaptionRef}><button onClick={() => onShowMacd(false)} title="隐藏MACD"><Eye size={11} /></button><strong>MACD (12, 26, 9)</strong><span className="macd-value">M {formatNumber(latestMacd, 2)}</span><span className="signal-value">S {formatNumber(latestSignal, 2)}</span></div> : null}
+        {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button aria-label="隐藏成交量" onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}
+        {showMacd ? <div className="pane-caption macd-caption" ref={macdCaptionRef}><button aria-label="隐藏MACD" onClick={() => onShowMacd(false)} title="隐藏MACD"><Eye size={11} /></button><strong>MACD (12, 26, 9)</strong><span className="macd-value">M {formatNumber(latestMacd, 2)}</span><span className="signal-value">S {formatNumber(latestSignal, 2)}</span></div> : null}
         <div className="chart-time-axis" aria-label="当前可见K线时间范围"><span ref={timeStartRef} /><span ref={timeMiddleRef} /><span ref={timeEndRef} /></div>
         <div className="crosshair-time-label" ref={crosshairTimeRef} aria-hidden="true" />
       </div>
