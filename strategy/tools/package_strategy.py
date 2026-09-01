@@ -39,7 +39,7 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path, nargs="?")
     args = parser.parse_args()
-    destination = args.output or Path("dist") / f"{args.source.name}.qstrategy"
+    destination = args.output or Path(".artifacts") / "strategies" / f"{args.source.name}.qstrategy"
     build(args.source.resolve(), destination.resolve())
 
 

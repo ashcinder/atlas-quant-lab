@@ -78,15 +78,15 @@ The existing Supervisor integration anchors these commitments and verifies the t
 Install the RISC Zero toolchain, then build the fixed guest and host verifier:
 
 ```bash
-PATH="$HOME/.risc0/bin:$PATH" zkvm/scripts/build.sh
+PATH="$HOME/.risc0/bin:$PATH" strategy/zkvm/scripts/build.sh
 ```
 
-The build writes the immutable image ID into `zkvm/profiles.json`. Generate a witness locally; never upload it:
+The build writes the immutable image ID into `strategy/zkvm/profiles.json`. Generate a witness locally; never upload it:
 
 ```bash
-zkvm/target/release/atlas-zkvm inspect --witness witness.json
-zkvm/target/release/atlas-zkvm prove --witness witness.json --receipt receipt.bin
-zkvm/target/release/atlas-zkvm verify --receipt receipt.bin
+strategy/zkvm/target/release/atlas-zkvm inspect --witness witness.json
+strategy/zkvm/target/release/atlas-zkvm prove --witness witness.json --receipt receipt.bin
+strategy/zkvm/target/release/atlas-zkvm verify --receipt receipt.bin
 ```
 
 Use the inspect output when creating the QuantJudge Agent, register/download the exact market dataset in Strategy Lab, then upload only `receipt.bin`. The API re-verifies it; the local verify command is a developer convenience, not an authorization decision.

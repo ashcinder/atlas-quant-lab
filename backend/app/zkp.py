@@ -25,8 +25,10 @@ from app.zkp_models import ZkPublicStatement
 MAX_RECEIPT_BYTES = 16 * 1024 * 1024
 MAX_DATASET_BARS = 20_000
 VERIFY_TIMEOUT_SECONDS = 45
-PROFILES_PATH = ROOT_DIR.parent / "zkvm" / "profiles.json"
-DEFAULT_VERIFIER = ROOT_DIR.parent / "zkvm" / "target" / "release" / "atlas-zkvm"
+PROFILES_PATH = ROOT_DIR.parent / "strategy" / "zkvm" / "profiles.json"
+DEFAULT_VERIFIER = (
+    ROOT_DIR.parent / "strategy" / "zkvm" / "target" / "release" / "atlas-zkvm"
+)
 
 
 class ZkProofError(ValueError):
@@ -58,7 +60,7 @@ class Risc0ReceiptVerifier:
     def verify(self, receipt_path: Path, expected_image_id: str) -> VerifiedReceipt:
         if not self.executable.is_file() or not os.access(self.executable, os.X_OK):
             raise ZkVerifierUnavailable(
-                "RISC Zero verifier 尚未构建；请运行 zkvm/scripts/build.sh"
+                "RISC Zero verifier 尚未构建；请运行 strategy/zkvm/scripts/build.sh"
             )
         try:
             completed = subprocess.run(

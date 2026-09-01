@@ -27,8 +27,10 @@ risk_aware_momentum.qstrategy
 Build the included example:
 
 ```bash
-python tools/package_strategy.py examples/strategies/risk_aware_momentum
+python strategy/tools/package_strategy.py strategy/examples/strategies/risk_aware_momentum
 ```
+
+The default archive is written to `.artifacts/strategies/risk_aware_momentum.qstrategy`; pass a second path argument to choose another destination.
 
 ## Professional strategy “trunk”
 
@@ -122,7 +124,7 @@ Production Python execution still requires an isolated worker with no default ne
 Install the local SDK into a strategy development environment:
 
 ```bash
-pip install -e sdk/python
+pip install -e strategy/sdk/python
 ```
 
-Implement `BaseStrategy.generate_targets(context)`. `StrategyContext` provides closed historical bars, immutable parameters, a portfolio snapshot, a run ID, and deterministic seed. Return target positions, not broker orders; Atlas owns AI reviews, hard risk, execution modeling and audit commitments. See `examples/strategies/risk_aware_momentum`.
+Implement `BaseStrategy.generate_targets(context)`. `StrategyContext` provides closed historical bars, immutable parameters, a portfolio snapshot, a run ID, and deterministic seed. Return target positions, not broker orders; Atlas owns AI reviews, hard risk, execution modeling and audit commitments. See `strategy/examples/strategies/risk_aware_momentum`.
