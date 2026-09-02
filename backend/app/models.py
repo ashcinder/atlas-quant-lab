@@ -41,6 +41,41 @@ class MarketDataResponse(BaseModel):
     indicators: dict[str, list[dict[str, float | int | None]]]
 
 
+class FundamentalMetric(BaseModel):
+    key: str
+    label: str
+    value: float | None = None
+    unit: Literal["ratio", "percent", "currency", "count", "number"]
+    period: str
+    description: str
+    derived: bool = False
+    currency: str | None = None
+
+
+class FundamentalSection(BaseModel):
+    id: str
+    label: str
+    metrics: list[FundamentalMetric]
+
+
+class FundamentalsResponse(BaseModel):
+    asset: Asset
+    status: Literal["available", "partial", "not_applicable", "unavailable"]
+    source: str
+    source_note: str
+    fetched_at: int
+    as_of: int | None = None
+    cache_hit: bool = False
+    is_stale: bool = False
+    currency: str
+    financial_currency: str
+    available_metric_count: int
+    total_metric_count: int
+    coverage: float
+    sections: list[FundamentalSection]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class StrategyParameter(BaseModel):
     key: str
     label: str

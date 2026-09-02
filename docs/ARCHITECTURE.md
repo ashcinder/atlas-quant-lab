@@ -14,6 +14,7 @@ React/TypeScript UI
 FastAPI API
   ├─ Asset Catalog     统一标的与搜索
   ├─ Market Data       数据源适配、标准化、复权、缓存
+  ├─ Fundamentals      估值、财务与市场快照聚合、派生与缓存
   ├─ Indicators        SMA/EMA/MACD/RSI/BOLL/ATR/KDJ
   ├─ Strategy Catalog  参数模式与信号生成
   ├─ Backtest Engine   下一根 K 线成交、成本、交易账本
@@ -53,6 +54,8 @@ fetch_bars(asset, interval, start, end, adjustment) -> Bar[]
 
 自动模式只会在真实数据源之间切换；真实源全部失败时返回明确错误，禁止静默生成演示数据。
 缓存键由数据源、标的、周期、日期和复权方式共同组成，避免不同口径相互覆盖。实时请求使用按周期设置的短 TTL；过期后只从缓存末端附近增量拉取并合并。刷新失败时可显示上一次真实缓存，但会标记为过期。
+
+金融指标由独立聚合服务按资产类别筛选适用字段：A/H 股估值快照优先使用东方财富，其他公司、ETF、加密资产和市场字段使用 Yahoo 兼容源补充。响应保留来源、口径、抓取时间、覆盖率、原始/派生标记与空值；六小时缓存采用原子替换，刷新失败只回退到明确标为 stale 的最后真实快照。当前快照不写入回测输入，历史基本面因子必须等待 point-in-time 财报数据接入后再启用。
 
 ## 3. 回测事件顺序
 
@@ -113,6 +116,7 @@ Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它�
 - `GET /api/v1/health`
 - `GET /api/v1/assets/search?q=`
 - `GET /api/v1/market/bars`
+- `GET /api/v1/market/fundamentals`
 - `GET /api/v1/strategies`
 - `POST /api/v1/backtests`
 - `POST /api/v1/portfolio/backtests`

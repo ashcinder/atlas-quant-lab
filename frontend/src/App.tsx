@@ -11,7 +11,7 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { StrategyPanel } from './components/StrategyPanel'
 import { TopBar } from './components/TopBar'
 import { loadPreferences, savePreferences } from './storage'
-import type { Asset, BacktestResult, DataSource, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
+import type { Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
 import type { StrategyLabTab } from './components/StrategyLabWorkspace'
 
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
@@ -43,6 +43,8 @@ export default function App() {
   const shellRef = useRef<HTMLDivElement>(null)
   const marketAbortRef = useRef<AbortController | null>(null)
   const marketRequestRef = useRef(0)
+  const fundamentalsAbortRef = useRef<AbortController | null>(null)
+  const fundamentalsRequestRef = useRef(0)
   const [preferences, setPreferences] = useState(loadPreferences)
   const [assets, setAssets] = useState<Asset[]>([])
   const [asset, setAsset] = useState<Asset | null>(null)
@@ -59,6 +61,9 @@ export default function App() {
   const [stopLoss, setStopLoss] = useState(0)
   const [takeProfit, setTakeProfit] = useState(0)
   const [market, setMarket] = useState<MarketData | null>(null)
+  const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null)
+  const [fundamentalsLoading, setFundamentalsLoading] = useState(false)
+  const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setMode] = useState<'single' | 'portfolio' | 'research' | 'quantjudge'>('single')
@@ -150,11 +155,38 @@ export default function App() {
 
   const selectAsset = useCallback((nextAsset: Asset) => {
     setSingleResult(null)
+    fundamentalsAbortRef.current?.abort()
+    setFundamentals(null)
+    setFundamentalsError(null)
     setAsset(nextAsset)
     const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class }
     setPreferences(next)
     loadMarket(nextAsset, next.interval, next.source, next.adjustment)
   }, [loadMarket, preferences])
+
+  const loadFundamentals = useCallback((refresh = false) => {
+    if (!asset) return
+    fundamentalsAbortRef.current?.abort()
+    const controller = new AbortController()
+    fundamentalsAbortRef.current = controller
+    const requestId = fundamentalsRequestRef.current + 1
+    fundamentalsRequestRef.current = requestId
+    setFundamentalsLoading(true)
+    setFundamentalsError(null)
+    api.getFundamentals(asset.symbol, asset.asset_class, {
+      signal: controller.signal,
+      refresh,
+    }).then((response) => {
+      if (fundamentalsRequestRef.current !== requestId) return
+      setFundamentals(response)
+    }).catch((reason: Error) => {
+      if (reason.name !== 'AbortError' && fundamentalsRequestRef.current === requestId) {
+        setFundamentalsError(reason.message)
+      }
+    }).finally(() => {
+      if (fundamentalsRequestRef.current === requestId) setFundamentalsLoading(false)
+    })
+  }, [asset])
 
   const setInterval = (interval: Interval) => {
     const next = { ...preferences, interval }
@@ -295,7 +327,7 @@ export default function App() {
             <ResultsPanel result={singleResult} loading={loading && Boolean(singleResult)} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId)))} />
+          <StrategyPanel asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId)))} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       ) : mode === 'portfolio' ? (
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setLoading} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={loading && Boolean(portfolioRunSignal)} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>

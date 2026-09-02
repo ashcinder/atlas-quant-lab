@@ -10,6 +10,7 @@ from app.catalog import search_assets
 from app.config import APP_NAME, APP_VERSION
 from app.data import MarketDataService
 from app.data.providers import ProviderError
+from app.fundamentals import FundamentalsService
 from app.indicators import calculate_indicators, serialize_indicators
 from app.models import (
     AlertNotification,
@@ -19,6 +20,7 @@ from app.models import (
     BacktestResult,
     CustomStrategyRecord,
     CustomStrategySpec,
+    FundamentalsResponse,
     MarketDataResponse,
     PortfolioBacktestRequest,
     PortfolioResult,
@@ -67,6 +69,7 @@ from app.zkp import (
 from app.zkp_models import ZkReportPublishCreate
 
 data_service = MarketDataService()
+fundamentals_service = FundamentalsService()
 run_store = RunStore()
 workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
@@ -156,6 +159,15 @@ def market_bars(
         ],
         indicators=serialize_indicators(calculate_indicators(bundle.frame)),
     )
+
+
+@app.get("/api/v1/market/fundamentals", response_model=FundamentalsResponse)
+def market_fundamentals(
+    symbol: str,
+    asset_class: str = "equity",
+    refresh: bool = False,
+):
+    return fundamentals_service.fetch(symbol, asset_class, refresh)
 
 
 @app.post("/api/v1/backtests", response_model=BacktestResult)

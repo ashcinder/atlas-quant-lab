@@ -3,6 +3,7 @@ import type {
   Adjustment,
   BacktestResult,
   DataSource,
+  FundamentalsResponse,
   Interval,
   MarketData,
   PortfolioResult,
@@ -77,6 +78,20 @@ export const api = {
       refresh: String(Boolean(options.refresh)),
     })
     return request<MarketData>(`/market/bars?${params.toString()}`, { signal: options.signal })
+  },
+  getFundamentals(
+    symbol: string,
+    assetClass: string,
+    options: { signal?: AbortSignal; refresh?: boolean } = {},
+  ) {
+    const params = new URLSearchParams({
+      symbol,
+      asset_class: assetClass,
+      refresh: String(Boolean(options.refresh)),
+    })
+    return request<FundamentalsResponse>(`/market/fundamentals?${params.toString()}`, {
+      signal: options.signal,
+    })
   },
   runBacktest(payload: Record<string, unknown>) {
     return request<BacktestResult>('/backtests', {

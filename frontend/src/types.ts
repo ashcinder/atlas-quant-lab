@@ -41,6 +41,43 @@ export interface MarketData {
   indicators: Record<string, IndicatorPoint[]>
 }
 
+export type FundamentalUnit = 'ratio' | 'percent' | 'currency' | 'count' | 'number'
+
+export interface FundamentalMetric {
+  key: string
+  label: string
+  value: number | null
+  unit: FundamentalUnit
+  period: string
+  description: string
+  derived: boolean
+  currency: string | null
+}
+
+export interface FundamentalSection {
+  id: string
+  label: string
+  metrics: FundamentalMetric[]
+}
+
+export interface FundamentalsResponse {
+  asset: Asset
+  status: 'available' | 'partial' | 'not_applicable' | 'unavailable'
+  source: string
+  source_note: string
+  fetched_at: number
+  as_of: number | null
+  cache_hit: boolean
+  is_stale: boolean
+  currency: string
+  financial_currency: string
+  available_metric_count: number
+  total_metric_count: number
+  coverage: number
+  sections: FundamentalSection[]
+  warnings: string[]
+}
+
 export interface StrategyParameter {
   key: string
   label: string
