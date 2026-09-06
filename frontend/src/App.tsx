@@ -10,6 +10,7 @@ import { ResultsPanel } from './components/ResultsPanel'
 import { ResizeHandle } from './components/ResizeHandle'
 import { StrategyPanel } from './components/StrategyPanel'
 import { TopBar } from './components/TopBar'
+import { WorkspaceNavigation, type WorkspaceMode } from './components/WorkspaceNavigation'
 import { loadPreferences, savePreferences } from './storage'
 import type { Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
 import type { StrategyLabTab } from './components/StrategyLabWorkspace'
@@ -66,8 +67,12 @@ export default function App() {
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
-  const [mode, setMode] = useState<'single' | 'portfolio' | 'research' | 'quantjudge'>('single')
-  const [strategyLabInitialTab, setStrategyLabInitialTab] = useState<StrategyLabTab>('validate')
+  const [mode, setMode] = useState<WorkspaceMode>(() => {
+    const route = window.location.hash.slice(1)
+    return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
+  })
+  const [navigationCollapsed, setNavigationCollapsed] = useState(() => window.innerWidth < 1400)
+  const [strategyLabInitialTab, setStrategyLabInitialTab] = useState<StrategyLabTab>('overview')
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -122,6 +127,20 @@ export default function App() {
   }, [])
 
   useEffect(() => { savePreferences(preferences) }, [preferences])
+
+  useEffect(() => {
+    const onHash = () => {
+      const route = window.location.hash.slice(1)
+      if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge') setMode(route)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  useEffect(() => {
+    if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
+    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
+  }, [mode])
 
   const loadMarket = useCallback((
     nextAsset: Asset,
@@ -257,7 +276,7 @@ export default function App() {
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
   const changeMode = (nextMode: typeof mode) => {
-    if (nextMode === 'research' && mode !== 'research') setStrategyLabInitialTab('validate')
+    if (nextMode === 'research' && mode !== 'research') setStrategyLabInitialTab('overview')
     setMode(nextMode)
   }
   const acceptPortfolioResult = useCallback((result: PortfolioResult | null) => {
@@ -311,10 +330,13 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" ref={shellRef} style={layoutStyle}>
-      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onMode={changeMode} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
+    <div className={`app-shell ${navigationCollapsed ? 'navigation-is-collapsed' : ''}`} ref={shellRef} style={layoutStyle}>
+      <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
+      <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
+      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
       {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>私密</b>策略源码与 Agent 参数</span><span><b>私密</b>原始投资决策</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
-      {error ? <div className="error-banner"><AlertCircle size={15} /><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div> : null}
+      {error ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div> : null}
+      <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? (
         <main className="terminal-grid">
           <MarketSidebar assets={assets} selectedSymbol={asset?.symbol ?? ''} onSelect={selectAsset} />
@@ -332,7 +354,8 @@ export default function App() {
       ) : mode === 'portfolio' ? (
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setLoading} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={loading && Boolean(portfolioRunSignal)} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       ) : mode === 'research' ? <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace initialTab={strategyLabInitialTab} asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setLoading} onError={setError} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense>
-      : <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={(message) => setError(message)} onOpenLab={() => { setStrategyLabInitialTab('workflow'); setMode('research') }} /></Suspense>}
+      : <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => { setStrategyLabInitialTab('overview'); setMode('research') }} /></Suspense>}
+      </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />
       <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={(message) => setError(message)} />
     </div>

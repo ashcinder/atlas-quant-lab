@@ -115,10 +115,10 @@ function metricText(value: number | null, percent = false) {
   return percent ? formatPercent(value) : formatNumber(value, 2)
 }
 
-function IndicatorEditor({ value, onChange }: { value: IndicatorSpec; onChange: (value: IndicatorSpec) => void }) {
+function IndicatorEditor({ value, onChange, label }: { value: IndicatorSpec; onChange: (value: IndicatorSpec) => void; label: string }) {
   const option = FIELD_OPTIONS.find((item) => item.value === value.field)
   return <span className="indicator-editor">
-    <select value={value.field} onChange={(event) => {
+    <select aria-label={label} value={value.field} onChange={(event) => {
       const field = event.target.value as IndicatorSpec['field']
       const needsPeriod = FIELD_OPTIONS.find((item) => item.value === field)?.period
       onChange({ field, period: needsPeriod ? (value.period ?? 20) : null })
@@ -129,12 +129,12 @@ function IndicatorEditor({ value, onChange }: { value: IndicatorSpec; onChange: 
 
 function RuleRow({ row, onChange, onDelete }: { row: BuilderCondition; onChange: (row: BuilderCondition) => void; onDelete: () => void }) {
   return <div className="rule-row">
-    <IndicatorEditor value={row.left} onChange={(left) => onChange({ ...row, left })} />
-    <select aria-label="条件操作符" value={row.operator} onChange={(event) => onChange({ ...row, operator: event.target.value as BuilderCondition['operator'] })}>{OPERATORS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-    <select aria-label="右值类型" value={row.rightMode} onChange={(event) => onChange({ ...row, rightMode: event.target.value as BuilderCondition['rightMode'] })}><option value="value">数值</option><option value="indicator">指标</option></select>
-    {row.rightMode === 'value'
+    <div className="rule-field"><span>观察指标</span><IndicatorEditor label="观察指标" value={row.left} onChange={(left) => onChange({ ...row, left })} /></div>
+    <label className="rule-field"><span>满足条件</span><select aria-label="条件操作符" value={row.operator} onChange={(event) => onChange({ ...row, operator: event.target.value as BuilderCondition['operator'] })}>{OPERATORS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+    <label className="rule-field"><span>比较对象</span><select aria-label="右值类型" value={row.rightMode} onChange={(event) => onChange({ ...row, rightMode: event.target.value as BuilderCondition['rightMode'] })}><option value="value">数值</option><option value="indicator">指标</option></select></label>
+    <div className="rule-field"><span>{row.rightMode === 'value' ? '阈值' : '目标指标'}</span>{row.rightMode === 'value'
       ? <input aria-label="条件阈值" type="number" step="any" value={row.rightValue} onChange={(event) => onChange({ ...row, rightValue: Number(event.target.value) })} />
-      : <IndicatorEditor value={row.rightIndicator} onChange={(rightIndicator) => onChange({ ...row, rightIndicator })} />}
+      : <IndicatorEditor label="目标指标" value={row.rightIndicator} onChange={(rightIndicator) => onChange({ ...row, rightIndicator })} />}</div>
     <button className="rule-delete" title="删除条件" onClick={onDelete}><Trash2 size={13} /></button>
   </div>
 }

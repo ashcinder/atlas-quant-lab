@@ -40,7 +40,7 @@ export function ResizeHandle(props: Props) {
     }
     if (!root || !props.oppositeCssVariable) return props.maximum
     const opposite = Number.parseFloat(getComputedStyle(root).getPropertyValue(props.oppositeCssVariable)) || 0
-    const available = root.clientWidth - opposite - (props.centerMinimum ?? 460) - 10
+    const available = (handleRef.current?.parentElement?.clientWidth ?? root.clientWidth) - opposite - (props.centerMinimum ?? 460) - 10
     return Math.max(props.minimum, Math.min(props.maximum, available))
   }
 

@@ -128,7 +128,7 @@ export function StrategyProjectBar({
           <span className={project.research_robust ? 'is-ready' : ''}><FlaskConical size={12} /><small>验证</small></span>
           <span className={project.commitment ? 'is-ready' : ''}><Fingerprint size={12} /><small>版本</small></span>
         </div>
-        <button className="project-gate-button" onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong><small>{project.next_gate?.label ?? '可发布'}</small></span><ChevronDown size={11} /></button>
+        <button className="project-gate-button" onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong><small>{(project.next_gate ? `待完成：${project.next_gate.label}` : null) ?? '可发布'}</small></span><ChevronDown size={11} /></button>
       </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>当前是未归档沙盒</strong><small>可以探索模板；创建项目后，规则、工作流与验证结果才会进入同一审计版本。</small></span><button onClick={() => openEditor('create')}>创建策略项目</button></div>}
     </section>
 

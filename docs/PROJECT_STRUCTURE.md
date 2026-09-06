@@ -12,6 +12,7 @@ Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链�
 | `docs/` | 产品规格、系统架构、策略开发契约、ZKP 与 Supervisor 接入说明及文档图片 | 否 | 项目文档 |
 | `Supervisor/` | 用户已经配置的外部区块链 Supervisor 节点 | 链上锚定时需要 | 外部只读工程；Atlas 不修改、不提交 |
 | `.artifacts/` | Playwright 截图、策略包和视觉验收结果等可重新生成的本地产物 | 否 | 不提交 Git，可安全清理 |
+| `output/playwright/` | 工作空间重构的浏览器视觉验收截图 | 否 | 本地生成，不提交 Git |
 
 根目录中的 `README.md` 是统一入口，`.gitignore` 定义依赖、缓存、密钥和生成产物的排除规则。
 
@@ -38,7 +39,8 @@ frontend/
 ├── src/
 │   ├── components/  工作台、图表、策略实验室与 QuantJudge 组件
 │   ├── api.ts        后端 API 客户端与数据类型
-│   └── styles.css    全局设计系统和页面布局
+│   ├── styles.css    图表、控件与原有页面基础样式
+│   └── workspace.css 统一工作空间视觉与响应式布局
 ├── dist/             生产构建产物（本地生成）
 ├── package.json
 └── vite.config.ts
@@ -65,6 +67,7 @@ strategy/
 - `STRATEGY_DEVELOPMENT.md`：策略格式、SDK、Runner 和 AI 工作流开发流程。
 - `QUANTJUDGE.md`：策略市场、证据链和 Supervisor 对接。
 - `ZKP.md`：零知识证明协议、公开输入和威胁模型。
+- `UI_REDESIGN.md`：工作空间重构、交互修复、验收与能力边界。
 - `assets/`：README 与文档引用的图片。
 
 ## 生成目录处理原则

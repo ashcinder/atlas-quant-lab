@@ -19,3 +19,4 @@ strategy/zkvm/target/
 coverage/
 .playwright-cli/
 .artifacts/
+output/playwright/

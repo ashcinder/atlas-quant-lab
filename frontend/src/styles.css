@@ -267,8 +267,8 @@ body.is-resizing-layout { user-select: none; }
 .qj-chain-pill.is-online { border-color: #2b5d54; color: #83c9ba; }
 .qj-chain-pill.is-online i { background: var(--positive); box-shadow: 0 0 8px rgba(34,199,169,.5); }
 .qj-primary, .qj-lab-link { min-height: 38px; padding: 0 13px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 10px; font-weight: 680; cursor: pointer; white-space: nowrap; }
-.qj-primary { border: 1px solid #da9d3d !important; background: #edb24f !important; color: #18130b !important; box-shadow: 0 5px 16px rgba(237,178,79,.12); }
-.qj-primary:hover { background: #ffc66b !important; transform: translateY(-1px); }
+.qj-primary { border: 1px solid var(--accent); background: var(--accent); color: #18130b; }
+.qj-primary:hover { filter: brightness(1.08); }
 .qj-lab-link { border: 1px solid #3b4b5d; background: #121a23; color: #a9b5c3; }
 .qj-lab-link:hover { border-color: #6f5b39; color: #e7b45f; background: #181811; }
 .qj-tabs { min-width: 0; padding: 0 18px; border-bottom: 1px solid #253240; background: #0d131a; display: flex; align-items: center; }
