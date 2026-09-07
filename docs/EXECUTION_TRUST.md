@@ -84,6 +84,17 @@ strategy/zkvm/target/release/atlas-zkvm prove --profile atlas_program_backtest_r
 
 使用 `inspect` 输出的策略承诺注册 Agent，将真实 Agent ID 写入同一 witness（保持程序、成本和 salt 不变）再证明。平台上传入口只接收 receipt。详情及 journal 字段见 [ZKP 协议](ZKP.md)。资金、交易数量为整数定点；风险统计沿用 guest 内确定性浮点再量化，年化外推存在上限，不等同所有专业系统的指标口径。
 
+也可使用本地助手准备 witness：`strategy.json` 包含上例 `program` 数组以及 `commission_bps: 10`、`slippage_bps: 5`。这不是 Python 包 manifest，而是 v2 私密程序输入。
+
+```bash
+python3 strategy/zkvm/scripts/program_witness.py --market downloaded-market.json --strategy private-program.json --output private-draft.json
+# inspect private-draft.json 后，使用其承诺注册 Agent，再绑定返回的真实 ID。
+python3 strategy/zkvm/scripts/program_witness.py --bind-existing private-draft.json --agent-id qja_REPLACE_WITH_REAL_ID --output private-bound.json
+# 对 private-bound.json 执行上方 prove 命令；不能上传两个私密 JSON。
+```
+
+助手用系统随机数生成盐和 nonce，输出权限 0600、拒绝覆盖已有文件；绑定 ID 不改变程序和盐。它不是 Python 自动编译器，也不替代 guest 的完整语义校验。公开仓库不要存放开发者的私密程序文件。
+
 **旧 profile 不重写。** 本机重新编译旧 SMA guest 得到的 image ID 与历史注册 ID 不同，因此禁止用该重编译产物生成旧 profile 新证明；保留旧注册 ID 用于验证历史 receipt。需要重现旧构建环境或发布新版本，不能通过覆盖 image ID “修复”。本轮并未拿历史真实 receipt 做回归，不能把兼容设计说成已完成历史样本验收。
 
 ## 数据保管与泄露面
@@ -95,8 +106,8 @@ strategy/zkvm/target/release/atlas-zkvm prove --profile atlas_program_backtest_r
 
 ## 验收记录
 
-- 本地后端 84 项测试通过；含不可信输出、权限、配置失败、AI 协议和 Nitro 合成 PKI 攻击用例。
+- 本地后端新增 witness 工具测试，合计 85 项；含不可信输出、权限、配置失败、AI 协议和 Nitro 合成 PKI 攻击用例。前端 12 文件 / 39 项测试及 lint、生产构建通过。
 - 新程序 guest 的 4 项 Rust 测试通过；原 guest 1 项通过。
 - 本机已生成真实、非 dev-mode RISC Zero receipt，并实际验证、在临时数据库注册和发布报告、重新验证；拒绝重放、字节篡改及错误 image ID，检查公共输出不含私密程序/盐。
-- Linux gVisor 集成验收由 CI 的 `isolated-runner` job 运行，涵盖真实 SDK 策略、无网络/宿主文件/只读挂载与超时、内存、输出上限。以该 job 的实际结果为准，不把单元测试冒充容器执行。
+- Linux gVisor 集成验收已通过：[Actions #34102419565](https://github.com/ashcinder/atlas-quant-lab/actions/runs/34102419565)，对应 `7a6bee3`。`isolated-runner` 涵盖真实 SDK 策略、无网络/宿主文件/只读挂载与超时、内存、输出上限；frontend、backend、containers 也均成功。
 - 尚无真实模型推理、Nitro 硬件、机密端到端流程或通用 Python ZKP 验收。需要提供可用主机和模型信息后继续。
