@@ -1,11 +1,21 @@
 from fastapi.testclient import TestClient
+import pytest
+from uuid import uuid4
 
 from app.main import app
 
-client = TestClient(app)
+@pytest.fixture
+def client():
+    client = TestClient(app)
+    from app.journal.router import _attempts
+    _attempts.clear()
+    response = client.post('/api/register', json={'email': f'{uuid4()}@example.test', 'password': 'test-password-123'})
+    assert response.status_code == 201, response.text
+    yield client
+    client.close()
 
 
-def test_health_and_catalog():
+def test_health_and_catalog(client):
     assert client.get("/api/v1/health").status_code == 200
     assets = client.get("/api/v1/assets/search", params={"q": "黄金"}).json()
     assert any(asset["symbol"] == "GC=F" for asset in assets)
@@ -15,7 +25,7 @@ def test_health_and_catalog():
     assert dynamic[0]["symbol"] == "TSLA"
 
 
-def test_demo_market_and_backtest_endpoints():
+def test_demo_market_and_backtest_endpoints(client):
     market = client.get(
         "/api/v1/market/bars",
         params={"symbol": "BTC-USD", "asset_class": "crypto", "interval": "1d", "source": "demo"},
@@ -44,7 +54,7 @@ def test_demo_market_and_backtest_endpoints():
     assert payload["trades"]
 
 
-def test_portfolio_endpoint():
+def test_portfolio_endpoint(client):
     response = client.post(
         "/api/v1/portfolio/backtests",
         json={

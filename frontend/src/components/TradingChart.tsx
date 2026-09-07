@@ -1,3 +1,4 @@
+import { userStorageKey } from '../storage'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, EyeOff, Pause, Play, RotateCcw, StepForward, X } from 'lucide-react'
 import {
@@ -182,7 +183,7 @@ export const TradingChart = memo(function TradingChart({
 
   useEffect(() => {
     if (!replayMode) return
-    localStorage.setItem(`atlas:replay:v1:${datasetKey}`, JSON.stringify({ replayIndex, replayAccount }))
+    localStorage.setItem(userStorageKey(`atlas:replay:v1:${datasetKey}`), JSON.stringify({ replayIndex, replayAccount }))
   }, [datasetKey, replayAccount, replayIndex, replayMode])
 
   useEffect(() => {
@@ -363,7 +364,7 @@ export const TradingChart = memo(function TradingChart({
   }
   const startReplay = () => {
     if (bars.length < 50) return
-    const stored = localStorage.getItem(`atlas:replay:v1:${datasetKey}`)
+    const stored = localStorage.getItem(userStorageKey(`atlas:replay:v1:${datasetKey}`))
     if (stored) {
       try {
         const session = JSON.parse(stored) as { replayIndex: number; replayAccount: ReplayAccount }

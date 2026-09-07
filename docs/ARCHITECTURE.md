@@ -109,3 +109,15 @@ bar[t+1] 开盘
 - 产品的识别元素是“回测可信度轨道”，不增加无关装饰和大面积渐变。
 - 策略研究使用固定的 `IS → OOS → WF → 稳健性` 验证带，参数热力图明确标注只属于样本内，避免把优化面板误当最终绩效。
 - 回放状态作为图表内的紧凑工具条呈现；进入回放后图表、指标和系统交易标记都裁剪到当前时间点。
+
+## 7. 统一身份与资产账本
+
+React `AtlasShell.tsx` 管理会话和工作区导航；`journal/` 中保留澄明的交互与 TypeScript 展示计算，样式限定在 `.journal-root` 内。Atlas 原工作台样式限定在 `.quant-workspace` 内，共享根级颜色和字体变量。
+
+FastAPI `auth.py` 提供 scrypt 密码和 HMAC Cookie 会话；`journal/router.py` 提供兼容账本 API。`journal/domain.py` 独立校验 JSON 并生成到期定投；`journal/store.py` 以 `(owner_id, revision)` 条件更新实现乐观锁，JSON 导入和批量编辑不会部分写入。`journal/scheduler.py` 每分钟处理所有用户的自动计划，单个用户异常不会中断其他用户。
+
+SQLite 新增 `users`、`ledgers`；原回测、研究、模板、提醒、通知表均有 `owner_id`。模板主键是 `(owner_id,id)`，允许不同用户使用相同名称的模板 ID。请求中的 owner 字段不会用于选择用户，归属只来自服务端验证的 Cookie。
+
+研究线程通过唯一任务 ID 处理持久化结果；后台提醒为各规则写入其所属用户的通知。手动提醒评估只运行当前用户的规则。用户界面偏好和历史回放的浏览器存储键也带有用户标识。
+
+新增 API：`GET /api/session`，`POST /api/register|login|logout|change-password`，`GET|PUT /api/ledger`，`POST /api/reset`，`GET /api/fx`。原 `/api/v1/*` 业务接口均需要登录，health 保持公开。

@@ -1,0 +1,27 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+@source "../..";
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-primary: var(--accent);
+  --color-primary-foreground: #16120a;
+  --color-secondary: var(--panel-raised);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--panel-raised);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--panel-raised);
+  --color-accent-foreground: var(--accent);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--text);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--text);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+  --color-destructive: var(--negative);
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+}

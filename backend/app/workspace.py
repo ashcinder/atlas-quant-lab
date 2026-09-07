@@ -68,11 +68,40 @@ class WorkspaceStore:
                     ON alert_notifications(triggered_at DESC);
                 """
             )
+            for table in ("custom_strategies", "alert_rules", "alert_notifications"):
+                columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+                if "owner_id" not in columns:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'"
+                    )
+            # User-authored template IDs may legitimately match across accounts.
+            primary = [row["name"] for row in connection.execute("PRAGMA table_info(custom_strategies)") if row["pk"]]
+            if primary == ["id"]:
+                connection.executescript("""
+                    BEGIN IMMEDIATE;
+                    ALTER TABLE custom_strategies RENAME TO custom_strategies_legacy;
+                    CREATE TABLE custom_strategies (
+                        id TEXT NOT NULL, spec_json TEXT NOT NULL,
+                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                        owner_id TEXT NOT NULL,
+                        PRIMARY KEY (owner_id, id)
+                    );
+                    INSERT INTO custom_strategies SELECT id,spec_json,created_at,updated_at,owner_id FROM custom_strategies_legacy;
+                    DROP TABLE custom_strategies_legacy;
+                    COMMIT;
+                """)
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alert_rules_owner ON alert_rules(owner_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_alert_notifications_owner_time ON alert_notifications(owner_id, triggered_at DESC)"
+            )
 
-    def list_custom_strategies(self) -> list[CustomStrategyRecord]:
+    def list_custom_strategies(self, owner_id: str = "local") -> list[CustomStrategyRecord]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM custom_strategies ORDER BY updated_at DESC"
+                "SELECT * FROM custom_strategies WHERE owner_id=? ORDER BY updated_at DESC",
+                (owner_id,),
             ).fetchall()
         return [
             CustomStrategyRecord(
@@ -84,24 +113,29 @@ class WorkspaceStore:
             for row in rows
         ]
 
-    def save_custom_strategy(self, spec: CustomStrategySpec) -> CustomStrategyRecord:
+    def save_custom_strategy(
+        self, spec: CustomStrategySpec, owner_id: str = "local"
+    ) -> CustomStrategyRecord:
         validate_rule_complexity(spec.entry)
         validate_rule_complexity(spec.exit)
         now = _now()
         with self._connect() as connection:
             existing = connection.execute(
-                "SELECT created_at FROM custom_strategies WHERE id=?", (spec.id,)
+                "SELECT created_at FROM custom_strategies WHERE id=? AND owner_id=?",
+                (spec.id, owner_id),
             ).fetchone()
             created_at = existing["created_at"] if existing else now.isoformat()
             connection.execute(
-                "INSERT OR REPLACE INTO custom_strategies VALUES (?, ?, ?, ?)",
-                (spec.id, spec.model_dump_json(), created_at, now.isoformat()),
+                "INSERT OR REPLACE INTO custom_strategies (id, spec_json, created_at, updated_at, owner_id) VALUES (?, ?, ?, ?, ?)",
+                (spec.id, spec.model_dump_json(), created_at, now.isoformat(), owner_id),
             )
         return CustomStrategyRecord(id=spec.id, spec=spec, created_at=created_at, updated_at=now)
 
-    def delete_custom_strategy(self, strategy_id: str) -> bool:
+    def delete_custom_strategy(self, strategy_id: str, owner_id: str = "local") -> bool:
         with self._connect() as connection:
-            cursor = connection.execute("DELETE FROM custom_strategies WHERE id=?", (strategy_id,))
+            cursor = connection.execute(
+                "DELETE FROM custom_strategies WHERE id=? AND owner_id=?", (strategy_id, owner_id)
+            )
         return cursor.rowcount > 0
 
     @staticmethod
@@ -117,34 +151,44 @@ class WorkspaceStore:
             updated_at=row["updated_at"],
         )
 
-    def list_alerts(self, enabled_only: bool = False) -> list[AlertRule]:
+    def list_alerts(
+        self, owner_id: str | None = None, enabled_only: bool = False
+    ) -> list[AlertRule]:
         query = "SELECT * FROM alert_rules"
         rows: list[sqlite3.Row]
         with self._connect() as connection:
-            rows = connection.execute(f"{query} ORDER BY created_at DESC").fetchall()
+            rows = (
+                connection.execute(f"{query} ORDER BY created_at DESC").fetchall()
+                if owner_id is None
+                else connection.execute(
+                    f"{query} WHERE owner_id=? ORDER BY created_at DESC", (owner_id,)
+                ).fetchall()
+            )
         alerts = [self._alert_from_row(row) for row in rows]
         return [alert for alert in alerts if alert.enabled] if enabled_only else alerts
 
-    def create_alert(self, rule: AlertRuleCreate) -> AlertRule:
+    def create_alert(self, rule: AlertRuleCreate, owner_id: str = "local") -> AlertRule:
         alert_id = str(uuid4())
         now = _now()
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO alert_rules VALUES (?, ?, NULL, NULL, NULL, ?, ?)",
-                (alert_id, rule.model_dump_json(), now.isoformat(), now.isoformat()),
+                "INSERT INTO alert_rules (id, rule_json, last_value, last_triggered_at, last_evaluated_at, created_at, updated_at, owner_id) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?)",
+                (alert_id, rule.model_dump_json(), now.isoformat(), now.isoformat(), owner_id),
             )
         return AlertRule(**rule.model_dump(), id=alert_id, created_at=now, updated_at=now)
 
-    def update_alert(self, alert_id: str, rule: AlertRuleCreate) -> AlertRule | None:
+    def update_alert(
+        self, alert_id: str, rule: AlertRuleCreate, owner_id: str = "local"
+    ) -> AlertRule | None:
         now = _now()
         with self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE alert_rules SET rule_json=?, updated_at=? WHERE id=?",
-                (rule.model_dump_json(), now.isoformat(), alert_id),
+                "UPDATE alert_rules SET rule_json=?, updated_at=? WHERE id=? AND owner_id=?",
+                (rule.model_dump_json(), now.isoformat(), alert_id, owner_id),
             )
         if cursor.rowcount == 0:
             return None
-        return next((item for item in self.list_alerts() if item.id == alert_id), None)
+        return next((item for item in self.list_alerts(owner_id) if item.id == alert_id), None)
 
     def update_alert_state(
         self,
@@ -173,13 +217,27 @@ class WorkspaceStore:
                     ),
                 )
 
-    def delete_alert(self, alert_id: str) -> bool:
+    def alert_owner(self, alert_id: str) -> str | None:
         with self._connect() as connection:
-            connection.execute("DELETE FROM alert_notifications WHERE alert_id=?", (alert_id,))
-            cursor = connection.execute("DELETE FROM alert_rules WHERE id=?", (alert_id,))
+            row = connection.execute(
+                "SELECT owner_id FROM alert_rules WHERE id=?", (alert_id,)
+            ).fetchone()
+        return row["owner_id"] if row else None
+
+    def delete_alert(self, alert_id: str, owner_id: str = "local") -> bool:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM alert_notifications WHERE alert_id=? AND owner_id=?",
+                (alert_id, owner_id),
+            )
+            cursor = connection.execute(
+                "DELETE FROM alert_rules WHERE id=? AND owner_id=?", (alert_id, owner_id)
+            )
         return cursor.rowcount > 0
 
-    def add_notification(self, alert: AlertRule, message: str, value: float) -> AlertNotification:
+    def add_notification(
+        self, alert: AlertRule, message: str, value: float, owner_id: str = "local"
+    ) -> AlertNotification:
         notification = AlertNotification(
             id=str(uuid4()),
             alert_id=alert.id,
@@ -190,7 +248,7 @@ class WorkspaceStore:
         )
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO alert_notifications VALUES (?, ?, ?, ?, ?, ?, 0)",
+                "INSERT INTO alert_notifications (id, alert_id, title, message, value, triggered_at, is_read, owner_id) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
                 (
                     notification.id,
                     notification.alert_id,
@@ -198,14 +256,18 @@ class WorkspaceStore:
                     notification.message,
                     notification.value,
                     notification.triggered_at.isoformat(),
+                    owner_id,
                 ),
             )
         return notification
 
-    def list_notifications(self, limit: int = 100) -> list[AlertNotification]:
+    def list_notifications(
+        self, owner_id: str = "local", limit: int = 100
+    ) -> list[AlertNotification]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM alert_notifications ORDER BY triggered_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM alert_notifications WHERE owner_id=? ORDER BY triggered_at DESC LIMIT ?",
+                (owner_id, limit),
             ).fetchall()
         return [
             AlertNotification(
@@ -220,9 +282,12 @@ class WorkspaceStore:
             for row in rows
         ]
 
-    def mark_notifications_read(self) -> None:
+    def mark_notifications_read(self, owner_id: str = "local") -> None:
         with self._connect() as connection:
-            connection.execute("UPDATE alert_notifications SET is_read=1 WHERE is_read=0")
+            connection.execute(
+                "UPDATE alert_notifications SET is_read=1 WHERE is_read=0 AND owner_id=?",
+                (owner_id,),
+            )
 
 
 class AlertMonitor:
@@ -307,12 +372,12 @@ class AlertMonitor:
         triggered = self._crossed(alert.last_value, value, 0.0, above)
         return triggered, value, f"{alert.symbol} MACD已{'金叉' if above else '死叉'}"
 
-    def evaluate_all(self) -> list[AlertNotification]:
+    def evaluate_all(self, owner_id: str | None = None) -> list[AlertNotification]:
         if not self.run_lock.acquire(blocking=False):
             return []
         notifications: list[AlertNotification] = []
         try:
-            alerts = self.store.list_alerts(enabled_only=True)
+            alerts = self.store.list_alerts(owner_id=owner_id, enabled_only=True)
             grouped: dict[tuple[str, str, str, str], list[AlertRule]] = {}
             for alert in alerts:
                 grouped.setdefault(
@@ -337,7 +402,11 @@ class AlertMonitor:
                             >= timedelta(minutes=alert.cooldown_minutes)
                         )
                         if triggered and cooldown_ok:
-                            notifications.append(self.store.add_notification(alert, message, value))
+                            owner_id = self.store.alert_owner(alert.id)
+                            if owner_id:
+                                notifications.append(
+                                    self.store.add_notification(alert, message, value, owner_id)
+                                )
                             self.store.update_alert_state(alert.id, value, now, now)
                         else:
                             self.store.update_alert_state(alert.id, value, now)

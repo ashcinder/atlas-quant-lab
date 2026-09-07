@@ -20,6 +20,7 @@ const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, {
+    credentials: 'include',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -27,6 +28,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   })
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new Event('atlas-session-expired'))
     const body = await response.json().catch(() => null)
     throw new Error(body?.detail ?? `请求失败（${response.status}）`)
   }

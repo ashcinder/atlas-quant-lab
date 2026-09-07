@@ -1,0 +1,16 @@
+services:
+  atlas:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ATLAS_ALLOWED_ORIGINS: ${ATLAS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      ATLAS_ALLOW_REGISTRATION: ${ATLAS_ALLOW_REGISTRATION:-true}
+      ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
+      # Only expose the loopback port behind your trusted HTTPS reverse proxy.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - atlas-data:/data
+volumes:
+  atlas-data:

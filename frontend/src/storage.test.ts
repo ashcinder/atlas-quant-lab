@@ -1,5 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { DEFAULT_PREFERENCES, loadPreferences, savePreferences } from './storage'
+import { DEFAULT_PREFERENCES, loadPreferences, savePreferences, setStorageUser, userStorageKey } from './storage'
 
 describe('versioned local preferences', () => {
   const values = new Map<string, string>()
@@ -14,7 +14,25 @@ describe('versioned local preferences', () => {
       },
     })
   })
-  beforeEach(() => window.localStorage.clear())
+  beforeEach(() => { window.localStorage.clear(); setStorageUser('') })
+
+  it('isolates preferences and replay keys between users', () => {
+    setStorageUser('alice')
+    savePreferences({ ...DEFAULT_PREFERENCES, symbol: 'AAPL' })
+    const aliceReplayKey = userStorageKey('atlas-replay')
+    setStorageUser('bob')
+    expect(loadPreferences()).toEqual(DEFAULT_PREFERENCES)
+    expect(userStorageKey('atlas-replay')).not.toBe(aliceReplayKey)
+    savePreferences({ ...DEFAULT_PREFERENCES, symbol: 'ETH-USD' })
+    setStorageUser('alice')
+    expect(loadPreferences().symbol).toBe('AAPL')
+  })
+
+  it('does not inherit anonymous legacy preferences on login', () => {
+    savePreferences({ ...DEFAULT_PREFERENCES, symbol: 'AAPL' })
+    setStorageUser('new-user')
+    expect(loadPreferences()).toEqual(DEFAULT_PREFERENCES)
+  })
 
   it('returns safe defaults with empty storage', () => {
     expect(loadPreferences()).toEqual(DEFAULT_PREFERENCES)

@@ -36,8 +36,20 @@ class RunStore:
                 )
                 """
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(backtest_runs)")
+            }
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE backtest_runs ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_backtest_runs_owner_time ON backtest_runs(owner_id, created_at DESC)"
+            )
 
-    def save(self, mode: str, request: dict[str, Any], result: dict[str, Any]) -> None:
+    def save(
+        self, owner_id: str, mode: str, request: dict[str, Any], result: dict[str, Any]
+    ) -> None:
         symbol = request.get("symbol") or ", ".join(
             asset["symbol"] for asset in request.get("assets", [])
         )
@@ -45,8 +57,8 @@ class RunStore:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO backtest_runs
-                    (id, mode, strategy_id, symbol, request_json, result_json, created_at, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')
+                    (id, mode, strategy_id, symbol, request_json, result_json, created_at, status, owner_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?)
                 """,
                 (
                     result["run_id"],
@@ -56,13 +68,15 @@ class RunStore:
                     json.dumps(request, ensure_ascii=False, default=str),
                     json.dumps(result, ensure_ascii=False, default=str),
                     result["created_at"],
+                    owner_id,
                 ),
             )
 
-    def list(self, limit: int = 50) -> list[RunSummary]:
+    def list(self, owner_id: str, limit: int = 50) -> list[RunSummary]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM backtest_runs ORDER BY created_at DESC LIMIT ?", (limit,)
+                "SELECT * FROM backtest_runs WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+                (owner_id, limit),
             ).fetchall()
         output = []
         for row in rows:
@@ -82,14 +96,17 @@ class RunStore:
             )
         return output
 
-    def get(self, run_id: str) -> dict[str, Any] | None:
+    def get(self, owner_id: str, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT result_json FROM backtest_runs WHERE id = ?", (run_id,)
+                "SELECT result_json FROM backtest_runs WHERE id = ? AND owner_id = ?",
+                (run_id, owner_id),
             ).fetchone()
         return json.loads(row["result_json"]) if row else None
 
-    def delete(self, run_id: str) -> bool:
+    def delete(self, owner_id: str, run_id: str) -> bool:
         with self._connect() as connection:
-            cursor = connection.execute("DELETE FROM backtest_runs WHERE id = ?", (run_id,))
+            cursor = connection.execute(
+                "DELETE FROM backtest_runs WHERE id = ? AND owner_id = ?", (run_id, owner_id)
+            )
         return cursor.rowcount > 0
