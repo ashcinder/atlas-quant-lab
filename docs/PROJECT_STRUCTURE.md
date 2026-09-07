@@ -9,12 +9,14 @@ Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链�
 | `backend/` | FastAPI 服务、行情适配器、指标与回测引擎、研究任务、QuantJudge、ZKP receipt 验证及 SQLite 本地数据 | 是 | Atlas 后端源码 |
 | `frontend/` | React + TypeScript 界面、K 线与指标图表、单标的/多资产回测、策略实验室和 QuantJudge 市场 | 是 | Atlas 前端源码 |
 | `strategy/` | 策略作者侧的 SDK、示例、打包命令以及本地 ZKP 证明工程 | 开发策略或生成证明时需要 | Atlas 开发工具链 |
+| `deploy/` | 前后端容器镜像、同源代理与隔离容器冒烟测试 | 容器部署时需要 | 仅 Atlas 私有部署，不包含 Supervisor |
 | `docs/` | 产品规格、系统架构、策略开发契约、ZKP 与 Supervisor 接入说明及文档图片 | 否 | 项目文档 |
+| `.github/workflows/` | 构建、测试和容器验收的 GitHub Actions 配置 | 否 | 自动验证，不自动部署 |
 | `Supervisor/` | 用户已经配置的外部区块链 Supervisor 节点 | 链上锚定时需要 | 外部只读工程；Atlas 不修改、不提交 |
 | `.artifacts/` | Playwright 截图、策略包和视觉验收结果等可重新生成的本地产物 | 否 | 不提交 Git，可安全清理 |
 | `output/playwright/` | 工作空间重构的浏览器视觉验收截图 | 否 | 本地生成，不提交 Git |
 
-根目录中的 `README.md` 是统一入口，`.gitignore` 定义依赖、缓存、密钥和生成产物的排除规则。
+根目录中的 `README.md` 是统一入口，`compose.yaml` 编排私有部署，`.env.example` 说明可选设置。`.gitignore` 排除私密数据和生成产物；`.dockerignore` 限制镜像构建上下文，避免将数据库、密钥与 Supervisor 发送给构建器。
 
 ## `backend/`
 
@@ -27,6 +29,7 @@ backend/
 ├── tests/           后端自动化测试
 ├── .data/           SQLite、行情缓存、策略包与证明回执（本地生成）
 ├── requirements*.txt
+├── requirements*.lock  生产 / 测试依赖的精确版本清单
 └── pyproject.toml
 ```
 
@@ -38,9 +41,12 @@ backend/
 frontend/
 ├── src/
 │   ├── components/  工作台、图表、策略实验室与 QuantJudge 组件
-│   ├── api.ts        后端 API 客户端与数据类型
+│   ├── api.ts        按领域组织的后端 API 客户端
+│   ├── request.ts    超时、取消与可读错误处理
+│   ├── types.ts      前后端数据契约
 │   ├── styles.css    图表、控件与原有页面基础样式
-│   └── workspace.css 统一工作空间视觉与响应式布局
+│   ├── workspace.css 统一工作空间视觉与响应式布局
+│   └── operations.css 系统状态、异常恢复与工作区保持
 ├── dist/             生产构建产物（本地生成）
 ├── package.json
 └── vite.config.ts
@@ -68,8 +74,10 @@ strategy/
 - `QUANTJUDGE.md`：策略市场、证据链和 Supervisor 对接。
 - `ZKP.md`：零知识证明协议、公开输入和威胁模型。
 - `UI_REDESIGN.md`：工作空间重构、交互修复、验收与能力边界。
+- `REFACTOR_PROGRESS.md`：本轮交付、实际验证结果与未完成事项。
+- `DEPLOYMENT.md`：本机容器运行、数据持久化、备份及部署边界。
 - `assets/`：README 与文档引用的图片。
 
 ## 生成目录处理原则
 
-依赖、缓存、数据库、证明产物和截图均保留在各自模块的隐藏目录或构建目录中，并由 `.gitignore` 排除。它们可以重新生成，不应与源码一起评审或发布。
+依赖、缓存和截图可以重新生成，不应与源码一起发布。数据库、策略包、签名 / 加密密钥和证明资料同样不进入 Git，但它们包含不可随意丢弃的用户数据；不能当作缓存清理，必须按部署指南成套备份。

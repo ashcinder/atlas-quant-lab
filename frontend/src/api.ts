@@ -35,26 +35,12 @@ import type {
   ZkProofRecord,
 } from './types'
 
-const API_ROOT = import.meta.env.VITE_API_ROOT ?? '/api/v1'
-
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const isFormData = options?.body instanceof FormData
-  const response = await fetch(`${API_ROOT}${path}`, {
-    ...options,
-    headers: {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...options?.headers,
-    },
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.detail ?? `请求失败（${response.status}）`)
-  }
-  if (response.status === 204) return undefined as T
-  return response.json() as Promise<T>
-}
+import { request } from './request'
 
 export const api = {
+  getHealth(signal?: AbortSignal) {
+    return request<{ status: string; name: string; version: string }>('/health', { signal }, 8_000)
+  },
   searchAssets(query = '') {
     return request<Asset[]>(`/assets/search?q=${encodeURIComponent(query)}`)
   },
@@ -175,8 +161,8 @@ export const api = {
   verifyQuantReport(id: string) {
     return request<QuantVerification>(`/quantjudge/reports/${encodeURIComponent(id)}/verify`)
   },
-  listZkProfiles() {
-    return request<ZkProfile[]>('/quantjudge/zkp/profiles')
+  listZkProfiles(signal?: AbortSignal) {
+    return request<ZkProfile[]>('/quantjudge/zkp/profiles', { signal }, 8_000)
   },
   createZkMarketDataset(symbol: string, assetClass: string, interval: Interval) {
     const params = new URLSearchParams({ symbol, asset_class: assetClass, interval, source: 'auto', adjustment: 'raw' })
@@ -194,8 +180,8 @@ export const api = {
       method: 'POST', headers: { 'X-Developer-Token': token }, body: JSON.stringify({ proof_id: proofId }),
     })
   },
-  getQuantChainStatus() {
-    return request<QuantChainStatus>('/quantjudge/chain/status')
+  getQuantChainStatus(signal?: AbortSignal) {
+    return request<QuantChainStatus>('/quantjudge/chain/status', { signal }, 8_000)
   },
   subscribeQuantAgent(id: string, payload: { investor_alias: string; billing_cycle: string }) {
     return request<QuantSubscription>(`/quantjudge/agents/${encodeURIComponent(id)}/subscriptions`, {

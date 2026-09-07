@@ -89,6 +89,26 @@ def test_trade_execution_price_includes_costs():
     assert first_buy.slippage_cost > 0
 
 
+@pytest.mark.parametrize(
+    ("symbol", "expected_currency"),
+    [("BTC-USD", "USD"), ("TLT", "USD"), ("0700.HK", "HKD"), ("USDJPY=X", "JPY")],
+)
+def test_single_result_reports_raw_quote_currency(symbol, expected_currency):
+    bundle = make_portfolio_bundle(symbol, 0.001)
+    request = BacktestRequest(
+        symbol=symbol,
+        asset_class=bundle.asset.asset_class,
+        base_currency="CNY",
+        strategy_id="dca",
+        persist=False,
+    )
+    result = run_backtest(request, bundle)
+    assert result.valuation_currency == expected_currency
+    assert result.bars[0].open == bundle.frame.iloc[0]["open"]
+    legacy = result.model_dump(exclude={"valuation_currency"})
+    assert type(result).model_validate(legacy).valuation_currency is None
+
+
 def test_portfolio_daily_bars_align_by_session_date_across_timezones():
     index = pd.date_range("2024-01-01", periods=90, freq="D", tz="UTC")
 
@@ -175,3 +195,86 @@ def test_portfolio_rejects_unknown_or_out_of_range_strategy_parameters():
             PortfolioBacktestRequest(**common, params={"covariance_shrinkage": 1.1}),
             bundles,
         )
+
+
+def test_portfolio_rebalance_is_independent_of_asset_input_order():
+    # SPY needs buying while TLT needs selling at later rebalances. Buys must
+    # not be skipped merely because SPY was entered before the asset being sold.
+    bundles = [make_portfolio_bundle("SPY", -0.001), make_portfolio_bundle("TLT", 0.003)]
+    assets = [
+        PortfolioAssetInput(symbol="SPY", asset_class="etf", weight=0.5),
+        PortfolioAssetInput(symbol="TLT", asset_class="etf", weight=0.5),
+    ]
+    common = dict(
+        strategy_id="all_weather", rebalance="monthly", persist=False,
+        commission_rate=0.002, slippage_rate=0.001, spread_rate=0.001,
+        params={"min_trade_rate": 0.0},
+    )
+    forward = run_portfolio_backtest(PortfolioBacktestRequest(assets=assets, **common), bundles)
+    reverse = run_portfolio_backtest(
+        PortfolioBacktestRequest(assets=list(reversed(assets)), **common),
+        list(reversed(bundles)),
+    )
+    assert [point.equity for point in forward.equity] == pytest.approx(
+        [point.equity for point in reverse.equity]
+    )
+    assert forward.weights == pytest.approx(reverse.weights)
+    for point in forward.weight_history[1:]:
+        assert point["weights"]["SPY"] == pytest.approx(0.5, abs=0.005)
+        assert point["weights"]["TLT"] == pytest.approx(0.5, abs=0.005)
+    assert all(trade.cash_after >= -1e-8 for trade in forward.trades)
+
+
+def test_portfolio_flat_assets_preserve_undefined_correlation_as_null():
+    import json
+
+    result = run_portfolio_backtest(
+        PortfolioBacktestRequest(
+            assets=[PortfolioAssetInput(symbol="SPY"), PortfolioAssetInput(symbol="TLT")],
+            persist=False,
+        ),
+        [make_portfolio_bundle("SPY", 0.0), make_portfolio_bundle("TLT", 0.0)],
+    )
+    assert result.correlation["SPY"]["TLT"] is None
+    legacy = result.model_dump(exclude={"valuation_currency"})
+    assert type(result).model_validate(legacy).valuation_currency is None
+    # Same strict finite-number requirement used by HTTP JSON serialization.
+    json.dumps(result.model_dump(mode="json"), allow_nan=False)
+
+
+@pytest.mark.parametrize("request_class", [BacktestRequest, PortfolioBacktestRequest])
+def test_backtest_dates_normalize_naive_input_to_utc(request_class):
+    values = {"start": "2024-01-01", "end": "2024-02-01T08:00:00+08:00"}
+    if request_class is PortfolioBacktestRequest:
+        values["assets"] = [{"symbol": "SPY"}, {"symbol": "TLT"}]
+    request = request_class(**values)
+    assert request.start.tzinfo is UTC
+    assert request.end == datetime(2024, 2, 1, tzinfo=UTC)
+    with pytest.raises(ValueError, match="start must be earlier"):
+        request_class(**{**values, "end": "2023-01-01T00:00:00Z"})
+    with pytest.raises(ValueError, match="finite"):
+        request_class(**{**values, "initial_capital": float("inf")})
+
+
+def test_portfolio_rejects_duplicate_symbols_before_loading_data():
+    with pytest.raises(ValueError, match="重复标的"):
+        PortfolioBacktestRequest(assets=[{"symbol": "SPY"}, {"symbol": " spy "}])
+
+
+def test_portfolio_normalizes_symbols_for_explicit_weights():
+    result = run_portfolio_backtest(
+        PortfolioBacktestRequest(
+            assets=[
+                {"symbol": " spy ", "weight": 0.7},
+                {"symbol": "tlt", "weight": 0.3},
+            ],
+            commission_rate=0,
+            slippage_rate=0,
+            spread_rate=0,
+            persist=False,
+        ),
+        [make_portfolio_bundle("SPY", 0.0), make_portfolio_bundle("TLT", 0.0)],
+    )
+    assert result.weights == pytest.approx({"SPY": 0.7, "TLT": 0.3})
+    with pytest.raises(ValueError, match="标的代码不能为空"):
+        PortfolioAssetInput(symbol=" ")

@@ -1,0 +1,11 @@
+# Test tools from the tested Python 3.14 environment, 2026-09-06.
+# Production dependencies remain identical to the container installation.
+-r requirements.lock
+coverage==7.15.4
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+pygments==2.21.0
+pytest==8.4.2
+pytest-cov==6.3.0
+ruff==0.16.5

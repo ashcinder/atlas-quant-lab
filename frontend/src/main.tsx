@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
 import './workspace.css'
+import './operations.css'
 
 // The app is normally run through Vite on a personal workstation. Rendering
 // once avoids React's development-only double data fetch while preserving the

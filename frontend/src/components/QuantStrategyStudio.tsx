@@ -6,6 +6,7 @@ import {
   Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UploadCloud, Workflow, X,
 } from 'lucide-react'
 import { api } from '../api'
+import { LabConfirmDialog } from './LabConfirmDialog'
 import type {
   QuantAgent, StrategyPackageRecord, StudioAIAuthority, StudioAIRole, StudioSpec,
   StudioTemplate, StudioValidation, StudioWorkflow, StudioWorkflowNode, StudioWorkflowRecord,
@@ -19,6 +20,7 @@ interface Props {
   onTabChange?: (tab: StudioTab) => void
   onWorkflowSaved?: (record: StudioWorkflowRecord) => void
   onPackageUploaded?: (record: StrategyPackageRecord) => void
+  onDraftChange?: (dirty: boolean) => void
   assetSymbol?: string
   assetClass?: string
   interval?: string
@@ -82,7 +84,7 @@ function ValidationPanel({ validation }: { validation: StudioValidation | null }
 }
 
 export function QuantStrategyStudio({
-  onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onPackageUploaded,
+  onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onPackageUploaded, onDraftChange,
   assetSymbol = 'BTC-USD', assetClass = 'crypto', interval = '1d',
 }: Props) {
   const [localTab, setLocalTab] = useState<StudioTab>('workflow')
@@ -112,11 +114,20 @@ export function QuantStrategyStudio({
   const [activeTemplateId, setActiveTemplateId] = useState('')
   const [saveNotice, setSaveNotice] = useState<{ tone: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [removeArmed, setRemoveArmed] = useState(false)
+  const [pendingTemplate, setPendingTemplate] = useState<StudioTemplate | null>(null)
+  const [loadingPackages, setLoadingPackages] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const proofFileRef = useRef<HTMLInputElement>(null)
   const validationRequest = useRef(0)
+  const draftRevision = useRef(0)
+  const privateSession = useRef(0)
+  const packageRequest = useRef(0)
+  const savingRef = useRef(false)
+  const uploadingRef = useRef(false)
+  const proofBusyRef = useRef(false)
 
   const markEdited = useCallback(() => {
+    draftRevision.current += 1
     validationRequest.current += 1
     setValidation(null)
     setDirty(true)
@@ -125,15 +136,21 @@ export function QuantStrategyStudio({
   }, [])
 
   useEffect(() => {
+    let active = true
     Promise.all([api.getStudioSpec(), api.getStudioTemplates(), api.listQuantAgents(), api.listZkProfiles()]).then(([nextSpec, nextTemplates, nextAgents, nextProfiles]) => {
+      if (!active) return
       setSpec(nextSpec); setTemplates(nextTemplates); setAgents(nextAgents.filter((agent) => !agent.is_demo))
       setZkProfiles(nextProfiles)
-      if (nextTemplates[0]) {
+      if (nextTemplates[0] && draftRevision.current === 0) {
         const first = cloneWorkflow(nextTemplates[0].workflow)
         setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? ''); setActiveTemplateId(nextTemplates[0].id)
       }
-    }).catch((reason) => onError(reason instanceof Error ? reason.message : '策略工作室加载失败'))
+    }).catch((reason) => { if (active) onError(reason instanceof Error ? reason.message : '策略工作室加载失败') })
+    return () => { active = false }
   }, [onError])
+
+  useEffect(() => () => { privateSession.current += 1; validationRequest.current += 1 }, [])
+  useEffect(() => { onDraftChange?.(dirty) }, [dirty, onDraftChange])
 
   useEffect(() => {
     if (!workflow) return
@@ -146,12 +163,12 @@ export function QuantStrategyStudio({
         setValidation(null); onError(reason instanceof Error ? reason.message : '工作流校验失败')
       })
     }, 280)
-    return () => window.clearTimeout(timer)
+    return () => { window.clearTimeout(timer); validationRequest.current += 1 }
   }, [onError, workflow])
 
   useEffect(() => {
     if (!dirty) return undefined
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty])
@@ -162,9 +179,11 @@ export function QuantStrategyStudio({
 
   const loadTemplate = (template: StudioTemplate) => {
     const next = cloneWorkflow(template.workflow)
+    draftRevision.current += 1
     validationRequest.current += 1
     setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? ''); setValidation(null)
     setActiveTemplateId(template.id); setDirty(true); setRemoveArmed(false)
+    setPendingTemplate(null)
     setSaveNotice({ tone: 'info', text: `已载入“${template.name}”，保存后才会形成版本。` })
   }
 
@@ -203,87 +222,140 @@ export function QuantStrategyStudio({
     setSaveNotice({ tone: 'info', text: `已删除“${selected.label}”，尚未保存。` })
   }
 
+  const clearPrivateSession = () => {
+    // Every private response belongs to the credentials used when it started.
+    privateSession.current += 1
+    packageRequest.current += 1
+    savingRef.current = false; uploadingRef.current = false; proofBusyRef.current = false
+    setSaving(false); setUploading(false); setLoadingPackages(false); setProofBusy(false)
+    setPackages([]); setZkProof(null); setPublishedProofReport(null); setSaveNotice(null)
+    if (fileRef.current) fileRef.current.value = ''
+    if (proofFileRef.current) proofFileRef.current.value = ''
+    if (workflow?.package_id) {
+      markEdited()
+      setWorkflow((current) => current ? { ...current, package_id: null } : current)
+    }
+  }
+  const changeAgent = (next: string) => {
+    clearPrivateSession()
+    setAgentId(next); setToken(''); setZkDataset(null)
+  }
+
   const upload = async (file: File) => {
+    if (uploadingRef.current) return
     if (!agentId || !token) { onError('先选择自己的 Agent 并填入开发者凭证'); return }
+    const session = privateSession.current
+    uploadingRef.current = true
     setUploading(true)
     try {
       const uploaded = await api.uploadStrategyPackage(agentId, token, file)
-      setPackages(await api.listStrategyPackages(agentId, token)); goTab('packages')
+      if (session !== privateSession.current) return
+      packageRequest.current += 1
+      setLoadingPackages(false)
+      setPackages((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]); goTab('packages')
       onPackageUploaded?.(uploaded)
-    } catch (reason) { onError(reason instanceof Error ? reason.message : '策略包上传失败') }
-    finally { setUploading(false) }
+    } catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : '策略包上传失败') }
+    finally { if (session === privateSession.current) { uploadingRef.current = false; setUploading(false) } }
   }
 
   const loadPackages = async () => {
     if (!agentId || !token) { onError('需要 Agent 和开发者凭证'); return }
-    try { setPackages(await api.listStrategyPackages(agentId, token)); goTab('packages') }
-    catch (reason) { onError(reason instanceof Error ? reason.message : '无法读取私密策略包') }
+    const session = privateSession.current
+    const request = ++packageRequest.current
+    setLoadingPackages(true)
+    try {
+      const records = await api.listStrategyPackages(agentId, token)
+      if (session !== privateSession.current || request !== packageRequest.current) return
+      setPackages(records); goTab('packages')
+    }
+    catch (reason) { if (session === privateSession.current && request === packageRequest.current) onError(reason instanceof Error ? reason.message : '无法读取私密策略包') }
+    finally { if (session === privateSession.current && request === packageRequest.current) setLoadingPackages(false) }
   }
 
   const save = async () => {
-    if (!workflow) return
+    if (!workflow || savingRef.current) return
     if (!agentId) { setSaveNotice({ tone: 'error', text: '请选择自己的 Agent；没有 Agent 时请先在 QuantJudge 发布页创建。' }); return }
     if (!token) { setSaveNotice({ tone: 'error', text: '请输入创建 Agent 时获得的开发者凭证。凭证只保存在当前页面内存。' }); return }
-    if (!validation?.valid) { setSaveNotice({ tone: 'error', text: '等待编译完成，并修复所有 DAG 或硬风控错误后再保存。' }); return }
+    if (!validation?.valid) { setSaveNotice({ tone: 'error', text: '等待结构校验完成，并修复所有流程或硬风控错误后再保存。' }); return }
+    const revision = draftRevision.current
+    const session = privateSession.current
+    savingRef.current = true
     setSaving(true)
     try {
       const record = await api.saveStudioWorkflow(agentId, token, workflow, '工作室可视化修订')
-      setDirty(false)
-      setSaveNotice({ tone: 'success', text: `已保存 r${record.revision} · ${record.graph_hash.slice(0, 12)}…` })
+      if (session !== privateSession.current) return
+      const unchanged = draftRevision.current === revision
+      if (unchanged) setDirty(false)
+      setSaveNotice({ tone: 'success', text: unchanged ? `已保存 r${record.revision} · ${record.graph_hash.slice(0, 12)}…` : `已保存提交时的版本 r${record.revision}；你在保存期间的新修改仍未保存。` })
       onWorkflowSaved?.(record)
     }
     catch (reason) {
       const message = reason instanceof Error ? reason.message : '工作流保存失败'
-      setSaveNotice({ tone: 'error', text: `${message}；请检查 Agent、凭证和网络后重试。` })
+      if (session === privateSession.current) setSaveNotice({ tone: 'error', text: `${message}；草稿已保留，请检查 Agent、凭证和网络后重试。` })
     }
-    finally { setSaving(false) }
+    finally { if (session === privateSession.current) { savingRef.current = false; setSaving(false) } }
   }
 
   const prepareDataset = async () => {
+    if (proofBusyRef.current) return
+    const session = privateSession.current
+    proofBusyRef.current = true
     setProofBusy(true)
-    try { setZkDataset(await api.createZkMarketDataset(assetSymbol, assetClass, interval as import('../types').Interval)) }
-    catch (reason) { onError(reason instanceof Error ? reason.message : '可信市场数据集生成失败') }
-    finally { setProofBusy(false) }
+    try {
+      const dataset = await api.createZkMarketDataset(assetSymbol, assetClass, interval as import('../types').Interval)
+      if (session === privateSession.current) { setZkDataset(dataset); setZkProof(null); setPublishedProofReport(null) }
+    }
+    catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : '可信市场数据集生成失败') }
+    finally { if (session === privateSession.current) { proofBusyRef.current = false; setProofBusy(false) } }
   }
 
   const uploadProof = async (file: File) => {
+    if (proofBusyRef.current) return
     const profile = zkProfiles.find((item) => item.status === 'active')
     if (!agentId || !token) { onError('上传证明前需要选择 Agent 并填写开发者凭证'); return }
     if (!profile?.verifier_ready) { onError('生产 verifier 尚未构建或 profile 未激活'); return }
+    const session = privateSession.current
+    proofBusyRef.current = true
     setProofBusy(true)
-    try { setZkProof(await api.uploadZkProof(agentId, token, profile.id, file)) }
-    catch (reason) { onError(reason instanceof Error ? reason.message : 'ZKP receipt 验证失败') }
-    finally { setProofBusy(false) }
+    try {
+      const proof = await api.uploadZkProof(agentId, token, profile.id, file)
+      if (session === privateSession.current) { setZkProof(proof); setPublishedProofReport(null) }
+    }
+    catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : 'ZKP receipt 验证失败') }
+    finally { if (session === privateSession.current) { proofBusyRef.current = false; setProofBusy(false) } }
   }
 
   const publishProof = async () => {
-    if (!agentId || !token || !zkProof) return
+    if (!agentId || !token || !zkProof || proofBusyRef.current) return
+    const session = privateSession.current
+    proofBusyRef.current = true
     setProofBusy(true)
     try {
       const report = await api.publishZkReport(agentId, token, zkProof.id)
-      setPublishedProofReport(`${report.id} · ${report.evidence_level ?? 'zk_verified'}`)
-    } catch (reason) { onError(reason instanceof Error ? reason.message : 'ZKP 报告发布失败') }
-    finally { setProofBusy(false) }
+      if (session === privateSession.current) setPublishedProofReport(`${report.id} · ${report.evidence_level ?? 'zk_verified'}`)
+    } catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : 'ZKP 报告发布失败') }
+    finally { if (session === privateSession.current) { proofBusyRef.current = false; setProofBusy(false) } }
   }
 
   if (!workflow) return <div className="qjs-loading"><Cpu className="spin" size={22} />加载策略开发套件…</div>
   const ordered = orderNodes(workflow.nodes)
 
   return <section className={`qjs-shell ${embedded ? 'is-embedded' : ''}`}>
+    {pendingTemplate ? <LabConfirmDialog title="替换未保存的工作流？" description={`载入“${pendingTemplate.name}”会替换当前节点、配置和私密指令。取消后可以先保存当前修订。`} confirmLabel="放弃草稿并载入" destructive onCancel={() => setPendingTemplate(null)} onConfirm={() => loadTemplate(pendingTemplate)} /> : null}
     <header className="qjs-toolbar">
       {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} aria-hidden="true" /><span><strong>私密工作区</strong><small>源码、提示词和凭证不进入公开跑分结果</small></span><em className={dirty ? 'is-dirty' : validation?.valid ? 'is-valid' : ''}>{dirty ? '未保存' : validation?.valid ? '结构有效' : '校验中'}</em></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
       <form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <input className="qjs-hidden-username" name="username" autoComplete="username" value={agentId} readOnly tabIndex={-1} aria-hidden="true" />
         <div className={`qjs-save-feedback ${saveNotice ? `is-${saveNotice.tone}` : ''}`} aria-live="polite">{saveNotice?.text ?? (agents.length ? '选择 Agent 并输入凭证后保存不可变修订' : '尚无自有 Agent · 先到 QuantJudge 创建')}</div>
-        <label className="qjs-agent-select"><span>AGENT</span><select name="agent-id" autoComplete="off" value={agentId} onChange={(event) => { setAgentId(event.target.value); setSaveNotice(null) }} aria-label="选择保存工作流的 Agent"><option value="">{agents.length ? '选择我的 Agent' : '暂无可用 Agent'}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label>
-        <label className="qjs-token"><KeyRound size={12} aria-hidden="true" /><input name="developer-token" type="password" autoComplete="current-password" spellCheck={false} value={token} onChange={(event) => { setToken(event.target.value); setSaveNotice(null) }} placeholder="开发者凭证…" aria-label="开发者凭证" /></label>
+        <label className="qjs-agent-select"><span>AGENT</span><select name="agent-id" autoComplete="off" value={agentId} onChange={(event) => changeAgent(event.target.value)} aria-label="选择保存工作流的 Agent"><option value="">{agents.length ? '选择我的 Agent' : '暂无可用 Agent'}</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label>
+        <label className="qjs-token"><KeyRound size={12} aria-hidden="true" /><input name="developer-token" type="password" autoComplete="current-password" spellCheck={false} value={token} onChange={(event) => { clearPrivateSession(); setToken(event.target.value) }} placeholder="开发者凭证…" aria-label="开发者凭证" /></label>
         <button className="qjs-save" type="submit" disabled={saving}><Save size={13} />{saving ? '保存中…' : dirty ? '保存修订' : '保存版本'}</button>
       </form>
     </header>
 
     {tab === 'workflow' ? <div className="qjs-workflow-layout">
       <aside className="qjs-library">
-        <section><div className="qjs-side-title"><span>策略树干<em>TEMPLATES</em></span><small>替换当前草稿</small></div>{templates.map((template) => <button className={`qjs-template ${activeTemplateId === template.id ? 'is-active' : ''}`} aria-pressed={activeTemplateId === template.id} key={template.id} onClick={() => loadTemplate(template)}><span><strong>{template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={12} /> : <Play size={11} />}</button>)}</section>
+        <section><div className="qjs-side-title"><span>策略树干<em>TEMPLATES</em></span><small>替换当前草稿</small></div>{templates.map((template) => <button aria-label={`载入工作流模板 ${template.name}`} className={`qjs-template ${activeTemplateId === template.id ? 'is-active' : ''}`} disabled={saving} aria-pressed={activeTemplateId === template.id} key={template.id} onClick={() => dirty ? setPendingTemplate(template) : loadTemplate(template)}><span><strong>{template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={12} /> : <Play size={11} />}</button>)}</section>
         <section><div className="qjs-side-title"><span>AI 职责<em>INSERT ROLE</em></span><small>按安全阶段插入</small></div>{spec?.ai_roles.map((role) => <button className="qjs-role" key={role.id} onClick={() => addAI(role.id)}><Bot size={13} /><span><strong>{role.label}</strong><small>{role.allowed_authority.map((item) => authorityLabels[item]).join(' / ')}</small></span><Plus size={11} /></button>)}</section>
         <div className="qjs-safety-note"><LockKeyhole size={14} /><span><strong>硬风控不可被 AI 绕过</strong><small>无论模型权限多高，订单都必须经过确定性限额。</small></span></div>
       </aside>
@@ -322,7 +394,7 @@ export function QuantStrategyStudio({
     </div> : null}
 
     {tab === 'packages' ? <div className="qjs-packages">
-      <header><div><strong>私密策略包</strong><small>上传后静态校验并使用 AES-256-GCM 加密落盘；API 进程不执行用户代码。</small></div><button onClick={() => fileRef.current?.click()}><UploadCloud size={14} />选择 .qstrategy</button></header>
+      <header><div><strong>私密策略包</strong><small>选择 Agent 后读取或上传策略包；切换 Agent 会清空凭证和私密结果。</small></div><div className="lab-package-actions"><button disabled={loadingPackages} onClick={loadPackages}>{loadingPackages ? '读取中…' : '读取策略包'}</button><button disabled={uploading} onClick={() => fileRef.current?.click()}><UploadCloud size={14} />{uploading ? '上传中…' : '选择 .qstrategy'}</button></div></header>
       <input ref={fileRef} hidden type="file" accept=".qstrategy,.zip" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       <div className={`qjs-dropzone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) upload(file) }}><FileArchive size={27} /><strong>{uploading ? '正在进行结构、入口与安全校验…' : '拖入 .qstrategy 策略包'}</strong><span>最大 10 MB · 解压最大 50 MB · 禁止凭证、链接与可执行二进制</span></div>
       <div className="qjs-package-list">{packages.map((item) => <article key={item.id}><span><PackageCheck size={18} /></span><div><strong>{item.name} <em>v{item.version}</em></strong><small>{item.strategy_key} · {item.language} · {item.file_count} files</small></div><code>{item.content_hash.slice(0, 12)}…</code><b><LockKeyhole size={11} /> PRIVATE</b><time>{new Date(item.created_at).toLocaleString('zh-CN')}</time>{item.warnings.length ? <p>{item.warnings.join(' · ')}</p> : null}</article>)}{!packages.length ? <div className="qjs-empty"><FileArchive size={24} />选择 Agent 并输入凭证后读取，或上传第一个策略包。</div> : null}</div>

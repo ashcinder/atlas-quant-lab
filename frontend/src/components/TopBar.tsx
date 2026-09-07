@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BarChart3, Bell, CandlestickChart, Clock3, History, Play, Settings2, X } from 'lucide-react'
+import { Activity, BarChart3, Bell, CandlestickChart, Clock3, History, Play, Settings2, X } from 'lucide-react'
 import type { Adjustment, Asset, BaseCurrency, DataSource, Interval } from '../types'
 
 interface Props {
@@ -19,6 +19,7 @@ interface Props {
   onBaseCurrency: (currency: BaseCurrency) => void
   onAdjustment: (adjustment: Adjustment) => void
   onAlerts: () => void
+  onSystemStatus: () => void
   unreadAlerts: number
 }
 
@@ -40,6 +41,7 @@ export function TopBar(props: Props) {
         <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'research' ? 'LAB' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
       </div>
       <div className="toolbar-spacer" />
+      <button className="icon-button system-status-trigger" aria-label="系统状态" title="系统状态与能力" onClick={props.onSystemStatus}><Activity size={17} /></button>
       {props.mode === 'single' ? (
         <>
           <div className="segmented compact" aria-label="K线周期">

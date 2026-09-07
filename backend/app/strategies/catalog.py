@@ -1,3 +1,5 @@
+from math import isfinite
+
 from app.models import StrategyDefinition, StrategyParameter
 
 
@@ -352,3 +354,47 @@ def get_strategy(strategy_id: str) -> StrategyDefinition:
 
 def default_params(strategy_id: str) -> dict[str, float | int | str | bool]:
     return {parameter.key: parameter.default for parameter in get_strategy(strategy_id).parameters}
+
+
+def validate_params(
+    strategy_id: str, supplied: dict[str, object]
+) -> dict[str, float | int | str | bool]:
+    """Apply the published catalog contract at every strategy execution boundary."""
+    strategy = get_strategy(strategy_id)
+    definitions = {parameter.key: parameter for parameter in strategy.parameters}
+    unknown = sorted(set(supplied) - set(definitions))
+    if unknown:
+        raise ValueError(f"策略包含未知参数: {', '.join(unknown)}")
+    validated = default_params(strategy_id)
+    for key, raw in supplied.items():
+        parameter = definitions[key]
+        if parameter.kind == "boolean":
+            if not isinstance(raw, bool):
+                raise ValueError(f"{parameter.label} 必须为布尔值")
+            value: float | int | str | bool = raw
+        elif parameter.kind == "select":
+            options = {option["value"] for option in parameter.options or []}
+            if not isinstance(raw, str) or raw not in options:
+                raise ValueError(f"{parameter.label} 不是有效选项")
+            value = raw
+        else:
+            if isinstance(raw, bool):
+                raise ValueError(f"{parameter.label} 必须为数字")
+            try:
+                numeric = float(raw)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"{parameter.label} 必须为数字") from exc
+            if not isfinite(numeric):
+                raise ValueError(f"{parameter.label} 必须为有限数字")
+            if parameter.minimum is not None and numeric < parameter.minimum:
+                raise ValueError(f"{parameter.label} 不能小于 {parameter.minimum:g}")
+            if parameter.maximum is not None and numeric > parameter.maximum:
+                raise ValueError(f"{parameter.label} 不能大于 {parameter.maximum:g}")
+            if parameter.kind == "integer":
+                if not numeric.is_integer():
+                    raise ValueError(f"{parameter.label} 必须为整数")
+                value = int(numeric)
+            else:
+                value = numeric
+        validated[key] = value
+    return validated

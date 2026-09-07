@@ -226,6 +226,7 @@ def run_backtest(
         interval=request.interval,
         strategy=strategy,
         data_source=bundle.source,
+        valuation_currency=bundle.asset.currency,
         source_note=bundle.source_note,
         bars=serialize_bars(frame) if include_details else [],
         indicators=serialize_indicators(indicators) if indicators is not None else {},

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   Beaker, Braces, Check, FileArchive, FlaskConical, GitBranch, LoaderCircle,
   ShieldCheck, LayoutDashboard, ArrowRight,
@@ -60,15 +60,20 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
   const [studioVisited, setStudioVisited] = useState(isStudioTab(initialTab))
   const [projects, setProjects] = useState<StrategyProject[]>([])
   const [projectId, setProjectId] = useState('')
-  const [projectBusy, setProjectBusy] = useState(false)
+  const [pendingProjectRequests, setPendingProjectRequests] = useState(0)
+  const projectBusy = pendingProjectRequests > 0
+  const projectSelection = useRef(0)
   const project = projects.find((item) => item.id === projectId) ?? null
   const reportError = researchProps.onError
 
   useEffect(() => {
+    let active = true
     api.listStrategyProjects().then((items) => {
+      if (!active) return
       setProjects(items)
       setProjectId((current) => items.some((item) => item.id === current) ? current : (items[0]?.id ?? ''))
-    }).catch((reason) => reportError(reason instanceof Error ? reason.message : '策略项目加载失败'))
+    }).catch((reason) => { if (active) reportError(reason instanceof Error ? reason.message : '策略项目加载失败') })
+    return () => { active = false }
   }, [reportError])
 
   const chooseTab = (next: StrategyLabTab) => {
@@ -78,39 +83,52 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
   }
   const acceptStudioTab = (next: StudioTab) => chooseTab(next === 'workflow' ? 'workflow' : next)
   const acceptProject = (next: StrategyProject) => {
-    setProjects((current) => [next, ...current.filter((item) => item.id !== next.id)])
-    setProjectId(next.id)
+    // A completed request updates its originating project without changing selection.
+    setProjects((current) => {
+      const existing = current.find((item) => item.id === next.id)
+      if (existing && existing.revision > next.revision) return current
+      return existing ? current.map((item) => item.id === next.id ? next : item) : [next, ...current]
+    })
+  }
+  const selectProject = (id: string) => {
+    projectSelection.current += 1
+    setProjectId(id)
   }
   const createProject = async (payload: StrategyProjectCreate) => {
-    setProjectBusy(true)
-    try { acceptProject(await api.createStrategyProject(payload)) }
+    const selection = projectSelection.current
+    setPendingProjectRequests((current) => current + 1)
+    try {
+      const created = await api.createStrategyProject(payload)
+      acceptProject(created)
+      if (selection === projectSelection.current) selectProject(created.id)
+    }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目创建失败'); throw reason }
-    finally { setProjectBusy(false) }
+    finally { setPendingProjectRequests((current) => current - 1) }
   }
   const updateProject = async (payload: Partial<StrategyProjectCreate>) => {
     if (!project) return
-    setProjectBusy(true)
+    setPendingProjectRequests((current) => current + 1)
     try { acceptProject(await api.updateStrategyProject(project.id, project.revision, payload)) }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目更新失败'); throw reason }
-    finally { setProjectBusy(false) }
+    finally { setPendingProjectRequests((current) => current - 1) }
   }
   const linkArtifact = async (kind: StrategyProjectArtifactKind, artifactId: string) => {
     if (!project) { researchProps.onError('先创建或选择策略项目，才能归档开发制品'); return }
-    setProjectBusy(true)
+    setPendingProjectRequests((current) => current + 1)
     try { acceptProject(await api.linkStrategyProjectArtifact(project.id, project.revision, kind, artifactId)) }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '制品绑定失败') }
-    finally { setProjectBusy(false) }
+    finally { setPendingProjectRequests((current) => current - 1) }
   }
   const freezeProject = async (version: string) => {
     if (!project) return
-    setProjectBusy(true)
+    setPendingProjectRequests((current) => current + 1)
     try { acceptProject(await api.freezeStrategyProject(project.id, project.revision, version)) }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '版本冻结失败'); throw reason }
-    finally { setProjectBusy(false) }
+    finally { setPendingProjectRequests((current) => current - 1) }
   }
 
   return <main className="strategy-lab" data-view={tab}>
-    <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={setProjectId} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
+    <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
     <header className="strategy-lab-header">
       <nav aria-label="策略生命周期">{tabs.map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}</nav>
       <div className="strategy-lab-progress" aria-label={project ? `项目完成度 ${Math.round(project.completion * 100)}%` : '尚未创建项目'}>

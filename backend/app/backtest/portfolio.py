@@ -13,11 +13,10 @@ from app.models import (
     EquityPoint,
     PortfolioBacktestRequest,
     PortfolioResult,
-    StrategyDefinition,
     Trade,
 )
 from app.strategies import get_strategy
-from app.strategies.catalog import default_params
+from app.strategies.catalog import validate_params
 
 
 def _portfolio_frame(bundle: DataBundle, interval: str) -> pd.DataFrame:
@@ -69,48 +68,6 @@ def _constrained_weights(
             remaining -= max_asset_weight
             active.remove(symbol)
     return result
-
-
-def _validated_params(
-    strategy: StrategyDefinition, supplied: dict[str, object]
-) -> dict[str, float | int | str | bool]:
-    definitions = {parameter.key: parameter for parameter in strategy.parameters}
-    unknown = sorted(set(supplied) - set(definitions))
-    if unknown:
-        raise ValueError(f"策略包含未知参数: {', '.join(unknown)}")
-    validated = default_params(strategy.id)
-    for key, raw in supplied.items():
-        parameter = definitions[key]
-        if parameter.kind == "boolean":
-            if not isinstance(raw, bool):
-                raise ValueError(f"{parameter.label} 必须为布尔值")
-            value: float | int | str | bool = raw
-        elif parameter.kind == "select":
-            options = {option["value"] for option in parameter.options or []}
-            if not isinstance(raw, str) or raw not in options:
-                raise ValueError(f"{parameter.label} 不是有效选项")
-            value = raw
-        else:
-            if isinstance(raw, bool):
-                raise ValueError(f"{parameter.label} 必须为数字")
-            try:
-                numeric = float(raw)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{parameter.label} 必须为数字") from exc
-            if not np.isfinite(numeric):
-                raise ValueError(f"{parameter.label} 必须为有限数字")
-            if parameter.minimum is not None and numeric < parameter.minimum:
-                raise ValueError(f"{parameter.label} 不能小于 {parameter.minimum:g}")
-            if parameter.maximum is not None and numeric > parameter.maximum:
-                raise ValueError(f"{parameter.label} 不能大于 {parameter.maximum:g}")
-            if parameter.kind == "integer":
-                if not numeric.is_integer():
-                    raise ValueError(f"{parameter.label} 必须为整数")
-                value = int(numeric)
-            else:
-                value = numeric
-        validated[key] = value
-    return validated
 
 
 def _fixed_weights(
@@ -197,7 +154,7 @@ def run_portfolio_backtest(
     request: PortfolioBacktestRequest, bundles: list[DataBundle]
 ) -> PortfolioResult:
     strategy = get_strategy(request.strategy_id)
-    params = _validated_params(strategy, request.params)
+    params = validate_params(strategy.id, request.params)
     aligned_frames = {
         bundle.asset.symbol: _portfolio_frame(bundle, request.interval) for bundle in bundles
     }
@@ -285,6 +242,7 @@ def run_portfolio_backtest(
                 execution_weights = current_weights
 
             min_trade_rate = float(params.get("min_trade_rate", 0.001))
+            deltas = {}
             for symbol in symbols:
                 desired_value = equity_at_open * execution_weights.get(symbol, 0)
                 desired_units = desired_value / float(open_row[symbol])
@@ -293,15 +251,34 @@ def run_portfolio_backtest(
                     equity_at_open * min_trade_rate, 1
                 ):
                     continue
+                deltas[symbol] = delta
+
+            # Release cash from all sells before allocating the buy budget.
+            # Pro-rata funding of buys makes fees/cash constraints independent
+            # of the order the user added assets to their portfolio.
+            execution_cost_rate = request.slippage_rate + request.spread_rate / 2
+            buy_cost = sum(
+                delta * float(open_row[symbol]) * (1 + execution_cost_rate)
+                * (1 + request.commission_rate)
+                for symbol, delta in deltas.items() if delta > 0
+            )
+            sell_proceeds = sum(
+                min(-delta, units[symbol]) * float(open_row[symbol])
+                * (1 - execution_cost_rate) * (1 - request.commission_rate)
+                for symbol, delta in deltas.items() if delta < 0
+            )
+            buy_scale = min(1.0, max(0.0, cash + sell_proceeds) / buy_cost) if buy_cost else 1.0
+            for symbol in sorted(deltas, key=lambda item: (deltas[item] > 0, item)):
+                delta = deltas[symbol]
                 side = "buy" if delta > 0 else "sell"
-                execution_cost_rate = request.slippage_rate + request.spread_rate / 2
                 execution_price = float(open_row[symbol]) * (
                     1 + execution_cost_rate if side == "buy" else 1 - execution_cost_rate
                 )
                 quantity = abs(delta)
                 if side == "buy":
                     quantity = min(
-                        quantity, cash / (execution_price * (1 + request.commission_rate))
+                        quantity * buy_scale,
+                        max(0.0, cash) / (execution_price * (1 + request.commission_rate)),
                     )
                 else:
                     quantity = min(quantity, units[symbol])
@@ -367,8 +344,9 @@ def run_portfolio_backtest(
     portfolio_volatility = np.sqrt(max(float(vector @ covariance @ vector), 1e-16))
     marginal = covariance @ vector / portfolio_volatility
     component = vector * marginal
+    component_total = float(component.sum())
     risk_contribution = {
-        symbol: safe_float(value / component.sum()) or 0.0
+        symbol: (safe_float(value / component_total) or 0.0) if component_total > 0 else 0.0
         for symbol, value in zip(symbols, component, strict=True)
     }
     if any(bundle.source_note and "历史汇率换算" in bundle.source_note for bundle in bundles):
@@ -405,6 +383,7 @@ def run_portfolio_backtest(
         strategy=strategy,
         assets=[bundle.asset for bundle in bundles],
         data_source=", ".join(sorted({bundle.source for bundle in bundles})),
+        valuation_currency=request.base_currency,
         weights={key: float(value) for key, value in latest_weights.items()},
         weight_history=weight_history,
         equity=equity_points,
@@ -412,7 +391,7 @@ def run_portfolio_backtest(
         metrics=metrics,
         risk_contribution=risk_contribution,
         correlation={
-            row: {column: float(value) for column, value in values.items()}
+            row: {column: safe_float(value) for column, value in values.items()}
             for row, values in returns.corr().to_dict(orient="index").items()
         },
         warnings=warnings,

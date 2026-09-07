@@ -11,14 +11,20 @@ import { ResizeHandle } from './components/ResizeHandle'
 import { StrategyPanel } from './components/StrategyPanel'
 import { TopBar } from './components/TopBar'
 import { WorkspaceNavigation, type WorkspaceMode } from './components/WorkspaceNavigation'
+import { SystemStatus } from './components/SystemStatus'
+import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary'
 import { loadPreferences, savePreferences } from './storage'
 import type { Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
-import type { StrategyLabTab } from './components/StrategyLabWorkspace'
 
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
 const StrategyLabWorkspace = lazy(() => import('./components/StrategyLabWorkspace').then((module) => ({ default: module.StrategyLabWorkspace })))
 const QuantJudgeWorkspace = lazy(() => import('./components/QuantJudgeWorkspace').then((module) => ({ default: module.QuantJudgeWorkspace })))
 const EMPTY_TRADES: BacktestResult['trades'] = []
+
+function initialMode(): WorkspaceMode {
+  const route = window.location.hash.slice(1)
+  return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
+}
 
 function defaultsFor(strategy: Strategy | undefined): Record<string, number | string | boolean> {
   return Object.fromEntries(strategy?.parameters.map((parameter) => [parameter.key, parameter.default]) ?? [])
@@ -46,6 +52,8 @@ export default function App() {
   const marketRequestRef = useRef(0)
   const fundamentalsAbortRef = useRef<AbortController | null>(null)
   const fundamentalsRequestRef = useRef(0)
+  const backtestRequestRef = useRef(0)
+  const backtestBusyRef = useRef(false)
   const [preferences, setPreferences] = useState(loadPreferences)
   const [assets, setAssets] = useState<Asset[]>([])
   const [asset, setAsset] = useState<Asset | null>(null)
@@ -67,20 +75,30 @@ export default function App() {
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
-  const [mode, setMode] = useState<WorkspaceMode>(() => {
-    const route = window.location.hash.slice(1)
-    return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
-  })
+  const [mode, setModeState] = useState<WorkspaceMode>(initialMode)
+  const [visitedModes, setVisitedModes] = useState<WorkspaceMode[]>(() => [initialMode()])
+  const setMode = useCallback((next: WorkspaceMode) => {
+    setModeState(next)
+    setVisitedModes((current) => current.includes(next) ? current : [...current, next])
+  }, [])
   const [navigationCollapsed, setNavigationCollapsed] = useState(() => window.innerWidth < 1400)
-  const [strategyLabInitialTab, setStrategyLabInitialTab] = useState<StrategyLabTab>('overview')
   const [chartType, setChartType] = useState<'candles' | 'line'>('candles')
-  const [loading, setLoading] = useState(true)
+  const [marketLoading, setMarketLoading] = useState(true)
+  const [singleRunning, setSingleRunning] = useState(false)
+  const [portfolioRunning, setPortfolioRunning] = useState(false)
+  const [researchRunning, setResearchRunning] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const loading = historyLoading || (mode === 'single' ? marketLoading || singleRunning : mode === 'portfolio' ? portfolioRunning : mode === 'research' ? researchRunning : false)
+  const [bootAttempt, setBootAttempt] = useState(0)
+  const [bootIssues, setBootIssues] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [portfolioRunSignal, setPortfolioRunSignal] = useState(0)
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [unreadAlerts, setUnreadAlerts] = useState(0)
+  const [systemStatusOpen, setSystemStatusOpen] = useState(false)
+  const closeSystemStatus = useCallback(() => setSystemStatusOpen(false), [])
 
   useEffect(() => {
     let active = true
@@ -88,7 +106,7 @@ export default function App() {
     marketAbortRef.current = controller
     const requestId = marketRequestRef.current + 1
     marketRequestRef.current = requestId
-    const staticRequest = Promise.all([
+    const staticRequest = Promise.allSettled([
       api.searchAssets(),
       api.getStrategies('single'),
       api.getStrategies('portfolio'),
@@ -104,27 +122,33 @@ export default function App() {
     )
     staticRequest.then(([assetItems, singles, portfolios, history]) => {
       if (!active) return
-      setAssets(assetItems)
-      setSingleStrategies(singles)
-      setPortfolioStrategies(portfolios)
-      setRuns(history)
-      const selected = singles.find((strategy) => strategy.id === strategyId)
-      if (selected) setParams(defaultsFor(selected))
-    }).catch((reason: Error) => active && setError(reason.message))
+      if (assetItems.status === 'fulfilled') {
+        setAssets(assetItems.value)
+        setAsset((current) => current ?? assetItems.value.find((item) => item.symbol === preferences.symbol) ?? null)
+      }
+      if (singles.status === 'fulfilled') {
+        setSingleStrategies(singles.value)
+        const selected = singles.value.find((strategy) => strategy.id === strategyId)
+        if (selected && bootAttempt === 0) setParams(defaultsFor(selected))
+      }
+      if (portfolios.status === 'fulfilled') setPortfolioStrategies(portfolios.value)
+      if (history.status === 'fulfilled') setRuns(history.value)
+      setBootIssues([assetItems, singles, portfolios, history].flatMap((result, index) => result.status === 'rejected' ? [['标的目录', '单标的策略', '组合策略', '回测历史'][index]] : []))
+    })
     marketRequest.then((marketData) => {
       if (!active || marketRequestRef.current !== requestId) return
       setMarket(marketData)
       setAsset(marketData.asset)
     }).catch((reason: Error) => {
       if (active && reason.name !== 'AbortError') setError(reason.message)
-    }).finally(() => active && setLoading(false))
+    }).finally(() => { if (active && marketRequestRef.current === requestId) setMarketLoading(false) })
     return () => {
       active = false
       controller.abort()
     }
     // Initial boot intentionally uses the versioned stored preferences once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [bootAttempt])
 
   useEffect(() => { savePreferences(preferences) }, [preferences])
 
@@ -135,7 +159,7 @@ export default function App() {
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
-  }, [])
+  }, [setMode])
 
   useEffect(() => {
     if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
@@ -155,7 +179,7 @@ export default function App() {
     const requestId = marketRequestRef.current + 1
     marketRequestRef.current = requestId
     if (!options.silent) {
-      setLoading(true)
+      setMarketLoading(true)
       setError(null)
     }
     api.getMarket(nextAsset.symbol, nextAsset.asset_class, interval, source, adjustment, {
@@ -166,15 +190,19 @@ export default function App() {
       setMarket(data)
       setAsset((current) => current?.symbol === data.asset.symbol && current.asset_class === data.asset.asset_class ? current : data.asset)
     }).catch((reason: Error) => {
-      if (reason.name !== 'AbortError' && !options.silent) setError(reason.message)
+      if (reason.name !== 'AbortError' && !options.silent && marketRequestRef.current === requestId) setError(reason.message)
     }).finally(() => {
-      if (!options.silent && marketRequestRef.current === requestId) setLoading(false)
+      if (!options.silent && marketRequestRef.current === requestId) setMarketLoading(false)
     })
   }, [preferences.adjustment])
 
   const selectAsset = useCallback((nextAsset: Asset) => {
+    backtestRequestRef.current += 1
     setSingleResult(null)
+    setMarket(null)
     fundamentalsAbortRef.current?.abort()
+    fundamentalsRequestRef.current += 1
+    setFundamentalsLoading(false)
     setFundamentals(null)
     setFundamentalsError(null)
     setAsset(nextAsset)
@@ -208,11 +236,17 @@ export default function App() {
   }, [asset])
 
   const setInterval = (interval: Interval) => {
+    backtestRequestRef.current += 1
+    setSingleResult(null)
+    setMarket(null)
     const next = { ...preferences, interval }
     setPreferences(next)
     if (asset) loadMarket(asset, interval, next.source)
   }
   const setSource = (source: DataSource) => {
+    backtestRequestRef.current += 1
+    setSingleResult(null)
+    setMarket(null)
     const next = { ...preferences, source }
     setPreferences(next)
     if (mode === 'single' && asset) loadMarket(asset, next.interval, source)
@@ -221,13 +255,16 @@ export default function App() {
     setPreferences((current) => ({ ...current, baseCurrency }))
   }
   const setAdjustment = (adjustment: typeof preferences.adjustment) => {
+    backtestRequestRef.current += 1
+    setSingleResult(null)
+    setMarket(null)
     const next = { ...preferences, adjustment }
     setPreferences(next)
     if (mode === 'single' && asset) loadMarket(asset, next.interval, next.source, adjustment)
   }
 
   useEffect(() => {
-    if (mode !== 'single' || !asset || preferences.source === 'demo') return
+    if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo') return
     const refreshMs = preferences.interval === '15m' ? 20_000 : preferences.interval === '1h' ? 30_000 : 60_000
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -241,14 +278,19 @@ export default function App() {
       }
     }, refreshMs)
     return () => window.clearInterval(timer)
-  }, [asset, loadMarket, mode, preferences.adjustment, preferences.interval, preferences.source])
+  }, [asset, loadMarket, mode, preferences.adjustment, preferences.interval, preferences.source, singleRunning])
   const chooseStrategy = (id: string) => {
     setStrategyId(id)
     setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === id)))
   }
   const runSingle = () => {
-    if (!asset) return
-    setLoading(true)
+    if (!asset || backtestBusyRef.current) return
+    backtestBusyRef.current = true
+    const requestId = ++backtestRequestRef.current
+    marketAbortRef.current?.abort()
+    marketRequestRef.current += 1
+    setMarketLoading(false)
+    setSingleRunning(true)
     setError(null)
     api.runBacktest({
       symbol: asset.symbol,
@@ -269,15 +311,17 @@ export default function App() {
       base_currency: preferences.baseCurrency,
       persist: true,
     }).then((result) => {
-      setSingleResult(result)
-      setMarket({ ...marketFromResult(result), adjustment: preferences.adjustment })
+      if (backtestRequestRef.current === requestId) {
+        setSingleResult(result)
+        setMarket({ ...marketFromResult(result), adjustment: preferences.adjustment })
+      }
       return api.listRuns()
-    }).then(setRuns).catch((reason: Error) => setError(reason.message)).finally(() => setLoading(false))
+    }).then(setRuns).catch((reason: Error) => { if (backtestRequestRef.current === requestId) setError(reason.message) }).finally(() => { backtestBusyRef.current = false; setSingleRunning(false) })
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
   const changeMode = (nextMode: typeof mode) => {
-    if (nextMode === 'research' && mode !== 'research') setStrategyLabInitialTab('overview')
     setMode(nextMode)
+    if (nextMode === 'single' && mode !== 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
   }
   const acceptPortfolioResult = useCallback((result: PortfolioResult | null) => {
     setPortfolioResult(result)
@@ -308,12 +352,17 @@ export default function App() {
   }), [activeResult, market?.source, mode, portfolioResult?.data_source, singleResult?.data_source])
 
   const openHistoryRun = async (run: RunSummary) => {
-    setLoading(true)
+    backtestRequestRef.current += 1
+    marketAbortRef.current?.abort()
+    marketRequestRef.current += 1
+    setMarketLoading(false)
+    setHistoryLoading(true)
     setError(null)
     try {
       if (run.mode === 'single') {
         const result = await api.getRun<BacktestResult>(run.id)
         setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single')
+        setPreferences((current) => ({ ...current, symbol: result.asset.symbol, assetClass: result.asset.asset_class, interval: result.interval }))
       } else {
         const result = await api.getRun<PortfolioResult>(run.id)
         setPortfolioResult(result); setMode('portfolio')
@@ -321,23 +370,23 @@ export default function App() {
       setHistoryOpen(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法读取回测记录')
-    } finally { setLoading(false) }
+    } finally { setHistoryLoading(false) }
   }
   const deleteHistoryRun = async (run: RunSummary) => {
     if (!window.confirm(`删除 ${run.symbol} 的这条回测记录？此操作无法撤销。`)) return
-    await api.deleteRun(run.id)
-    setRuns(await api.listRuns())
+    try { await api.deleteRun(run.id); setRuns(await api.listRuns()) }
+    catch (reason) { setError(reason instanceof Error ? reason.message : '删除失败，请重试') }
   }
 
   return (
     <div className={`app-shell ${navigationCollapsed ? 'navigation-is-collapsed' : ''}`} ref={shellRef} style={layoutStyle}>
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
-      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} unreadAlerts={unreadAlerts} />
+      <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
       {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>私密</b>策略源码与 Agent 参数</span><span><b>私密</b>原始投资决策</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
-      {error ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div> : null}
+      {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
-      {mode === 'single' ? (
+      {mode === 'single' ? <WorkspaceErrorBoundary>
         <main className="terminal-grid">
           <MarketSidebar assets={assets} selectedSymbol={asset?.symbol ?? ''} onSelect={selectAsset} />
           <ResizeHandle rootRef={shellRef} side="left" cssVariable="--market-sidebar-width" oppositeCssVariable="--strategy-panel-width" centerMinimum={460} value={preferences.marketSidebarWidth} minimum={150} maximum={360} defaultValue={178} label="调整市场列表宽度" onCommit={(value) => commitLayout('marketSidebarWidth', value)} />
@@ -346,18 +395,21 @@ export default function App() {
               <TradingChart bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={market?.source ?? singleResult?.data_source} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}`} lastBarTime={market?.last_bar_time} isStale={market?.is_stale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
             </Suspense>
             {preferences.resultsPanelMode === 'normal' ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
-            <ResultsPanel result={singleResult} loading={loading && Boolean(singleResult)} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
+            <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
           <StrategyPanel asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId)))} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
-      ) : mode === 'portfolio' ? (
-        <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setLoading} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={loading && Boolean(portfolioRunSignal)} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
-      ) : mode === 'research' ? <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace initialTab={strategyLabInitialTab} asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setLoading} onError={setError} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense>
-      : <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => { setStrategyLabInitialTab('overview'); setMode('research') }} /></Suspense>}
+      </WorkspaceErrorBoundary> : null}
+      {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
+        <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
+      </WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />
-      <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={(message) => setError(message)} />
+      <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={setError} />
+      {systemStatusOpen ? <SystemStatus onClose={closeSystemStatus} /> : null}
     </div>
   )
 }

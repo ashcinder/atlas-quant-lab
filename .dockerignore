@@ -1,0 +1,25 @@
+# Containers use an explicit, minimal build context. Never send local strategies,
+# databases, credentials, Supervisor, browser traces or Git history to the builder.
+**
+!backend/
+!backend/app/
+!backend/app/**
+!backend/requirements.lock
+!frontend/
+!frontend/src/
+!frontend/src/**
+!frontend/public/
+!frontend/public/**
+!frontend/index.html
+!frontend/package.json
+!frontend/pnpm-lock.yaml
+!frontend/tsconfig*.json
+!frontend/vite.config.ts
+!strategy/
+!strategy/zkvm/
+!strategy/zkvm/profiles.json
+!deploy/
+!deploy/**
+**/__pycache__/
+**/*.pyc
+**/.env*

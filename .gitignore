@@ -20,3 +20,4 @@ coverage/
 .playwright-cli/
 .artifacts/
 output/playwright/
+atlas-backup-*/

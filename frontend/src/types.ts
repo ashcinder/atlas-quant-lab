@@ -125,6 +125,7 @@ export interface EquityPoint {
 }
 
 export interface BacktestResult {
+  valuation_currency?: string | null
   run_id: string
   created_at: string
   asset: Asset
@@ -142,6 +143,7 @@ export interface BacktestResult {
 }
 
 export interface PortfolioResult {
+  valuation_currency?: string | null
   run_id: string
   created_at: string
   strategy: Strategy
@@ -153,7 +155,7 @@ export interface PortfolioResult {
   trades: Trade[]
   metrics: Record<string, number | null>
   risk_contribution: Record<string, number>
-  correlation: Record<string, Record<string, number>>
+  correlation: Record<string, Record<string, number | null>>
   warnings: string[]
 }
 

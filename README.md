@@ -45,13 +45,18 @@ Supervisor/    用户配置的外部链监督节点，只读且不纳入本仓�
 
 ## 本地启动
 
+新版工作空间说明见 [UI 重构记录](docs/UI_REDESIGN.md) 和 [本轮功能与部署进度](docs/REFACTOR_PROGRESS.md)。
+容器化本机 / 私网部署见 [部署、持久化与备份指南](docs/DEPLOYMENT.md)；当前不是可直接暴露公网的多用户服务。
+
 ### 后端
+
+部署锁文件针对 Python 3.14；请使用对应解释器创建虚拟环境。
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -59,7 +64,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd frontend
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 

@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Interval = Literal["15m", "1h", "4h", "1d", "1wk"]
 Adjustment = Literal["auto", "raw", "forward", "backward"]
@@ -100,6 +100,8 @@ class StrategyDefinition(BaseModel):
 
 
 class BacktestRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     symbol: str = "BTC-USD"
     asset_class: str = "crypto"
     interval: Interval = "1d"
@@ -120,6 +122,13 @@ class BacktestRequest(BaseModel):
     stop_loss: float | None = Field(default=None, gt=0, lt=1)
     take_profit: float | None = Field(default=None, gt=0)
     persist: bool = True
+
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_dates(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_dates(self) -> "BacktestRequest":
@@ -158,6 +167,7 @@ class BacktestResult(BaseModel):
     interval: Interval
     strategy: StrategyDefinition
     data_source: str
+    valuation_currency: str | None = None
     source_note: str | None = None
     bars: list[Bar]
     indicators: dict[str, list[dict[str, float | int | None]]]
@@ -173,8 +183,18 @@ class PortfolioAssetInput(BaseModel):
     asset_class: str = "equity"
     weight: float | None = Field(default=None, ge=0, le=1)
 
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("标的代码不能为空")
+        return normalized
+
 
 class PortfolioBacktestRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     assets: list[PortfolioAssetInput] = Field(min_length=2, max_length=12)
     strategy_id: Literal["all_weather", "risk_parity", "sixty_forty"] = "all_weather"
     interval: Interval = "1d"
@@ -193,8 +213,20 @@ class PortfolioBacktestRequest(BaseModel):
     base_currency: Literal["CNY", "USD", "USDT"] = "CNY"
     persist: bool = True
 
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_dates(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
     @model_validator(mode="after")
     def validate_portfolio_constraints(self) -> "PortfolioBacktestRequest":
+        if self.start and self.end and self.start >= self.end:
+            raise ValueError("start must be earlier than end")
+        symbols = [asset.symbol for asset in self.assets]
+        if len(set(symbols)) != len(symbols):
+            raise ValueError("组合不能包含重复标的")
         investable = 1 - self.cash_buffer
         if self.max_asset_weight * len(self.assets) + 1e-12 < investable:
             raise ValueError("max_asset_weight is too low for the selected asset count")
@@ -207,13 +239,14 @@ class PortfolioResult(BaseModel):
     strategy: StrategyDefinition
     assets: list[Asset]
     data_source: str
+    valuation_currency: str | None = None
     weights: dict[str, float]
     weight_history: list[dict[str, Any]]
     equity: list[EquityPoint]
     trades: list[Trade]
     metrics: dict[str, float | int | None]
     risk_contribution: dict[str, float]
-    correlation: dict[str, dict[str, float]]
+    correlation: dict[str, dict[str, float | None]]
     warnings: list[str]
 
 
@@ -321,6 +354,8 @@ class WalkForwardConfig(BaseModel):
 
 
 class ResearchRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     symbol: str
     asset_class: str
     interval: Interval = "1d"
