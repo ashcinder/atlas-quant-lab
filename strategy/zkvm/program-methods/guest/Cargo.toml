@@ -1,0 +1,10 @@
+[package]
+name = "atlas-program-guest"
+version = "0.2.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+atlas-program-core = { path = "../../program-core" }
+risc0-zkvm = { version = "=3.0.6", default-features = false, features = ["std"] }

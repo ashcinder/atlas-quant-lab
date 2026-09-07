@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { QuantChainStatus, ZkProfile } from '../types'
 
 interface Snapshot {
+  execution: Awaited<ReturnType<typeof api.executionCapabilities>> | null
   health: Awaited<ReturnType<typeof api.getHealth>> | null
   chain: QuantChainStatus | null
   profiles: ZkProfile[] | null
@@ -25,9 +26,10 @@ export function SystemStatus({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     const controller = new AbortController()
     let active = true
-    Promise.allSettled([api.getHealth(controller.signal), api.getQuantChainStatus(controller.signal), api.listZkProfiles(controller.signal)]).then(([health, chain, profiles]) => {
+    Promise.allSettled([api.getHealth(controller.signal), api.getQuantChainStatus(controller.signal), api.listZkProfiles(controller.signal), api.executionCapabilities()]).then(([health, chain, profiles, execution]) => {
       if (!active) return
       setSnapshot({
+        execution: execution.status === 'fulfilled' ? execution.value : null,
         health: health.status === 'fulfilled' ? health.value : null,
         chain: chain.status === 'fulfilled' ? chain.value : null,
         profiles: profiles.status === 'fulfilled' ? profiles.value : null,
@@ -64,9 +66,11 @@ export function SystemStatus({ onClose }: { onClose: () => void }) {
       <div className="system-status-summary" role="status"><Activity size={18} /><div><strong>{loading ? '正在检查服务…' : online ? `后端服务在线 · v${snapshot?.health?.version}` : '无法连接后端服务'}</strong><span>{loading ? '仅读取状态，不会提交交易或证明。' : `检查于 ${snapshot?.checkedAt} · 在线不代表所有依赖均已就绪`}</span></div><button disabled={loading} onClick={() => { setLoading(true); setRefresh((value) => value + 1) }}><RefreshCw size={14} className={loading ? 'spin' : ''} />重新检查</button></div>
       {!loading ? <div className="system-status-capabilities">
         <StatusRow title="行情与规则回测" label={online ? '服务在线' : '不可用'} state={online ? 'ready' : 'limited'} detail="受控规则、历史行情和组合研究。行情源可用性需在实际请求时确认。" />
-        <StatusRow title="SMA 零知识证明" label={zkReady ? '验证器就绪' : '未就绪'} state={zkReady ? 'ready' : 'limited'} detail="固定单资产 SMA profile；不覆盖任意 Python 策略、AI 推理或 TEE。就绪不等于某份报告已通过验证。" />
+        <StatusRow title="确定性策略零知识证明" label={zkReady ? '验证器就绪' : '未就绪'} state={zkReady ? 'ready' : 'limited'} detail="私密整数程序 v2 与历史 SMA v1 验证；不覆盖任意 Python、AI 推理或实盘成交。就绪不等于某份报告已通过验证。" />
         <StatusRow title="Supervisor 链连接" label={chainReady ? '已连接' : '未就绪'} state={chainReady ? 'ready' : 'limited'} detail={chainReady ? `链 ID ${snapshot?.chain?.chain_id} · 最新区块 ${snapshot?.chain?.block_number}。连接不代表报告已经上链。` : snapshot?.chain?.connected ? '已连接节点，但链 ID 与预期配置不一致。' : '本次未确认兼容的链连接；可以继续本地研究。'} />
-        <StatusRow title="通用 Python / AI / TEE 执行" label="未接入" state="off" detail="可编辑、校验与保存工作流和策略包；尚不支持完整隔离执行及可信推理。" />
+        <StatusRow title="Python 隔离研究" label={snapshot?.execution?.python.configured ? '已配置 · 运行时核验' : '环境待配置'} state="limited" detail="独立 gVisor、单标的 SDK、断网与资源限额。保护平台免受策略代码影响，不对平台操作员保密；不会降级到宿主机执行。" />
+        <StatusRow title="本地 AI 风控" label={snapshot?.execution?.ai.configured ? '已配置 · 推理待验' : '模型待配置'} state="limited" detail="真实模型结构化输出，只能在最终硬风控前提出建议；超时或格式错误时拒绝目标仓位。不是可信硬件推理证明。" />
+        <StatusRow title="TEE 机密执行" label="未接入" state="off" detail="已实现 Nitro 通道证明校验；仍需真实服务器、经审核的 enclave 和机密执行服务。通道验证不等于策略收益验证。" />
         <StatusRow title="实盘账户与真实支付" label="未启用" state="off" detail="当前是研究工作空间。订阅为本地沙盒，不会扣款；不会向交易所下单。" />
       </div> : null}
       {snapshot?.errors.length && !loading ? <div className="system-status-errors">{snapshot.errors.map((error) => <p key={error}>{error}</p>)}</div> : null}

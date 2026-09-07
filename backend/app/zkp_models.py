@@ -54,7 +54,7 @@ class ZkPublicStatement(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     schema_id: Literal["atlas.quantjudge.zk.statement.v1"] = Field(alias="schema")
-    proof_profile: Literal["atlas_sma_backtest_risc0_v1"]
+    proof_profile: Literal["atlas_sma_backtest_risc0_v1", "atlas_program_backtest_risc0_v2"]
     agent_id: str = Field(pattern=r"^qja_[a-zA-Z0-9_]{2,64}$")
     strategy_commitment: str = Field(pattern=HEX_64)
     workflow_commitment: str = Field(pattern=HEX_64)

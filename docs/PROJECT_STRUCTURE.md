@@ -81,3 +81,11 @@ strategy/
 ## 生成目录处理原则
 
 依赖、缓存和截图可以重新生成，不应与源码一起发布。数据库、策略包、签名 / 加密密钥和证明资料同样不进入 Git，但它们包含不可随意丢弃的用户数据；不能当作缓存清理，必须按部署指南成套备份。
+# 新增执行与证明目录
+
+- `strategy/runner/`：只在 gVisor 镜像内执行的 Python SDK 工作进程，不能直接在 API 宿主运行用户代码。
+- `strategy/zkvm/program-core/`：独立版本的私密整数程序解释器和确定性回测语义；不修改历史 SMA core。
+- `strategy/zkvm/program-methods/`：v2 RISC Zero guest 与构建锁文件。
+- `backend/app/execution*.py`、`sandbox.py`、`ai_runtime.py`、`tee.py`：请求模型、受控执行、隔离适配、本地 AI 与 Nitro 验证；不等于已部署真实 TEE。
+- `deploy/runner.Dockerfile`、`runner_smoke.py`、`zk_program_smoke.py`：运行镜像和使用临时数据的真实隔离 / 证明集成验收。
+- `docs/EXECUTION_TRUST.md`：各路径能力、数据保管、部署要求与尚未完成的边界。

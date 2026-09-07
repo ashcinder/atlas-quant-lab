@@ -211,6 +211,14 @@ export const api = {
   listStudioWorkflows(agentId: string, token: string) {
     return request<StudioWorkflowRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows`, { headers: { 'X-Developer-Token': token } })
   },
+  executionCapabilities() {
+    return request<{ python: { configured: boolean }; ai: { configured: boolean }; tee: { execution_available: boolean } }>('/quantjudge/studio/execution-capabilities')
+  },
+  executePrivatePackage(agentId: string, packageId: string, token: string, payload: Record<string, unknown>) {
+    return request<{ id: string; metrics: Record<string, number>; final_equity: number; ai_calls: number; ai_failed_closed: number; warnings: string[] }>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages/${encodeURIComponent(packageId)}/execute`, {
+      method: 'POST', headers: { 'X-Developer-Token': token }, body: JSON.stringify(payload),
+    }, 210_000)
+  },
   saveStudioWorkflow(agentId: string, token: string, workflow: StudioWorkflow, changeNote = '') {
     return request<StudioWorkflowRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows/${encodeURIComponent(workflow.id)}`, {
       method: 'PUT', headers: { 'X-Developer-Token': token }, body: JSON.stringify({ workflow, change_note: changeNote }),

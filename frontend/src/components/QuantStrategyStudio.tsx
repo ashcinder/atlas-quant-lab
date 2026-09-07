@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PrivateExecutionPanel } from './PrivateExecutionPanel'
 import type { ReactNode } from 'react'
 import {
   Bot, Box, Braces, Check, ChevronDown, CircleAlert, Code2, Cpu, FileArchive,
@@ -105,6 +106,7 @@ export function QuantStrategyStudio({
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [zkProfiles, setZkProfiles] = useState<import('../types').ZkProfile[]>([])
+  const [proofProfileId, setProofProfileId] = useState('atlas_program_backtest_risc0_v2')
   const [zkDataset, setZkDataset] = useState<import('../types').ZkMarketDataset | null>(null)
   const [zkProof, setZkProof] = useState<import('../types').ZkProofRecord | null>(null)
   const [publishedProofReport, setPublishedProofReport] = useState<string | null>(null)
@@ -141,6 +143,7 @@ export function QuantStrategyStudio({
       if (!active) return
       setSpec(nextSpec); setTemplates(nextTemplates); setAgents(nextAgents.filter((agent) => !agent.is_demo))
       setZkProfiles(nextProfiles)
+      setProofProfileId((current) => nextProfiles.some((profile) => profile.id === current) ? current : nextProfiles[0]?.id ?? current)
       if (nextTemplates[0] && draftRevision.current === 0) {
         const first = cloneWorkflow(nextTemplates[0].workflow)
         setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? ''); setActiveTemplateId(nextTemplates[0].id)
@@ -311,7 +314,7 @@ export function QuantStrategyStudio({
 
   const uploadProof = async (file: File) => {
     if (proofBusyRef.current) return
-    const profile = zkProfiles.find((item) => item.status === 'active')
+    const profile = zkProfiles.find((item) => item.id === proofProfileId && item.status === 'active')
     if (!agentId || !token) { onError('上传证明前需要选择 Agent 并填写开发者凭证'); return }
     if (!profile?.verifier_ready) { onError('生产 verifier 尚未构建或 profile 未激活'); return }
     const session = privateSession.current
@@ -398,28 +401,30 @@ export function QuantStrategyStudio({
       <input ref={fileRef} hidden type="file" accept=".qstrategy,.zip" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
       <div className={`qjs-dropzone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) upload(file) }}><FileArchive size={27} /><strong>{uploading ? '正在进行结构、入口与安全校验…' : '拖入 .qstrategy 策略包'}</strong><span>最大 10 MB · 解压最大 50 MB · 禁止凭证、链接与可执行二进制</span></div>
       <div className="qjs-package-list">{packages.map((item) => <article key={item.id}><span><PackageCheck size={18} /></span><div><strong>{item.name} <em>v{item.version}</em></strong><small>{item.strategy_key} · {item.language} · {item.file_count} files</small></div><code>{item.content_hash.slice(0, 12)}…</code><b><LockKeyhole size={11} /> PRIVATE</b><time>{new Date(item.created_at).toLocaleString('zh-CN')}</time>{item.warnings.length ? <p>{item.warnings.join(' · ')}</p> : null}</article>)}{!packages.length ? <div className="qjs-empty"><FileArchive size={24} />选择 Agent 并输入凭证后读取，或上传第一个策略包。</div> : null}</div>
+      <PrivateExecutionPanel key={`${agentId}:${token}`} agentId={agentId} token={token} packages={packages} datasetHash={zkDataset?.market_data_hash} onDataset={prepareDataset} preparing={proofBusy} />
     </div> : null}
 
     {tab === 'proof' ? <div className="qjs-proof">
-      <header><div><strong>零知识证明发布流水线</strong><small>本地生成 witness 与 receipt；平台只验证公开 journal，不接收策略参数、salt、逐笔决策或完整净值。</small></div><span className={zkProfiles.some((item) => item.verifier_ready) ? 'is-ready' : 'is-blocked'}><ShieldCheck size={13} />{zkProfiles.some((item) => item.verifier_ready) ? 'SMA 验证器就绪' : '验证器尚未构建'}</span></header>
+      <header><div><strong>零知识证明发布流水线</strong><small>本地生成 witness 与 receipt；平台只验证公开 journal，不接收策略参数、salt、逐笔决策或完整净值。</small></div><span className={zkProfiles.some((item) => item.verifier_ready) ? 'is-ready' : 'is-blocked'}><ShieldCheck size={13} />{zkProfiles.some((item) => item.verifier_ready) ? '证明验证器就绪' : '验证器尚未构建'}</span></header>
+      <label className="qjs-help">证明协议<select aria-label="证明协议" value={proofProfileId} disabled={proofBusy} onChange={(event) => { setProofProfileId(event.target.value); setZkProof(null); setPublishedProofReport(null) }}>{zkProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.id}</option>)}</select></label>
       <section className="qjs-proof-profile">
         {zkProfiles.map((profile) => <article key={profile.id}><div><Fingerprint size={20} /><span><em>REGISTERED IMAGE</em><strong>{profile.id}</strong><code>{profile.image_id}</code></span></div><dl><div><dt>证明系统</dt><dd>{profile.proof_system}</dd></div><div><dt>覆盖范围</dt><dd>{profile.scope}</dd></div><div><dt>Guest</dt><dd>v{profile.guest_version}</dd></div><div><dt>状态</dt><dd>{profile.status}</dd></div></dl><p><ShieldCheck size={12} />证明：{profile.privacy_scope.join('；')}</p><p className="is-warning"><CircleAlert size={12} />不证明：{profile.unsupported.join('、')}</p></article>)}
         {!zkProfiles.length ? <div className="qjs-empty"><CircleAlert size={20} />尚无已激活的 proof profile；运行 strategy/zkvm/scripts/build.sh 后才允许上传。</div> : null}
       </section>
       <ol className="qjs-proof-steps">
         <li className={zkDataset ? 'is-done' : ''}><span>01</span><div><strong>锁定可信市场数据</strong><small>{assetSymbol} · {interval} · 平台公开数据根</small>{zkDataset ? <code>{zkDataset.market_data_hash}</code> : null}</div><button disabled={proofBusy} onClick={prepareDataset}>{zkDataset ? '重新登记' : '生成数据集'}</button></li>
-        <li><span>02</span><div><strong>在开发者设备创建私有 witness</strong><small>参数、salt 与 nullifier nonce 只保留在本地；inspect 输出的 strategy_commitment 用于创建 Agent</small></div><code>atlas-zkvm inspect --witness witness.json</code></li>
-        <li><span>03</span><div><strong>本地生成生产证明</strong><small>disable-dev-mode 已强制启用，禁止伪 receipt</small></div><code>strategy/zkvm/target/release/atlas-zkvm prove --witness witness.json --receipt proof.r0</code></li>
+        <li><span>02</span><div><strong>在开发者设备创建私有 witness</strong><small>参数、salt 与 nullifier nonce 只保留在本地；inspect 输出的 strategy_commitment 用于创建 Agent</small></div><code>atlas-zkvm inspect --profile {proofProfileId} --witness witness.json</code></li>
+        <li><span>03</span><div><strong>本地生成生产证明</strong><small>disable-dev-mode 已强制启用，禁止伪 receipt</small></div><code>strategy/zkvm/target/release/atlas-zkvm prove --profile {proofProfileId} --witness witness.json --receipt proof.r0</code></li>
         <li className={zkProof ? 'is-done' : ''}><span>04</span><div><strong>上传并独立验证 receipt</strong><small>固定 image ID · 45 秒 fail-closed · 最大 16 MB</small>{zkProof ? <code>{zkProof.proof_hash}</code> : null}</div><button disabled={proofBusy || !zkDataset} onClick={() => proofFileRef.current?.click()}>{proofBusy ? '处理中…' : '选择 proof.r0'}</button><input ref={proofFileRef} hidden type="file" accept=".r0,.bin" onChange={(event) => event.target.files?.[0] && uploadProof(event.target.files[0])} /></li>
         <li className={zkProof ? '' : 'is-locked'}><span>05</span><div><strong>发布 ZKP 跑分回执</strong><small>指标和抽样曲线直接来自已验证 journal；proof/nullifier 只能使用一次</small></div><button disabled={proofBusy || !zkProof} onClick={publishProof}>发布 QuantJudge</button></li>
         <li><span>06</span><div><strong>外部钱包锚定 Supervisor</strong><small>链上仅保存回执、证明、公开输入和 nullifier 的哈希；Supervisor 源码保持只读</small></div><code>ATLASZK2 · receipt · proof · public-input · nullifier</code></li>
       </ol>
       {publishedProofReport ? <div className="qjs-proof-published"><ShieldCheck size={15} /><span><strong>ZKP 报告已发布</strong><code>{publishedProofReport}</code></span></div> : null}
-      <aside className="qjs-proof-boundary"><LockKeyhole size={16} /><div><strong>当前证明覆盖范围</strong><p>当前 profile 真正覆盖确定性、long-only、下一根 K 线开盘成交的 SMA 回测。Python 策略、AI/LLM 节点和实盘成交仍可开发，但在有对应 zkVM/zkML/交易所签名或 TEE 证明前，不会显示“ZKP 已验证”。</p>{zkDataset ? <small>{zkDataset.limitation}</small> : null}</div></aside>
+      <aside className="qjs-proof-boundary"><LockKeyhole size={16} /><div><strong>当前证明覆盖范围</strong><p>可编程 v2 在固定 zkVM 中执行私密整数指令、历史价格、均线和状态寄存器，并证明下一根开盘成交及成本后的收益。它不是任意 Python / AI 推理证明。SMA v1 保留历史验证；当前重建无法复现旧 image ID，生成新证明请选择 v2。</p>{zkDataset ? <small>{zkDataset.limitation}</small> : null}</div></aside>
     </div> : null}
 
     {tab === 'sdk' ? <div className="qjs-sdk">
-      <header><div><strong>策略格式与开发契约</strong><small>规则可在研究引擎回测；Python 与远程 Runner 当前支持包定义和归档，执行服务尚待接入。</small></div><code>.qstrategy / atlas.strategy/v1</code></header>
+      <header><div><strong>策略格式与开发契约</strong><small>规则可直接回测；Python 包可在已配置的独立 gVisor 中进行私密研究。任意依赖、远程 Runner 和机密 TEE 执行仍需独立接入。</small></div><code>.qstrategy / atlas.strategy/v1</code></header>
       <div className="qjs-format-grid">{spec?.languages.map((language) => <article key={language.id} className={language.production ? '' : 'is-import'}><span>{language.id === 'python' ? <Code2 size={19} /> : language.id === 'json_dsl' ? <Braces size={19} /> : language.id === 'remote_runner' ? <Cpu size={19} /> : <FileArchive size={19} />}</span><div><em>{language.id === 'json_dsl' ? '规则格式' : language.production ? '执行待接入' : '研究附件'}</em><strong>{language.label}</strong><small>{language.execution}</small></div></article>)}</div>
       <section className="qjs-contract"><div><strong>strategy.json</strong><small>版本、能力权限、参数 Schema、AI 插入点、研究门槛</small></div><i /><div><strong>BaseStrategy</strong><small>只读 StrategyContext → TargetPosition[]，网络与时钟由 Runner 注入</small></div><i /><div><strong>Workflow DAG</strong><small>AI 契约 → 硬风控 → 执行成本 → 审计承诺</small></div></section>
       <div className="qjs-code"><header><span>strategy.py</span><em>PYTHON SDK</em></header><pre>{`from atlas_strategy_sdk import BaseStrategy, StrategyContext, TargetPosition\n\nclass MyAlpha(BaseStrategy):\n    def generate_targets(self, ctx: StrategyContext):\n        bars = ctx.history("BTC-USD", 61)  # closed bars only\n        momentum = bars[-1].close / bars[0].close - 1\n        return [TargetPosition("BTC-USD", 0.2 if momentum > 0 else 0,\n                               0.8, "MOMENTUM_60")]`}</pre></div>

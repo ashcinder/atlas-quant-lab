@@ -2,6 +2,8 @@
 
 > Strategy developers: see [Atlas Strategy Lab](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
 
+> 新增：[隔离执行、AI / TEE 与程序 ZKP 的实际能力和部署说明](docs/EXECUTION_TRUST.md)。支持有界整数策略程序的真实 ZKP，不等于任意 Python 或 AI 已可证明；TEE 尚无真实硬件端到端验收。
+
 Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略研究与历史回测平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
 
 > 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。
@@ -27,7 +29,7 @@ Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略�
 - 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。
 - 本地优先：不需要注册，行情缓存、策略模板和回测历史保存在本机。
 - QuantJudge 市场：量化策略 / AI Agent 公开跑分、分类排行、证据账本、本地沙盒订阅和开发者发布流程。
-- 隐私证明：固定 RISC Zero zkVM guest 可证明私密 SMA 参数确实在指定行情和成本模型上生成公开业绩；服务器只持久化 receipt、公开 journal 和承诺，不保存 witness、参数或逐笔决策。其他策略类型不会冒充 ZKP。
+- 隐私证明：固定 RISC Zero zkVM guest 可证明私密 SMA 参数或 v2 有界整数策略程序在指定行情和成本模型上生成公开业绩；证明路径不保存 witness、参数或逐笔决策。普通 Python 上传包仍为平台可解密存储，不具备此保密性。
 - Supervisor 验证：通过独立 JSON-RPC 适配器读取链 ID、区块与交易回执；只接收外部钱包已签名交易，平台不保管链上私钥。
 
 ## 项目结构

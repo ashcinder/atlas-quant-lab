@@ -2,7 +2,7 @@
 
 Atlas uses a fixed RISC Zero zkVM guest to prove that a private strategy configuration was executed against an exact market dataset under deterministic backtest semantics. A proof is accepted only when the receipt verifies against a platform-registered image ID and every public journal field passes the server-side binding rules.
 
-The first production profile is `atlas_sma_backtest_risc0_v1`. It proves one long-only SMA crossover backtest. It does **not** claim to prove arbitrary Python, an external LLM, live exchange fills, or every Strategy Lab artifact.
+The historical profile is `atlas_sma_backtest_risc0_v1`. A new profile, `atlas_program_backtest_risc0_v2`, proves a private bounded integer program rather than only SMA parameters. See [execution boundaries and v2 instructions](EXECUTION_TRUST.md) for the image ID, real verification record and legacy rebuild mismatch. Neither profile proves arbitrary Python, an external LLM, live exchange fills, or every Strategy Lab artifact. The original SMA semantics below remain specific to v1.
 
 ## Security claim and trust boundary
 

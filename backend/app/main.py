@@ -67,6 +67,7 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
+from app.execution_api import execution_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -97,6 +98,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
+app.include_router(execution_router(strategy_studio_store, zk_proof_store))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

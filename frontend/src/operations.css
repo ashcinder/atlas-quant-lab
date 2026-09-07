@@ -57,3 +57,20 @@
   .system-status-dialog > footer { padding: 18px; align-items: flex-start; flex-direction: column; }
   .system-status-errors { margin: 0 18px 18px; }
 }
+.private-execution { border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-top: 24px; background: #101b28; }
+.private-execution header, .private-execution footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.private-execution h3 { margin: 8px 0; font-size: 18px; color: #e0e9f5; }
+.private-execution p, .private-execution small { color: #a3b5ca; font-size: 12px; line-height: 1.7; }
+.private-execution-fields { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; margin: 24px 0; }
+.private-execution-fields label { display: grid; gap: 10px; align-content: start; color: #d9e6f7; font-size: 12px; }
+.private-execution select, .private-execution textarea { min-width: 0; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: #0c141e; color: #d9e6f7; }
+.private-execution textarea { min-height: 92px; resize: vertical; font-family: monospace; }
+.private-execution-data { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.private-execution code { overflow-wrap: anywhere; color: #9fb7d2; font-size: 11px; }
+.private-execution-consent { display: flex; align-items: start; gap: 10px; margin: 16px 0; font-size: 12px; line-height: 1.8; color: #b6c7da; }
+.private-execution-consent input { flex: 0 0 auto; width: 16px; margin-top: 4px; accent-color: #acc6ff; }
+.private-execution-result { border-top: 1px solid var(--border); padding-top: 20px; margin-top: 20px; }
+.private-execution-result dl { display: flex; flex-wrap: wrap; gap: 24px; }
+.private-execution-result dt { color: #9fb7d2; font-size: 11px; }
+.private-execution-result dd { margin: 10px 0; font: 18px monospace; color: #d9e6f7; }
+@media (max-width: 720px) { .private-execution-fields { grid-template-columns: 1fr; } .private-execution header, .private-execution footer, .private-execution-data { flex-direction: column; align-items: stretch; } .private-execution { padding: 16px; } }

@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OPENBLAS_NUM_THREADS=1 \
     OMP_NUM_THREADS=1
 WORKDIR /app/backend
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=wheels /wheels /wheels
 COPY backend/requirements.lock ./requirements.lock
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.lock \

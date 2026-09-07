@@ -460,6 +460,8 @@ class StrategyStudioStore:
             "status": row["status"],
             "created_at": row["created_at"],
             "source_private": True,
+            "operator_confidential": False,
+            "privacy_scope": "encrypted_at_rest_platform_readable",
             "encrypted_at_rest": True,
         }
 

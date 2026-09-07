@@ -76,3 +76,6 @@ docker compose start api
 这项验证不覆盖本机 Docker 环境、生产数据备份恢复演练、容器 ZKP 验证器或真实 AI / TEE。不能用容器健康接口在线代替这些检查。
 
 对公网开放之前，还需要独立完成身份鉴别与租户权限、TLS、速率和资源限制、外置任务队列、可观测性、备份恢复演练、依赖安全审查，以及 AI / 通用策略 Runner / TEE 的隔离与可信执行实现。
+# Optional private execution components
+
+Python gVisor Runner, local AI configuration, Nitro attestation verification and program ZKP are separately gated. Follow [EXECUTION_TRUST.md](EXECUTION_TRUST.md); the base Compose deployment does not enable these by mounting a Docker socket or claim hardware confidentiality. Backend images include OpenSSL for strict Nitro certificate-chain validation, not a Nitro runtime.

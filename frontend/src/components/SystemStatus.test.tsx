@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { SystemStatus } from './SystemStatus'
 
-vi.mock('../api', () => ({ api: { getHealth: vi.fn(), getQuantChainStatus: vi.fn(), listZkProfiles: vi.fn() } }))
+vi.mock('../api', () => ({ api: { getHealth: vi.fn(), getQuantChainStatus: vi.fn(), listZkProfiles: vi.fn(), executionCapabilities: vi.fn().mockResolvedValue(null) } }))
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe('system capability status', () => {

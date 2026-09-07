@@ -18,6 +18,12 @@
 !strategy/
 !strategy/zkvm/
 !strategy/zkvm/profiles.json
+!strategy/sdk/
+!strategy/sdk/python/
+!strategy/sdk/python/atlas_strategy_sdk/
+!strategy/sdk/python/atlas_strategy_sdk/**
+!strategy/runner/
+!strategy/runner/worker.py
 !deploy/
 !deploy/**
 **/__pycache__/
