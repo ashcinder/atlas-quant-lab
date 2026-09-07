@@ -519,3 +519,4 @@ pub fn execute(witness: StrategyWitness) -> ZkPublicStatement {
         public_curve,
     }
 }
+

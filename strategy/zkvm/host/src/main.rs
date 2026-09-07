@@ -66,6 +66,9 @@ fn program(profile: &str) -> Result<bool> {
 fn prove(witness_path: PathBuf, receipt_path: PathBuf, profile: String) -> Result<()> {
     let bytes = fs::read(&witness_path)?;
     let is_program = program(&profile)?;
+    if is_program && image_id_hex(ATLAS_PROGRAM_GUEST_ID) != "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4" {
+        bail!("program build does not reproduce its registered image ID; restore the exact reviewed sources and toolchain, never overwrite a registered profile");
+    }
     if !is_program && image_id_hex(ATLAS_BACKTEST_GUEST_ID) != "91409cbbef6fe55f5e7ac6d5199e31d259b4167788facbbb26dc7ee09740ea43" {
         bail!("legacy SMA build does not reproduce its registered image ID; use the separately registered program v2 profile, never overwrite v1");
     }

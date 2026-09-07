@@ -84,9 +84,9 @@ PATH="$HOME/.risc0/bin:$PATH" strategy/zkvm/scripts/build.sh
 The build writes the immutable image ID into `strategy/zkvm/profiles.json`. Generate a witness locally; never upload it:
 
 ```bash
-strategy/zkvm/target/release/atlas-zkvm inspect --witness witness.json
-strategy/zkvm/target/release/atlas-zkvm prove --witness witness.json --receipt receipt.bin
-strategy/zkvm/target/release/atlas-zkvm verify --receipt receipt.bin
+strategy/zkvm/target/release/atlas-zkvm inspect --profile atlas_program_backtest_risc0_v2 --witness witness.json
+strategy/zkvm/target/release/atlas-zkvm prove --profile atlas_program_backtest_risc0_v2 --witness witness.json --receipt receipt.bin
+strategy/zkvm/target/release/atlas-zkvm verify --receipt receipt.bin --expected-image-id 02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4
 ```
 
 Use the inspect output when creating the QuantJudge Agent, register/download the exact market dataset in Strategy Lab, then upload only `receipt.bin`. The API re-verifies it; the local verify command is a developer convenience, not an authorization decision.

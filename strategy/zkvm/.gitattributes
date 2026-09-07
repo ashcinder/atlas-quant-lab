@@ -1,0 +1,3 @@
+# Guest debug metadata includes source digests. Preserve the exact reviewed v2
+# source, including its final blank line, to reproduce the registered image ID.
+program-core/src/lib.rs whitespace=-blank-at-eof
