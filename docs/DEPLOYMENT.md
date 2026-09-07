@@ -69,6 +69,10 @@ docker compose start api
 
 ## 验证记录与尚未通过的检查
 
-本次本地 `docker compose config --quiet` 通过。但 Docker 守护进程未运行，且镜像仓库连接超时，所以**尚未完成真实镜像构建、容器启动与重建持久化验收**。`deploy/smoke.py` 已纳入 CI，但必须以 GitHub 实际执行结果为准，不能以文件存在或健康接口在线替代验证。
+本次本地 `docker compose config --quiet` 通过。本机 Docker 守护进程未运行，且镜像仓库连接超时，因此没有在本机启动容器。
+
+随后 GitHub Linux 环境已完成真实验证：提交 `1907430` 的 [Actions #34077168667](https://github.com/ashcinder/atlas-quant-lab/actions/runs/34077168667) 中，前端、后端、容器三个 job 全部通过。`deploy/smoke.py` 实际构建并启动了镜像，验证同源路由、非 root / 只读后端、离线回测，以及重建后数据库记录、签名身份和包加密密钥的一致性。测试只使用独立临时项目与数据卷，没有部署公开服务。
+
+这项验证不覆盖本机 Docker 环境、生产数据备份恢复演练、容器 ZKP 验证器或真实 AI / TEE。不能用容器健康接口在线代替这些检查。
 
 对公网开放之前，还需要独立完成身份鉴别与租户权限、TLS、速率和资源限制、外置任务队列、可观测性、备份恢复演练、依赖安全审查，以及 AI / 通用策略 Runner / TEE 的隔离与可信执行实现。
