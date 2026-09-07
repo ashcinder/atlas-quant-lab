@@ -99,3 +99,13 @@ python3 deploy/smoke.py
 ```
 
 本轮额外测试覆盖跨账号项目读写/制品关联/订阅、multipart 上传、工作区切换保留草稿及会话失效卸载。真实浏览器使用独立临时数据库，不注册或修改个人数据目录。
+
+### 本轮验收结果（2026-09-08）
+
+- 合并提交 `d44a211`，双亲为原 QuantJudge `cc1a434` 与 main `b7e06dc`，已推送至 `origin/QuantJudge`。
+- [GitHub Actions 完整验收](https://github.com/ashcinder/atlas-quant-lab/actions/runs/34153344830)：frontend、backend、containers、isolated-runner 四项全部通过。容器测试实际构建镜像、注册登录、执行离线回测并重建容器验证持久数据/密钥；隔离测试实际使用 Linux gVisor。
+- 本地后端 253 项通过；前端 Vitest 43 项、账本 Node 测试 61 项通过；生产构建、依赖一致性检查通过。ESLint 无错误，保留账本图表组件的 2 条 Fast Refresh 导出警告；后端测试有上游 Starlette/httpx 弃用提示。
+- 真实浏览器完成注册、量化行情显示、切换账本、创建账户、刷新后持久化、OCR 加载到人工核对、退出登录。截图识别使用合成测试账户，未将 OCR 结果写入账本；不据此承诺任意截图的识别准确率。
+- 已目视检查 1440px 桌面与 390px 手机布局，手机页面实际 `scrollWidth === innerWidth`。截图保存在本地 `output/playwright/merge-*.png`，不提交私人浏览器状态。
+
+以上是本次合并的回归验收，不代表真实 AI/TEE 或任意 Python ZKP 已完成，也不替代公网部署前的安全审计。
