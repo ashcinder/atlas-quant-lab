@@ -16,6 +16,9 @@ services:
     cpus: 2
     stop_grace_period: 45s
     environment:
+      ATLAS_ALLOWED_ORIGINS: ${ATLAS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      ATLAS_ALLOW_REGISTRATION: ${ATLAS_ALLOW_REGISTRATION:-true}
+      ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
       QUANTJUDGE_SUPERVISOR_RPC_URL: ${QUANTJUDGE_SUPERVISOR_RPC_URL:-http://127.0.0.1:42515}
     volumes:
       - atlas-data:/app/backend/.data

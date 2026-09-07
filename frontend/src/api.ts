@@ -235,9 +235,10 @@ export const api = {
       method: 'PATCH', body: JSON.stringify({ expected_revision: revision, ...payload }),
     })
   },
-  linkStrategyProjectArtifact(id: string, revision: number, kind: StrategyProjectArtifactKind, artifactId: string) {
+  linkStrategyProjectArtifact(id: string, revision: number, kind: StrategyProjectArtifactKind, artifactId: string, token?: string) {
     return request<StrategyProject>(`/strategy-projects/${encodeURIComponent(id)}/artifacts`, {
       method: 'POST', body: JSON.stringify({ expected_revision: revision, kind, artifact_id: artifactId }),
+      headers: token ? { 'X-Developer-Token': token } : undefined,
     })
   },
   freezeStrategyProject(id: string, revision: number, version: string) {

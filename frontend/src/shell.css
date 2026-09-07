@@ -1,0 +1,105 @@
+:root { --header-height: 52px; }
+body { font-size: 14px; }
+body:has(.journal-root) { overflow: auto; }
+::selection { background: #f3b45140; color: var(--text); }
+* { scrollbar-color: #435064 var(--bg); scrollbar-width: thin; }
+input, textarea { caret-color: var(--accent); }
+.atlas-shell { min-height: 100dvh; }
+.atlas-header { height: var(--header-height); display: flex; align-items: center; gap: 28px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 45; }
+.atlas-brand { display: flex; align-items: center; gap: 9px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.atlas-brand strong { font-size: 16px; color: var(--text); }
+.atlas-brand strong span { color: var(--muted); font-size: 12px; font-weight: 500; margin-left: 4px; }
+.atlas-workspaces { display: flex; align-self: stretch; gap: 6px; }
+.atlas-workspaces a { display: flex; align-items: center; gap: 7px; padding: 0 14px; color: var(--muted); font-size: 13px; text-decoration: none; border-bottom: 2px solid transparent; }
+.atlas-workspaces a:hover { color: var(--text); background: var(--panel); }
+.atlas-workspaces a[aria-current] { color: var(--accent); border-bottom-color: var(--accent); background: var(--panel); }
+.atlas-session { margin-left: auto; min-width: 0; display: flex; gap: 14px; align-items: center; }
+.atlas-session > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; color: var(--muted); font-size: 12px; }
+.atlas-session button { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); color: var(--muted); background: transparent; padding: 6px 9px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+.atlas-session button:hover { color: var(--text); background: var(--panel-raised); }
+.atlas-connecting { min-height: calc(100dvh - 52px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; color: var(--muted); }
+.atlas-connecting h1 { color: var(--text); font-size: 22px; margin: 0; }
+.atlas-connecting p { margin: 0; }
+.atlas-connecting button { padding: 10px 20px; background: var(--accent); color: #16120a; border: 0; border-radius: 5px; cursor: pointer; }
+.atlas-global-error { position: fixed; z-index: 110; top: 58px; right: 12px; padding: 12px; background: var(--panel); color: var(--negative); border: 1px solid var(--negative); }
+.quant-workspace .app-shell { height: calc(100dvh - var(--header-height)); }
+.quant-workspace .brand-block { display: none; }
+.journal-root { --background: var(--bg); --foreground: var(--text); --primary: var(--accent); --secondary: var(--panel-raised); --radius: 8px; color: var(--text); background: var(--bg); font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+.journal-root .ledger-shell { min-height: calc(100dvh - var(--header-height)); }
+.journal-root .sidebar { top: var(--header-height); width: 204px; padding: 26px 16px 16px; background: #0e141c; border-right: 1px solid var(--border); }
+.journal-root .brand { padding: 0 12px 24px; font-size: 18px; }
+.journal-root .brand > svg { color: var(--accent); }
+.journal-root .brand span { color: var(--muted); letter-spacing: 0; font-size: 12px; }
+.journal-root .sidebar-note { display: none; }
+.journal-root .profile { margin-top: auto; }
+.journal-root .profile > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.journal-root .workspace-label { color: var(--muted); }
+.journal-root .sidebar nav button { color: var(--muted); border-radius: 5px; }
+.journal-root .sidebar nav button.active { color: var(--accent); background: var(--panel-raised); }
+.journal-root .main { margin-left: 204px; min-width: 0; width: calc(100% - 204px); }
+.journal-root .topbar { background: var(--panel); border-bottom: 1px solid var(--border); }
+.journal-root .mobile-menu { display: none; }
+.journal-root .top-logout-button, .journal-root .profile .logout-button { display: none; }
+.journal-root .page { max-width: 1560px; }
+.journal-root h1, .journal-root h2, .journal-root h3, .journal-root .login-copy h1, .journal-root .login-card h2 { font-family: inherit; color: var(--text); }
+.journal-root .page-heading h1 { font-size: 26px; font-weight: 650; letter-spacing: -.02em; }
+.journal-root .eyebrow { display: none; }
+.journal-root .panel, .journal-root .stat-card, .journal-root .strategy-card, .journal-root .account-card { border-radius: 8px; background: var(--panel); border-color: var(--border); box-shadow: none; }
+.journal-root .primary-button, .journal-root [data-slot="button"][data-variant="default"] { background: var(--accent); color: #16120a; }
+.journal-root [data-slot="button"] { border-style: solid; }
+.journal-root [data-slot="button"][data-variant="ghost"] { background: transparent; border-color: transparent; }
+.journal-root [data-slot="button"][data-variant="outline"] { background: var(--bg); border: 1px solid var(--border); }
+.journal-root [data-slot="button"][data-variant="default"]:hover { background: #ffc867; }
+.journal-root [data-slot="input"], .journal-root [data-slot="textarea"], .journal-root [data-slot="native-select"] { border: 1px solid var(--border); color: var(--text); background-color: var(--bg); }
+.journal-root input::placeholder, .journal-root textarea::placeholder { color: #95a2b2; opacity: 1; }
+.journal-root .gain { color: var(--positive); }
+.journal-root .loss { color: var(--negative); }
+.journal-root [data-slot="dialog-content"] { background: var(--panel); color: var(--text); border: 1px solid #435064; box-shadow: 0 18px 70px #0008; z-index: 120; }
+.journal-root [data-slot="dialog-overlay"] { background: #0009; z-index: 119; }
+.journal-root [data-slot="dialog-close"] { color: var(--muted); }
+.journal-root [data-slot="dialog-close"]:hover { color: var(--text); }
+.journal-root .login-page { background: var(--bg); min-height: 100dvh; }
+.journal-root .login-story { background: var(--panel); border-right: 1px solid var(--border); min-height: 100dvh; }
+.journal-root .login-story::after { display: none; }
+.journal-root .login-panel { min-height: 100dvh; }
+.journal-root .login-card { border-radius: 12px; padding: 36px; background: var(--panel); box-shadow: none; }
+.journal-root .login-copy h1 { font-size: clamp(32px, 3.6vw, 52px); font-weight: 600; line-height: 1.3; }
+.journal-root .login-brand > svg { color: var(--accent); }
+.journal-root .login-copy p, .journal-root .login-security { color: var(--muted); }
+.journal-root .login-mark { background: var(--panel-raised); color: var(--accent); }
+.journal-root .login-input { background: var(--bg); border-color: var(--border); }
+.journal-root .login-capabilities { display: flex; flex-direction: column; gap: 10px; color: var(--muted); font-size: 13px; }
+.journal-root .login-error { color: var(--negative); background: #301e25; }
+.journal-root .login-card .primary-button { min-height: 40px; }
+.journal-root .auth-switch button { color: var(--accent); }
+.journal-root button:focus-visible, .journal-root a:focus-visible, .atlas-header a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 900px) {
+  .atlas-header { gap: 12px; padding: 0 12px; }
+  .atlas-brand strong span, .atlas-session > span { display: none; }
+  .journal-root .sidebar { width: 204px; }
+}
+@media (max-width: 820px) {
+  .atlas-header { position: sticky; top: 0; }
+  .atlas-workspaces { margin-left: auto; gap: 0; }
+  .atlas-workspaces a { padding: 0 8px; font-size: 12px; gap: 5px; }
+  .atlas-session { margin-left: 0; }
+  .atlas-session button span { display: none; }
+  .quant-workspace .app-shell { height: auto; min-height: calc(100dvh - 52px); }
+  .journal-root .main { width: 100%; margin-left: 0; }
+  .journal-root .sidebar { top: 52px; }
+  .journal-root .mobile-menu { display: flex; }
+  .journal-root .detail-holdings .panel-header { flex-wrap: wrap; gap: 14px; }
+  .journal-root .detail-holdings .panel-header > div:first-child { flex: 1 1 100%; min-width: 0; }
+  .journal-root .detail-holdings .panel-header > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+  .journal-root .topbar { top: 52px; }
+  .journal-root .mobile-scrim { top: 52px; }
+  .journal-root .page { padding: 20px 14px; }
+  .journal-root .login-story { min-height: auto; }
+  .journal-root .login-panel { min-height: auto; }
+}
+@media (max-width: 400px) {
+  .atlas-brand strong { font-size: 14px; }
+  .atlas-brand > svg { display: none; }
+  .atlas-header { gap: 6px; padding: 0 8px; }
+  .atlas-workspaces a { padding: 0 6px; }
+}

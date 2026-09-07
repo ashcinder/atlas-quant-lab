@@ -355,6 +355,16 @@ class ResearchService:
                 )
                 """
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(research_jobs)")
+            }
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE research_jobs ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_research_jobs_owner ON research_jobs(owner_id)"
+            )
             connection.execute(
                 "UPDATE research_jobs SET status='failed', "
                 "error='服务重启导致任务中断', updated_at=? "
@@ -371,25 +381,26 @@ class ResearchService:
                 (*values.values(), job_id),
             )
 
-    def submit(self, request: ResearchRequest) -> ResearchJob:
+    def submit(self, owner_id: str, request: ResearchRequest) -> ResearchJob:
         job_id = str(uuid4())
         now = _now()
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO research_jobs VALUES (?, ?, NULL, 'queued', 0, ?, NULL, ?, ?)",
+                "INSERT INTO research_jobs (id, request_json, result_json, status, progress, message, error, created_at, updated_at, owner_id) VALUES (?, ?, NULL, 'queued', 0, ?, NULL, ?, ?, ?)",
                 (
                     job_id,
                     request.model_dump_json(),
                     "已加入研究队列",
                     now.isoformat(),
                     now.isoformat(),
+                    owner_id,
                 ),
             )
         event = threading.Event()
         with self.lock:
             self.cancel_events[job_id] = event
         self.executor.submit(self._execute, job_id, request, event)
-        return self.get(job_id)
+        return self.get(owner_id, job_id)
 
     def _execute(self, job_id: str, request: ResearchRequest, cancelled: threading.Event) -> None:
         try:
@@ -423,9 +434,11 @@ class ResearchService:
             with self.lock:
                 self.cancel_events.pop(job_id, None)
 
-    def get(self, job_id: str) -> ResearchJob:
+    def get(self, owner_id: str, job_id: str) -> ResearchJob:
         with self._connect() as connection:
-            row = connection.execute("SELECT * FROM research_jobs WHERE id=?", (job_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM research_jobs WHERE id=? AND owner_id=?", (job_id, owner_id)
+            ).fetchone()
         if row is None:
             raise KeyError(job_id)
         result = (
@@ -442,8 +455,8 @@ class ResearchService:
             updated_at=row["updated_at"],
         )
 
-    def cancel(self, job_id: str) -> ResearchJob:
-        job = self.get(job_id)
+    def cancel(self, owner_id: str, job_id: str) -> ResearchJob:
+        job = self.get(owner_id, job_id)
         if job.status in {"completed", "failed", "cancelled"}:
             return job
         with self.lock:
@@ -451,7 +464,7 @@ class ResearchService:
         if event is not None:
             event.set()
         self._update(job_id, message="正在取消")
-        return self.get(job_id)
+        return self.get(owner_id, job_id)
 
     def shutdown(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)

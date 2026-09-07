@@ -5,6 +5,7 @@ import {
   Sparkles, UserRoundCheck, X, Zap,
 } from 'lucide-react'
 import { api } from '../api'
+import { userStorageKey } from '../storage'
 import type {
   QuantAgent, QuantCategory, QuantChainStatus, QuantJudgeOverview, QuantReport,
   QuantSubscription, QuantVerification,
@@ -127,7 +128,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [publish, setPublish] = useState<PublishState>(initialPublish)
   const [credential, setCredential] = useState<{ token: string; salt: string | null } | null>(null)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
-  const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem('quantjudge-investor') ?? '')
+  const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem(userStorageKey('quantjudge-investor')) ?? '')
   const [subscriptions, setSubscriptions] = useState<QuantSubscription[]>([])
   const [activeView, setActiveView] = useState<'market' | 'subscriptions'>('market')
   const dialogRef = useRef<HTMLElement>(null)
@@ -222,7 +223,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const subscribe = async () => {
     if (!selected || investorAlias.trim().length < 2) { onError('请输入至少 2 个字符的投资人别名'); return }
     try {
-      localStorage.setItem('quantjudge-investor', investorAlias.trim())
+      localStorage.setItem(userStorageKey('quantjudge-investor'), investorAlias.trim())
       await api.subscribeQuantAgent(selected.id, { investor_alias: investorAlias.trim(), billing_cycle: 'monthly' })
       setSubscriptions(await api.listQuantSubscriptions(investorAlias.trim()))
       setSubscribeOpen(false); setActiveView('subscriptions'); await load()

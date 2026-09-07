@@ -13,8 +13,10 @@
 !frontend/index.html
 !frontend/package.json
 !frontend/pnpm-lock.yaml
+!frontend/pnpm-workspace.yaml
 !frontend/tsconfig*.json
 !frontend/vite.config.ts
+!frontend/postcss.config.mjs
 !strategy/
 !strategy/zkvm/
 !strategy/zkvm/profiles.json

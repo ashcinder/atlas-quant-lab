@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 from pathlib import Path
 from statistics import mean
@@ -121,6 +122,19 @@ class StrategyProjectStore:
                 """
             )
 
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(strategy_projects)")
+            }
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE strategy_projects ADD COLUMN "
+                    "owner_id TEXT NOT NULL DEFAULT 'local'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_strategy_projects_owner "
+                "ON strategy_projects(owner_id, updated_at DESC)"
+            )
+
     @staticmethod
     def _gate_state(row: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
         values = dict(row)
@@ -213,31 +227,33 @@ class StrategyProjectStore:
         payload["next_gate"] = next((item for item in payload["gates"] if not item["passed"]), None)
         return payload
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, owner_id: str = "local") -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM strategy_projects ORDER BY updated_at DESC"
+                "SELECT * FROM strategy_projects WHERE owner_id = ? ORDER BY updated_at DESC",
+                (owner_id,),
             ).fetchall()
         return [self._public(row) for row in rows]
 
-    def get(self, project_id: str) -> dict[str, Any]:
+    def get(self, project_id: str, owner_id: str = "local") -> dict[str, Any]:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM strategy_projects WHERE id = ?", (project_id,)
+                "SELECT * FROM strategy_projects WHERE id = ? AND owner_id = ?",
+                (project_id, owner_id),
             ).fetchone()
         if row is None:
             raise KeyError(project_id)
         return self._public(row)
 
-    def create(self, request: StrategyProjectCreate) -> dict[str, Any]:
+    def create(self, request: StrategyProjectCreate, owner_id: str = "local") -> dict[str, Any]:
         project_id = f"sp_{uuid4().hex[:18]}"
         now = utc_now().isoformat()
         with self._connect() as connection:
             connection.execute(
                 """INSERT INTO strategy_projects (
                     id, name, thesis, asset_symbol, asset_class, interval, benchmark,
-                    objective, deployment_mode, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    objective, deployment_mode, created_at, updated_at, owner_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project_id,
                     request.name,
@@ -250,9 +266,10 @@ class StrategyProjectStore:
                     request.deployment_mode,
                     now,
                     now,
+                    owner_id,
                 ),
             )
-        return self.get(project_id)
+        return self.get(project_id, owner_id)
 
     @staticmethod
     def _assert_revision(row: sqlite3.Row, expected: int) -> None:
@@ -261,10 +278,12 @@ class StrategyProjectStore:
                 f"项目已在其他操作中更新（当前 r{row['revision']}，提交基于 r{expected}）"
             )
 
-    def update(self, project_id: str, request: StrategyProjectUpdate) -> dict[str, Any]:
+    def update(
+        self, project_id: str, request: StrategyProjectUpdate, owner_id: str = "local"
+    ) -> dict[str, Any]:
         changes = request.model_dump(exclude_none=True, exclude={"expected_revision"})
         if not changes:
-            return self.get(project_id)
+            return self.get(project_id, owner_id)
         allowed = {
             "name",
             "thesis",
@@ -279,7 +298,8 @@ class StrategyProjectStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM strategy_projects WHERE id = ?", (project_id,)
+                "SELECT * FROM strategy_projects WHERE id = ? AND owner_id = ?",
+                (project_id, owner_id),
             ).fetchone()
             if row is None:
                 raise KeyError(project_id)
@@ -296,9 +316,7 @@ class StrategyProjectStore:
             )
             assignments = [f"{key} = ?" for key in changes]
             values: list[Any] = list(changes.values())
-            assignments.extend(
-                ["version = NULL", "commitment = NULL", "quant_report_id = NULL"]
-            )
+            assignments.extend(["version = NULL", "commitment = NULL", "quant_report_id = NULL"])
             if research_invalidated:
                 assignments.extend(
                     [
@@ -317,14 +335,48 @@ class StrategyProjectStore:
                 f"UPDATE strategy_projects SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
                 values,
             )
-        return self.get(project_id)
+        return self.get(project_id, owner_id)
 
     def _resolve_artifact(
-        self, connection: sqlite3.Connection, project: sqlite3.Row, link: ProjectArtifactLink
+        self,
+        connection: sqlite3.Connection,
+        project: sqlite3.Row,
+        link: ProjectArtifactLink,
+        developer_token: str | None = None,
     ) -> dict[str, Any]:
+        if project["owner_id"] != "local":
+            if link.kind in {"strategy", "research"}:
+                table = "custom_strategies" if link.kind == "strategy" else "research_jobs"
+                owned = connection.execute(
+                    f"SELECT 1 FROM {table} WHERE id=? AND owner_id=?",
+                    (link.artifact_id, project["owner_id"]),
+                ).fetchone()
+                if not owned:
+                    raise ProjectGateError("制品不存在或不属于当前账户")
+            elif link.kind in {"package", "workflow"}:
+                table = "qj_strategy_packages" if link.kind == "package" else "qj_workflows"
+                owned = connection.execute(
+                    f"SELECT agent_id FROM {table} WHERE id=?", (link.artifact_id,)
+                ).fetchone()
+                if not owned:
+                    raise ProjectGateError("私密制品不存在")
+                agent = connection.execute(
+                    "SELECT developer_token_hash, is_demo FROM qj_agents WHERE id=?",
+                    (owned["agent_id"],),
+                ).fetchone()
+                if (
+                    not developer_token
+                    or not agent
+                    or agent["is_demo"]
+                    or not secrets.compare_digest(
+                        agent["developer_token_hash"], sha256_hex(developer_token)
+                    )
+                ):
+                    raise ProjectGateError("绑定私密制品需要该 Agent 的有效开发者凭证")
         if link.kind == "strategy":
             row = connection.execute(
-                "SELECT id, spec_json FROM custom_strategies WHERE id = ?", (link.artifact_id,)
+                "SELECT id, spec_json FROM custom_strategies WHERE id = ? AND owner_id = ?",
+                (link.artifact_id, project["owner_id"]),
             ).fetchone()
             if row is None:
                 raise ProjectGateError("自定义策略不存在")
@@ -373,9 +425,7 @@ class StrategyProjectStore:
                 raise ProjectGateError("研究任务必须包含手续费、滑点或买卖价差")
             strategy_id = project["custom_strategy_id"]
             if not strategy_id:
-                raise ProjectGateError(
-                    "私密策略包必须先由隔离 Runner 生成内容哈希绑定的研究回执"
-                )
+                raise ProjectGateError("私密策略包必须先由隔离 Runner 生成内容哈希绑定的研究回执")
             matching_experiment = next(
                 (
                     experiment
@@ -387,9 +437,7 @@ class StrategyProjectStore:
             )
             if matching_experiment is None:
                 raise ProjectGateError("研究任务未包含当前项目绑定的策略版本")
-            experiment_hash = sha256_hex(
-                canonical_json(matching_experiment["custom_strategy"])
-            )
+            experiment_hash = sha256_hex(canonical_json(matching_experiment["custom_strategy"]))
             if experiment_hash != project["strategy_hash"]:
                 raise ProjectGateError("研究任务使用的策略内容哈希与当前项目不一致")
             candidates = [
@@ -452,16 +500,23 @@ class StrategyProjectStore:
             raise ProjectGateError("项目尚未冻结版本，不能绑定公开报告")
         return {"quant_report_id": row["id"]}
 
-    def link_artifact(self, project_id: str, link: ProjectArtifactLink) -> dict[str, Any]:
+    def link_artifact(
+        self,
+        project_id: str,
+        link: ProjectArtifactLink,
+        owner_id: str = "local",
+        developer_token: str | None = None,
+    ) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM strategy_projects WHERE id = ?", (project_id,)
+                "SELECT * FROM strategy_projects WHERE id = ? AND owner_id = ?",
+                (project_id, owner_id),
             ).fetchone()
             if row is None:
                 raise KeyError(project_id)
             self._assert_revision(row, link.expected_revision)
-            changes = self._resolve_artifact(connection, row, link)
+            changes = self._resolve_artifact(connection, row, link, developer_token)
             assignments = [f"{key} = ?" for key in changes]
             values = list(changes.values())
             if link.kind != "report":
@@ -486,13 +541,16 @@ class StrategyProjectStore:
                 f"UPDATE strategy_projects SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
                 values,
             )
-        return self.get(project_id)
+        return self.get(project_id, owner_id)
 
-    def freeze(self, project_id: str, request: ProjectFreezeRequest) -> dict[str, Any]:
+    def freeze(
+        self, project_id: str, request: ProjectFreezeRequest, owner_id: str = "local"
+    ) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM strategy_projects WHERE id = ?", (project_id,)
+                "SELECT * FROM strategy_projects WHERE id = ? AND owner_id = ?",
+                (project_id, owner_id),
             ).fetchone()
             if row is None:
                 raise KeyError(project_id)
@@ -522,4 +580,4 @@ class StrategyProjectStore:
                    revision = revision + 1, updated_at = ? WHERE id = ?""",
                 (request.version, commitment, utc_now().isoformat(), project_id),
             )
-        return self.get(project_id)
+        return self.get(project_id, owner_id)

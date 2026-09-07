@@ -1,17 +1,37 @@
+import json
+import re
 from contextlib import asynccontextmanager
 from datetime import UTC
 
-from fastapi import FastAPI, File, Header, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    FastAPI,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.auth import parse_session
 from app.backtest import run_backtest, run_portfolio_backtest
 from app.catalog import search_assets
-from app.config import APP_NAME, APP_VERSION
+from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, STATIC_DIR
 from app.data import MarketDataService
 from app.data.providers import ProviderError
+from app.execution_api import execution_router
 from app.fundamentals import FundamentalsService
 from app.indicators import calculate_indicators, serialize_indicators
+from app.journal.router import _origin_ok
+from app.journal.router import router as journal_router
+from app.journal.router import store as journal_store
+from app.journal.scheduler import JournalScheduler
 from app.models import (
     AlertNotification,
     AlertRule,
@@ -67,7 +87,6 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
-from app.execution_api import execution_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -80,13 +99,16 @@ zk_proof_store = ZkProofStore()
 quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
 strategy_project_store = StrategyProjectStore()
+journal_scheduler = JournalScheduler(journal_store)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     alert_monitor.start()
+    journal_scheduler.start()
     yield
     alert_monitor.stop()
+    journal_scheduler.stop()
     research_service.shutdown()
 
 
@@ -101,11 +123,69 @@ app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(execution_router(strategy_studio_store, zk_proof_store))
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=False,
+    allow_origins=list(ALLOWED_ORIGINS),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(journal_router)
+
+
+@app.exception_handler(json.JSONDecodeError)
+async def invalid_json(_request, _error):
+    return JSONResponse({"error": "请求 JSON 格式无效"}, status_code=400)
+
+
+@app.exception_handler(ValueError)
+async def invalid_value(_request, error):
+    return JSONResponse({"error": str(error)}, status_code=400)
+
+
+@app.middleware("http")
+async def require_atlas_user(request: Request, call_next):
+    if (
+        request.method != "OPTIONS"
+        and request.url.path.startswith("/api/v1/")
+        and request.url.path != "/api/v1/health"
+    ):
+        if not _origin_ok(request):
+            return JSONResponse({"error": "来源不被允许"}, status_code=403)
+        user = parse_session(request, journal_store.find_session_user)
+        if user is None:
+            return JSONResponse({"error": "需要登录"}, status_code=401)
+        request.state.user = user
+    if request.url.path.startswith("/api/") and request.method in {
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+    }:
+        if not _origin_ok(request):
+            return JSONResponse({"error": "来源不被允许"}, status_code=403)
+        upload = re.fullmatch(
+            r"/api/v1/quantjudge/agents/[^/]+/(packages|zk-proofs)", request.url.path
+        )
+        multipart = bool(upload and request.method == "POST")
+        limit = (
+            ((MAX_ARCHIVE_BYTES if upload[1] == "packages" else MAX_RECEIPT_BYTES) + 65536)
+            if multipart
+            else 4_000_000
+        )
+        expected_type = "multipart/form-data" if multipart else "application/json"
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > limit:
+                return JSONResponse({"error": "请求超过允许大小"}, status_code=413)
+            body.extend(chunk)
+        if body and request.headers.get("content-type", "").split(";")[0].strip() != expected_type:
+            return JSONResponse({"error": f"请使用 {expected_type}"}, status_code=415)
+        request._body = bytes(body)
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
 
 
 @app.get("/api/v1/health")
@@ -173,7 +253,7 @@ def market_fundamentals(
 
 
 @app.post("/api/v1/backtests", response_model=BacktestResult)
-def create_backtest(request: BacktestRequest):
+def create_backtest(request: BacktestRequest, http_request: Request):
     try:
         bundle = data_service.fetch(
             request.symbol,
@@ -188,12 +268,17 @@ def create_backtest(request: BacktestRequest):
     except (ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.persist:
-        run_store.save("single", request.model_dump(mode="json"), result.model_dump(mode="json"))
+        run_store.save(
+            http_request.state.user.id,
+            "single",
+            request.model_dump(mode="json"),
+            result.model_dump(mode="json"),
+        )
     return result
 
 
 @app.post("/api/v1/portfolio/backtests", response_model=PortfolioResult)
-def create_portfolio_backtest(request: PortfolioBacktestRequest):
+def create_portfolio_backtest(request: PortfolioBacktestRequest, http_request: Request):
     try:
         bundles = [
             data_service.fetch(
@@ -223,26 +308,31 @@ def create_portfolio_backtest(request: PortfolioBacktestRequest):
     except (ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.persist:
-        run_store.save("portfolio", request.model_dump(mode="json"), result.model_dump(mode="json"))
+        run_store.save(
+            http_request.state.user.id,
+            "portfolio",
+            request.model_dump(mode="json"),
+            result.model_dump(mode="json"),
+        )
     return result
 
 
 @app.get("/api/v1/runs", response_model=list[RunSummary])
-def list_runs(limit: int = Query(default=50, ge=1, le=200)):
-    return run_store.list(limit)
+def list_runs(http_request: Request, limit: int = Query(default=50, ge=1, le=200)):
+    return run_store.list(http_request.state.user.id, limit)
 
 
 @app.get("/api/v1/runs/{run_id}")
-def get_run(run_id: str):
-    result = run_store.get(run_id)
+def get_run(run_id: str, http_request: Request):
+    result = run_store.get(http_request.state.user.id, run_id)
     if result is None:
         raise HTTPException(status_code=404, detail="回测记录不存在")
     return result
 
 
 @app.delete("/api/v1/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_run(run_id: str):
-    if not run_store.delete(run_id):
+def delete_run(run_id: str, http_request: Request):
+    if not run_store.delete(http_request.state.user.id, run_id):
         raise HTTPException(status_code=404, detail="回测记录不存在")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -252,73 +342,73 @@ def delete_run(run_id: str):
     response_model=ResearchJob,
     status_code=status.HTTP_202_ACCEPTED,
 )
-def create_research_job(request: ResearchRequest):
+def create_research_job(request: ResearchRequest, http_request: Request):
     try:
-        return research_service.submit(request)
+        return research_service.submit(http_request.state.user.id, request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/research/jobs/{job_id}", response_model=ResearchJob)
-def get_research_job(job_id: str):
+def get_research_job(job_id: str, http_request: Request):
     try:
-        return research_service.get(job_id)
+        return research_service.get(http_request.state.user.id, job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="研究任务不存在") from exc
 
 
 @app.delete("/api/v1/research/jobs/{job_id}", response_model=ResearchJob)
-def cancel_research_job(job_id: str):
+def cancel_research_job(job_id: str, http_request: Request):
     try:
-        return research_service.cancel(job_id)
+        return research_service.cancel(http_request.state.user.id, job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="研究任务不存在") from exc
 
 
 @app.get("/api/v1/custom-strategies", response_model=list[CustomStrategyRecord])
-def list_custom_strategies():
-    return workspace_store.list_custom_strategies()
+def list_custom_strategies(http_request: Request):
+    return workspace_store.list_custom_strategies(http_request.state.user.id)
 
 
 @app.put("/api/v1/custom-strategies/{strategy_id}", response_model=CustomStrategyRecord)
-def save_custom_strategy(strategy_id: str, spec: CustomStrategySpec):
+def save_custom_strategy(strategy_id: str, spec: CustomStrategySpec, http_request: Request):
     if strategy_id != spec.id:
         raise HTTPException(status_code=422, detail="路径中的策略ID与内容不一致")
     try:
-        return workspace_store.save_custom_strategy(spec)
+        return workspace_store.save_custom_strategy(spec, http_request.state.user.id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.delete("/api/v1/custom-strategies/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_custom_strategy(strategy_id: str):
-    if not workspace_store.delete_custom_strategy(strategy_id):
+def delete_custom_strategy(strategy_id: str, http_request: Request):
+    if not workspace_store.delete_custom_strategy(strategy_id, http_request.state.user.id):
         raise HTTPException(status_code=404, detail="自定义策略不存在")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/api/v1/strategy-projects")
-def list_strategy_projects():
-    return strategy_project_store.list()
+def list_strategy_projects(http_request: Request):
+    return strategy_project_store.list(http_request.state.user.id)
 
 
 @app.post("/api/v1/strategy-projects", status_code=status.HTTP_201_CREATED)
-def create_strategy_project(request: StrategyProjectCreate):
-    return strategy_project_store.create(request)
+def create_strategy_project(request: StrategyProjectCreate, http_request: Request):
+    return strategy_project_store.create(request, http_request.state.user.id)
 
 
 @app.get("/api/v1/strategy-projects/{project_id}")
-def get_strategy_project(project_id: str):
+def get_strategy_project(project_id: str, http_request: Request):
     try:
-        return strategy_project_store.get(project_id)
+        return strategy_project_store.get(project_id, http_request.state.user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="策略项目不存在") from exc
 
 
 @app.patch("/api/v1/strategy-projects/{project_id}")
-def update_strategy_project(project_id: str, request: StrategyProjectUpdate):
+def update_strategy_project(project_id: str, request: StrategyProjectUpdate, http_request: Request):
     try:
-        return strategy_project_store.update(project_id, request)
+        return strategy_project_store.update(project_id, request, http_request.state.user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="策略项目不存在") from exc
     except ProjectConflictError as exc:
@@ -326,9 +416,16 @@ def update_strategy_project(project_id: str, request: StrategyProjectUpdate):
 
 
 @app.post("/api/v1/strategy-projects/{project_id}/artifacts")
-def link_strategy_project_artifact(project_id: str, request: ProjectArtifactLink):
+def link_strategy_project_artifact(
+    project_id: str,
+    request: ProjectArtifactLink,
+    http_request: Request,
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
     try:
-        return strategy_project_store.link_artifact(project_id, request)
+        return strategy_project_store.link_artifact(
+            project_id, request, http_request.state.user.id, developer_token
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="策略项目不存在") from exc
     except ProjectConflictError as exc:
@@ -338,9 +435,9 @@ def link_strategy_project_artifact(project_id: str, request: ProjectArtifactLink
 
 
 @app.post("/api/v1/strategy-projects/{project_id}/freeze")
-def freeze_strategy_project(project_id: str, request: ProjectFreezeRequest):
+def freeze_strategy_project(project_id: str, request: ProjectFreezeRequest, http_request: Request):
     try:
-        return strategy_project_store.freeze(project_id, request)
+        return strategy_project_store.freeze(project_id, request, http_request.state.user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="策略项目不存在") from exc
     except ProjectConflictError as exc:
@@ -350,43 +447,43 @@ def freeze_strategy_project(project_id: str, request: ProjectFreezeRequest):
 
 
 @app.get("/api/v1/alerts", response_model=list[AlertRule])
-def list_alerts():
-    return workspace_store.list_alerts()
+def list_alerts(http_request: Request):
+    return workspace_store.list_alerts(http_request.state.user.id)
 
 
 @app.post("/api/v1/alerts", response_model=AlertRule, status_code=status.HTTP_201_CREATED)
-def create_alert(rule: AlertRuleCreate):
-    return workspace_store.create_alert(rule)
+def create_alert(rule: AlertRuleCreate, http_request: Request):
+    return workspace_store.create_alert(rule, http_request.state.user.id)
 
 
 @app.put("/api/v1/alerts/{alert_id}", response_model=AlertRule)
-def update_alert(alert_id: str, rule: AlertRuleCreate):
-    updated = workspace_store.update_alert(alert_id, rule)
+def update_alert(alert_id: str, rule: AlertRuleCreate, http_request: Request):
+    updated = workspace_store.update_alert(alert_id, rule, http_request.state.user.id)
     if updated is None:
         raise HTTPException(status_code=404, detail="提醒规则不存在")
     return updated
 
 
 @app.delete("/api/v1/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_alert(alert_id: str):
-    if not workspace_store.delete_alert(alert_id):
+def delete_alert(alert_id: str, http_request: Request):
+    if not workspace_store.delete_alert(alert_id, http_request.state.user.id):
         raise HTTPException(status_code=404, detail="提醒规则不存在")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/v1/alerts/evaluate", response_model=list[AlertNotification])
-def evaluate_alerts():
-    return alert_monitor.evaluate_all()
+def evaluate_alerts(http_request: Request):
+    return alert_monitor.evaluate_all(http_request.state.user.id)
 
 
 @app.get("/api/v1/notifications", response_model=list[AlertNotification])
-def list_notifications(limit: int = Query(default=100, ge=1, le=500)):
-    return workspace_store.list_notifications(limit)
+def list_notifications(http_request: Request, limit: int = Query(default=100, ge=1, le=500)):
+    return workspace_store.list_notifications(http_request.state.user.id, limit)
 
 
 @app.post("/api/v1/notifications/read", status_code=status.HTTP_204_NO_CONTENT)
-def mark_notifications_read():
-    workspace_store.mark_notifications_read()
+def mark_notifications_read(http_request: Request):
+    workspace_store.mark_notifications_read(http_request.state.user.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -481,8 +578,7 @@ def create_zkp_market_dataset(
             "dataset": dataset,
             "download_url": f"/api/v1/quantjudge/zkp/market-datasets/{record['market_data_hash']}",
             "limitation": (
-                "市场数据根由平台从公开数据源获取并登记；"
-                "当前数据源未提供可独立验证的签名。"
+                "市场数据根由平台从公开数据源获取并登记；当前数据源未提供可独立验证的签名。"
             ),
         }
     except ProviderError as exc:
@@ -519,9 +615,7 @@ async def upload_zk_proof(
 ):
     receipt = await file.read(MAX_RECEIPT_BYTES + 1)
     try:
-        return zk_proof_store.register_receipt(
-            agent_id, proof_profile, receipt, developer_token
-        )
+        return zk_proof_store.register_receipt(agent_id, proof_profile, receipt, developer_token)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
     except PermissionError as exc:
@@ -566,9 +660,7 @@ def publish_zkp_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.publish_zk_report(
-            agent_id, request.proof_id, developer_token
-        )
+        return quantjudge_store.publish_zk_report(agent_id, request.proof_id, developer_token)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 或 ZKP 证明不存在") from exc
     except PermissionError as exc:
@@ -592,7 +684,9 @@ def anchor_quant_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.submit_anchor(report_id, request.signed_raw_transaction, developer_token)
+        return quantjudge_store.submit_anchor(
+            report_id, request.signed_raw_transaction, developer_token
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="证明回执不存在") from exc
     except PermissionError as exc:
@@ -608,7 +702,9 @@ def attach_quant_report_transaction(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.attach_transaction(report_id, request.transaction_hash, developer_token)
+        return quantjudge_store.attach_transaction(
+            report_id, request.transaction_hash, developer_token
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="证明回执不存在") from exc
     except PermissionError as exc:
@@ -616,16 +712,18 @@ def attach_quant_report_transaction(
 
 
 @app.post("/api/v1/quantjudge/agents/{agent_id}/subscriptions", status_code=status.HTTP_201_CREATED)
-def subscribe_quant_agent(agent_id: str, request: SubscriptionCreate):
+def subscribe_quant_agent(agent_id: str, request: SubscriptionCreate, http_request: Request):
     try:
-        return quantjudge_store.subscribe(agent_id, request)
+        return quantjudge_store.subscribe(agent_id, request, http_request.state.user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
 
 
 @app.get("/api/v1/quantjudge/subscriptions")
-def list_quant_subscriptions(investor_alias: str = Query(min_length=2, max_length=60)):
-    return quantjudge_store.list_subscriptions(investor_alias)
+def list_quant_subscriptions(
+    http_request: Request, investor_alias: str = Query(min_length=2, max_length=60)
+):
+    return quantjudge_store.list_subscriptions(investor_alias, http_request.state.user.id)
 
 
 @app.get("/api/v1/quantjudge/chain/status")
@@ -667,7 +765,7 @@ def list_quant_strategy_packages(
 )
 async def upload_quant_strategy_package(
     agent_id: str,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008 - FastAPI upload dependency
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     content = await file.read(MAX_ARCHIVE_BYTES + 1)
@@ -748,3 +846,13 @@ def save_quant_workflow(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except StrategyPackageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# The production build and API share one origin; Vite remains the development server.
+if STATIC_DIR.is_dir():
+    if (STATIC_DIR / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/")
+    def frontend():
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})

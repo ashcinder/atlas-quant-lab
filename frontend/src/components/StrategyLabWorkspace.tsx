@@ -47,10 +47,10 @@ function tabComplete(tab: StrategyLabTab, project: StrategyProject | null) {
 const descriptions: Record<StrategyLabTab, string> = {
   overview: '从一个投资假设开始，将规则、实验与证据组织成一项完整研究。',
   builder: '组合入场和退出条件，保存规则，再使用真实行情回测。',
-  workflow: '编排数据、信号、仓位和风控。当前支持结构校验与保存，AI 执行服务尚未接入。',
+  workflow: '编排并校验数据、信号和风控；Python 研究执行使用独立固定流程，可按部署配置启用本地 AI。',
   validate: '比较策略与参数，通过留出集和滚动验证，检查样本外表现。',
-  packages: '上传并加密保存 .qstrategy 策略包。上传的 Python 代码暂不支持平台执行。',
-  proof: '验证固定 SMA 策略的执行证明。当前覆盖单资产、只做多回测，不覆盖 TEE 与 AI 推理。',
+  packages: '上传 .qstrategy 策略包，在配置好的 gVisor 环境隔离研究执行；平台仍能读取策略，不等于 TEE。',
+  proof: '验证私密有界整数程序 v2 的执行证明，保留历史 SMA 验证；不覆盖任意 Python、TEE 或 AI 推理。',
   sdk: '查看策略契约、格式说明与 Python 示例，准备自己的策略包。',
 }
 
@@ -112,10 +112,10 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目更新失败'); throw reason }
     finally { setPendingProjectRequests((current) => current - 1) }
   }
-  const linkArtifact = async (kind: StrategyProjectArtifactKind, artifactId: string) => {
+  const linkArtifact = async (kind: StrategyProjectArtifactKind, artifactId: string, token?: string) => {
     if (!project) { researchProps.onError('先创建或选择策略项目，才能归档开发制品'); return }
     setPendingProjectRequests((current) => current + 1)
-    try { acceptProject(await api.linkStrategyProjectArtifact(project.id, project.revision, kind, artifactId)) }
+    try { acceptProject(await api.linkStrategyProjectArtifact(project.id, project.revision, kind, artifactId, token)) }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '制品绑定失败') }
     finally { setPendingProjectRequests((current) => current - 1) }
   }
@@ -158,7 +158,7 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
     </section> : null}
     {studioVisited ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载私密策略工作室…</div>}>
-        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord) => void linkArtifact('workflow', record.id)} onPackageUploaded={(record: StrategyPackageRecord) => void linkArtifact('package', record.id)} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
+        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onPackageUploaded={(record: StrategyPackageRecord, token: string) => void linkArtifact('package', record.id, token)} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
       </Suspense>
     </section> : null}
   </main>

@@ -13,7 +13,8 @@ import re
 import socket
 import subprocess
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPCookieProcessor
+from http.cookiejar import CookieJar
 from uuid import uuid4
 
 REPO = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ def main() -> None:
         "QUANTJUDGE_SUPERVISOR_RPC_URL": "http://127.0.0.1:42515",
     }
     command = ["docker", "compose", "-f", str(REPO / "compose.yaml"), "-p", project]
+    browser = build_opener(HTTPCookieProcessor(CookieJar()))
 
     def compose(*args: str, capture: bool = False, check: bool = True) -> str:
         result = subprocess.run(
@@ -44,7 +46,7 @@ def main() -> None:
             f"http://127.0.0.1:{port}{path}", data=data,
             headers={"Content-Type": "application/json"} if data else {},
         )
-        with urlopen(req, timeout=60) as response:
+        with browser.open(req, timeout=60) as response:
             return response.read(), response.headers.get("Content-Type", "")
 
     def api(path: str, payload: dict | None = None):
@@ -81,6 +83,10 @@ def main() -> None:
         assert api("/api/v1/health")["status"] == "ok"
         assert "/api/v1/health" in api("/openapi.json")["paths"]
         assert b"/openapi.json" in request("/api/docs")[0]
+        assert not api("/api/session")["authenticated"]
+        api("/api/register", {"email": "container-fixture@example.test", "password": "disposable-fixture-password"})
+        assert api("/api/session")["authenticated"]
+        assert api("/api/ledger")["state"]["accounts"] == []
         try:
             request("/api/v1/this-route-does-not-exist")
             raise AssertionError("Unknown API routes must not return the SPA")

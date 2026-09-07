@@ -1,0 +1,3 @@
+allowBuilds:
+  # Optional donation banner only; no runtime build is required.
+  tesseract.js: false

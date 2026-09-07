@@ -1,12 +1,26 @@
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client():
+    client = TestClient(app)
+    from app.journal.router import _attempts
+
+    _attempts.clear()
+    response = client.post(
+        "/api/register", json={"email": f"{uuid4()}@example.test", "password": "test-password-123"}
+    )
+    assert response.status_code == 201, response.text
+    yield client
+    client.close()
 
 
-def test_health_and_catalog():
+def test_health_and_catalog(client):
     assert client.get("/api/v1/health").status_code == 200
     assets = client.get("/api/v1/assets/search", params={"q": "黄金"}).json()
     assert any(asset["symbol"] == "GC=F" for asset in assets)
@@ -16,7 +30,7 @@ def test_health_and_catalog():
     assert dynamic[0]["symbol"] == "TSLA"
 
 
-def test_demo_market_and_backtest_endpoints():
+def test_demo_market_and_backtest_endpoints(client):
     market = client.get(
         "/api/v1/market/bars",
         params={"symbol": "BTC-USD", "asset_class": "crypto", "interval": "1d", "source": "demo"},
@@ -47,7 +61,7 @@ def test_demo_market_and_backtest_endpoints():
 
 
 @pytest.mark.parametrize("base_currency", ["CNY", "USD"])
-def test_portfolio_endpoint(base_currency):
+def test_portfolio_endpoint(client, base_currency):
     response = client.post(
         "/api/v1/portfolio/backtests",
         json={
@@ -74,12 +88,16 @@ def test_portfolio_endpoint(base_currency):
     assert 8 <= len(payload["weight_history"]) <= 20
 
 
-def test_invalid_strategy_parameters_return_actionable_validation_error():
+def test_invalid_strategy_parameters_return_actionable_validation_error(client):
     response = client.post(
         "/api/v1/backtests",
         json={
-            "symbol": "BTC-USD", "asset_class": "crypto", "data_source": "demo",
-            "strategy_id": "dca", "params": {"every_bars": 0}, "persist": False,
+            "symbol": "BTC-USD",
+            "asset_class": "crypto",
+            "data_source": "demo",
+            "strategy_id": "dca",
+            "params": {"every_bars": 0},
+            "persist": False,
         },
     )
     assert response.status_code == 422
@@ -114,7 +132,7 @@ def test_api_stores_use_isolated_test_storage():
         assert path.is_relative_to(DATA_DIR)
 
 
-def test_quantjudge_public_market_and_receipt_verification():
+def test_quantjudge_public_market_and_receipt_verification(client):
     overview = client.get("/api/v1/quantjudge/overview")
     assert overview.status_code == 200
     assert overview.json()["agents"] >= 6

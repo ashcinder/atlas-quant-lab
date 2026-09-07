@@ -266,6 +266,10 @@ class QuantJudgeStore:
                     "DEFAULT 'platform_attested'"
                 )
 
+            subscription_columns = {row["name"] for row in connection.execute("PRAGMA table_info(qj_subscriptions)")}
+            if "owner_id" not in subscription_columns:
+                connection.execute("ALTER TABLE qj_subscriptions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'")
+
     def bind_proof_store(self, proof_store: ZkProofStore) -> None:
         self.proof_store = proof_store
 
@@ -835,7 +839,7 @@ class QuantJudgeStore:
             )
         return self.verify_report(report_id)
 
-    def subscribe(self, agent_id: str, request: SubscriptionCreate) -> dict[str, Any]:
+    def subscribe(self, agent_id: str, request: SubscriptionCreate, owner_id: str = "local") -> dict[str, Any]:
         with self._connect() as connection:
             agent = connection.execute("SELECT * FROM qj_agents WHERE id = ?", (agent_id,)).fetchone()
         if agent is None:
@@ -852,13 +856,13 @@ class QuantJudgeStore:
                 """
                 INSERT INTO qj_subscriptions (
                     id, agent_id, investor_alias, billing_cycle, amount, currency, status,
-                    payment_mode, payment_reference, started_at, expires_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    payment_mode, payment_reference, started_at, expires_at, created_at, owner_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     subscription_id, agent_id, request.investor_alias, request.billing_cycle,
                     amount, agent["price_currency"], status, payment_mode, request.payment_reference,
-                    started.isoformat(), expires.isoformat(), started.isoformat(),
+                    started.isoformat(), expires.isoformat(), started.isoformat(), owner_id,
                 ),
             )
         return self.get_subscription(subscription_id)
@@ -874,13 +878,13 @@ class QuantJudgeStore:
             raise KeyError(subscription_id)
         return dict(row)
 
-    def list_subscriptions(self, investor_alias: str) -> list[dict[str, Any]]:
+    def list_subscriptions(self, investor_alias: str, owner_id: str = "local") -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT s.*, a.name AS agent_name FROM qj_subscriptions s
                    JOIN qj_agents a ON a.id = s.agent_id
-                   WHERE s.investor_alias = ? ORDER BY s.created_at DESC""",
-                (investor_alias,),
+                   WHERE s.investor_alias = ? AND s.owner_id = ? ORDER BY s.created_at DESC""",
+                (investor_alias, owner_id),
             ).fetchall()
         return [dict(row) for row in rows]
 

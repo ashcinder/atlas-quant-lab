@@ -19,8 +19,8 @@ interface Props {
   activeTab?: StudioTab
   embedded?: boolean
   onTabChange?: (tab: StudioTab) => void
-  onWorkflowSaved?: (record: StudioWorkflowRecord) => void
-  onPackageUploaded?: (record: StrategyPackageRecord) => void
+  onWorkflowSaved?: (record: StudioWorkflowRecord, token: string) => void
+  onPackageUploaded?: (record: StrategyPackageRecord, token: string) => void
   onDraftChange?: (dirty: boolean) => void
   assetSymbol?: string
   assetClass?: string
@@ -256,7 +256,7 @@ export function QuantStrategyStudio({
       packageRequest.current += 1
       setLoadingPackages(false)
       setPackages((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]); goTab('packages')
-      onPackageUploaded?.(uploaded)
+      onPackageUploaded?.(uploaded, token)
     } catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : '策略包上传失败') }
     finally { if (session === privateSession.current) { uploadingRef.current = false; setUploading(false) } }
   }
@@ -290,7 +290,7 @@ export function QuantStrategyStudio({
       const unchanged = draftRevision.current === revision
       if (unchanged) setDirty(false)
       setSaveNotice({ tone: 'success', text: unchanged ? `已保存 r${record.revision} · ${record.graph_hash.slice(0, 12)}…` : `已保存提交时的版本 r${record.revision}；你在保存期间的新修改仍未保存。` })
-      onWorkflowSaved?.(record)
+      onWorkflowSaved?.(record, token)
     }
     catch (reason) {
       const message = reason instanceof Error ? reason.message : '工作流保存失败'
