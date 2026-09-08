@@ -419,9 +419,11 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         </div>) : !templateLoadError ? <p>保存第一套规则后，可在这里重新载入。草稿只保留在当前页面内存中。</p> : null}
       </aside>
       <section className="builder-canvas">
-        <div className={`lab-draft-status ${builderDirty ? 'is-dirty' : ''}`}><strong>{builderDirty ? '规则草稿 · 未保存' : '规则编辑器'}</strong><span>切换实验室步骤会保留草稿；刷新或关闭页面前请保存。</span></div>
-        {builderNotice ? <div className={`lab-draft-status is-${builderNotice.tone}`} role={builderNotice.tone === 'error' ? 'alert' : 'status'}>{builderNotice.text}</div> : null}
-        <header><div><label><span>策略名称</span><input value={builderName} onChange={(event) => { markBuilderEdited(); setBuilderName(event.target.value) }} /></label><label><span>策略 ID</span><input value={builderId} onChange={(event) => { markBuilderEdited(); setBuilderId(event.target.value) }} /></label></div><label className="target-position"><span>目标仓位</span><input type="number" min={1} max={100} value={Math.round(targetPosition * 100)} onChange={(event) => { markBuilderEdited(); setTargetPosition(Number(event.target.value) / 100) }} /><em>%</em></label></header>
+        <div className="builder-status-stack">
+          <div className={`lab-draft-status ${builderDirty ? 'is-dirty' : ''}`}><strong>{builderDirty ? '规则草稿 · 未保存' : '规则编辑器'}</strong><span>切换实验室步骤会保留草稿；刷新或关闭页面前请保存。</span></div>
+          {builderNotice ? <div className={`lab-draft-status is-${builderNotice.tone}`} role={builderNotice.tone === 'error' ? 'alert' : 'status'}>{builderNotice.text}</div> : null}
+        </div>
+        <header><div><label><span>策略名称</span><input value={builderName} onChange={(event) => { markBuilderEdited(); setBuilderName(event.target.value) }} /></label><label><span>策略 ID</span><input value={builderId} onChange={(event) => { markBuilderEdited(); setBuilderId(event.target.value) }} /></label></div><label className="target-position"><span>目标仓位</span><span className="target-position-control"><input aria-label="目标仓位百分比" type="number" min={1} max={100} value={Math.round(targetPosition * 100)} onChange={(event) => { markBuilderEdited(); setTargetPosition(Number(event.target.value) / 100) }} /><em>%</em></span></label></header>
         <div className="logic-flow">
           <section className="logic-block entry"><header><span><i />ENTRY 入场条件</span><select aria-label="入场条件组合" value={entryMode} onChange={(event) => { markBuilderEdited(); setEntryMode(event.target.value as 'all' | 'any') }}><option value="all">全部满足 AND</option><option value="any">任一满足 OR</option></select></header>{entryRules.map((row) => <RuleRow key={row.id} row={row} onChange={(next) => updateRule('entry', row.id, next)} onDelete={() => deleteRule('entry', row.id)} />)}<button className="add-rule" onClick={() => addRule('entry')}><Plus size={12} />添加入场条件</button></section>
           <div className="logic-connector"><i /><span>持有</span><i /></div>

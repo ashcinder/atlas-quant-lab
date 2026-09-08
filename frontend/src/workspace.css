@@ -203,15 +203,18 @@ body { background: var(--bg); }
 :where(.quant-workspace) .research-config .strategy-check strong { font-size: 12px; }
 :where(.quant-workspace) .research-config section { padding: 18px; }
 :where(.quant-workspace) .research-run { font-size: 13px; height: 42px; }
-:where(.quant-workspace) .builder-canvas { padding: 24px; background: #101925; }
-:where(.quant-workspace) .builder-canvas { grid-template-rows: auto minmax(0, 1fr) auto; }
+:where(.quant-workspace) .builder-canvas { padding: 24px; background: #101925; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+:where(.quant-workspace) .builder-status-stack { min-width: 0; }
+:where(.quant-workspace) .builder-status-stack .lab-draft-status { min-height: 42px; }
 :where(.quant-workspace) .builder-canvas > header { display: grid; grid-template-columns: minmax(0, 1fr) 124px; align-items: end; gap: 16px; padding: 0 0 20px; }
 :where(.quant-workspace) .builder-canvas > header > div { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 :where(.quant-workspace) .builder-canvas > header input { width: 100%; }
 :where(.quant-workspace) .builder-canvas > header label { font-size: 12px; min-width: 0; }
-:where(.quant-workspace) .builder-canvas > header .target-position { width: 124px; min-width: 124px; display: flex; flex-direction: column; gap: 8px; position: relative; }
+:where(.quant-workspace) .builder-canvas > header .target-position { width: 124px; min-width: 124px; display: flex; flex-direction: column; gap: 8px; position: static; }
 :where(.quant-workspace) .builder-canvas > header .target-position > span { white-space: nowrap; }
-:where(.quant-workspace) .builder-canvas > header .target-position input { width: 100%; padding-right: 24px; }
+:where(.quant-workspace) .builder-canvas > header .target-position-control { position: relative; display: block; width: 100%; }
+:where(.quant-workspace) .builder-canvas > header .target-position-control input { width: 100%; padding-right: 24px; }
+:where(.quant-workspace) .builder-canvas > header .target-position-control em { position: absolute; top: 50%; right: 9px; bottom: auto; transform: translateY(-50%); color: #8090a5; font: normal 10px var(--mono); pointer-events: none; }
 :where(.quant-workspace) .builder-canvas > footer { flex-wrap: wrap; padding: 14px; gap: 10px; }
 :where(.quant-workspace) .builder-canvas > footer p { font-size: 11px; line-height: 1.7; flex: 1 1 200px; }
 :where(.quant-workspace) .logic-flow { padding: 20px 0; }
