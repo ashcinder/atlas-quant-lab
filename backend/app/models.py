@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Interval = Literal["15m", "1h", "4h", "1d", "1wk"]
 Adjustment = Literal["auto", "raw", "forward", "backward"]
@@ -41,6 +41,41 @@ class MarketDataResponse(BaseModel):
     indicators: dict[str, list[dict[str, float | int | None]]]
 
 
+class FundamentalMetric(BaseModel):
+    key: str
+    label: str
+    value: float | None = None
+    unit: Literal["ratio", "percent", "currency", "count", "number"]
+    period: str
+    description: str
+    derived: bool = False
+    currency: str | None = None
+
+
+class FundamentalSection(BaseModel):
+    id: str
+    label: str
+    metrics: list[FundamentalMetric]
+
+
+class FundamentalsResponse(BaseModel):
+    asset: Asset
+    status: Literal["available", "partial", "not_applicable", "unavailable"]
+    source: str
+    source_note: str
+    fetched_at: int
+    as_of: int | None = None
+    cache_hit: bool = False
+    is_stale: bool = False
+    currency: str
+    financial_currency: str
+    available_metric_count: int
+    total_metric_count: int
+    coverage: float
+    sections: list[FundamentalSection]
+    warnings: list[str] = Field(default_factory=list)
+
+
 class StrategyParameter(BaseModel):
     key: str
     label: str
@@ -65,6 +100,8 @@ class StrategyDefinition(BaseModel):
 
 
 class BacktestRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     symbol: str = "BTC-USD"
     asset_class: str = "crypto"
     interval: Interval = "1d"
@@ -85,6 +122,13 @@ class BacktestRequest(BaseModel):
     stop_loss: float | None = Field(default=None, gt=0, lt=1)
     take_profit: float | None = Field(default=None, gt=0)
     persist: bool = True
+
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_dates(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_dates(self) -> "BacktestRequest":
@@ -123,6 +167,7 @@ class BacktestResult(BaseModel):
     interval: Interval
     strategy: StrategyDefinition
     data_source: str
+    valuation_currency: str | None = None
     source_note: str | None = None
     bars: list[Bar]
     indicators: dict[str, list[dict[str, float | int | None]]]
@@ -138,8 +183,18 @@ class PortfolioAssetInput(BaseModel):
     asset_class: str = "equity"
     weight: float | None = Field(default=None, ge=0, le=1)
 
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("标的代码不能为空")
+        return normalized
+
 
 class PortfolioBacktestRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     assets: list[PortfolioAssetInput] = Field(min_length=2, max_length=12)
     strategy_id: Literal["all_weather", "risk_parity", "sixty_forty"] = "all_weather"
     interval: Interval = "1d"
@@ -147,11 +202,35 @@ class PortfolioBacktestRequest(BaseModel):
     end: datetime | None = None
     initial_capital: float = Field(default=100_000, gt=0)
     rebalance: Literal["monthly", "quarterly", "yearly"] = "quarterly"
+    params: dict[str, Any] = Field(default_factory=dict)
     commission_rate: float = Field(default=0.001, ge=0, le=0.1)
     slippage_rate: float = Field(default=0.0005, ge=0, le=0.1)
+    spread_rate: float = Field(default=0.0005, ge=0, le=0.1)
+    cash_buffer: float = Field(default=0.0, ge=0, lt=0.5)
+    max_asset_weight: float = Field(default=1.0, gt=0, le=1)
+    volatility_target: float | None = Field(default=None, gt=0, le=1)
     data_source: Literal["auto", "yahoo", "demo"] = "auto"
     base_currency: Literal["CNY", "USD", "USDT"] = "CNY"
     persist: bool = True
+
+    @field_validator("start", "end")
+    @classmethod
+    def normalize_dates(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_portfolio_constraints(self) -> "PortfolioBacktestRequest":
+        if self.start and self.end and self.start >= self.end:
+            raise ValueError("start must be earlier than end")
+        symbols = [asset.symbol for asset in self.assets]
+        if len(set(symbols)) != len(symbols):
+            raise ValueError("组合不能包含重复标的")
+        investable = 1 - self.cash_buffer
+        if self.max_asset_weight * len(self.assets) + 1e-12 < investable:
+            raise ValueError("max_asset_weight is too low for the selected asset count")
+        return self
 
 
 class PortfolioResult(BaseModel):
@@ -160,13 +239,14 @@ class PortfolioResult(BaseModel):
     strategy: StrategyDefinition
     assets: list[Asset]
     data_source: str
+    valuation_currency: str | None = None
     weights: dict[str, float]
     weight_history: list[dict[str, Any]]
     equity: list[EquityPoint]
     trades: list[Trade]
     metrics: dict[str, float | int | None]
     risk_contribution: dict[str, float]
-    correlation: dict[str, dict[str, float]]
+    correlation: dict[str, dict[str, float | None]]
     warnings: list[str]
 
 
@@ -246,9 +326,15 @@ class ResearchExperiment(BaseModel):
     strategy_id: str
     base_params: dict[str, Any] = Field(default_factory=dict)
     parameter_grid: dict[str, list[float | int | bool]] = Field(default_factory=dict)
+    custom_strategy: CustomStrategySpec | None = None
 
     @model_validator(mode="after")
     def validate_grid(self) -> "ResearchExperiment":
+        if self.custom_strategy is not None:
+            if self.custom_strategy.id != self.strategy_id:
+                raise ValueError("自定义策略 ID 与研究实验 strategy_id 不一致")
+            if self.base_params or self.parameter_grid:
+                raise ValueError("视觉规则策略暂不接受参数网格；请复制策略版本后比较")
         combinations = 1
         for key, values in self.parameter_grid.items():
             if not key or not values or len(values) > 20:
@@ -268,6 +354,8 @@ class WalkForwardConfig(BaseModel):
 
 
 class ResearchRequest(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     symbol: str
     asset_class: str
     interval: Interval = "1d"

@@ -31,7 +31,7 @@ export const MarketSidebar = memo(function MarketSidebar({ assets, selectedSymbo
         <span>市场</span>
         <button className="icon-button" aria-label="收藏标的"><Star size={15} /></button>
       </div>
-      <label className="search-field">
+      <label className="search-field" aria-label="搜索市场标的">
         <Search size={14} />
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="代码、名称或类别" />
       </label>

@@ -72,9 +72,9 @@ export default function AtlasShell() {
   if (!session.authenticated) return <div className="journal-root atlas-auth"><LoginScreen busy={busy} error={error} registrationEnabled={session.registrationEnabled} onAuthenticate={authenticate} /></div>
   return <div className="atlas-shell" key={session.userId ?? session.email}>
     <header className="atlas-header">
-      <a className="atlas-brand" href="#/quant"><ChartCandlestick size={23} /><strong>Atlas <span>Quant Lab</span></strong></a>
+      <a className="atlas-brand" href="#single"><ChartCandlestick size={23} /><strong>Atlas <span>Quant Lab</span></strong></a>
       <nav className="atlas-workspaces" aria-label="主导航">
-        <a href="#/quant" aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
+        <a href="#single" aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产账本</a>
       </nav>
       <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>

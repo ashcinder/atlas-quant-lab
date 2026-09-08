@@ -4,6 +4,6 @@ import atexit
 import os
 import tempfile
 
-test_data = tempfile.TemporaryDirectory(prefix="atlas-pytest-")
+test_data = tempfile.TemporaryDirectory(prefix="atlas-backend-tests-")
 os.environ["ATLAS_DATA_DIR"] = test_data.name
 atexit.register(test_data.cleanup)

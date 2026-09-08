@@ -1,0 +1,11 @@
+{
+  "protocol": "atlas.runner/v1",
+  "transport": "https",
+  "endpoint_ref": "vault:private-runner-endpoint",
+  "request_signature": "Ed25519",
+  "response_schema": "TargetPosition[]",
+  "timeout_ms": 5000,
+  "on_error": "deny",
+  "nonce_required": true,
+  "maximum_clock_skew_seconds": 30
+}

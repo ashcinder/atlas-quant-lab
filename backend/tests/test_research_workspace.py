@@ -126,6 +126,33 @@ def test_research_keeps_holdout_for_training_winner_and_runs_walk_forward():
     assert progress[-1] == 1.0
 
 
+def test_research_accepts_visual_rule_strategy_as_a_versioned_experiment():
+    strategy = custom_spec()
+    request = ResearchRequest(
+        symbol="BTC-USD",
+        asset_class="crypto",
+        interval="1d",
+        data_source="demo",
+        experiments=[
+            ResearchExperiment(strategy_id=strategy.id, custom_strategy=strategy)
+        ],
+        holdout_ratio=0.2,
+        walk_forward=WalkForwardConfig(
+            enabled=True,
+            train_bars=160,
+            test_bars=40,
+            step_bars=40,
+            max_windows=2,
+        ),
+    )
+    result = run_research("custom-job", request, demo_bundle(), Event(), lambda *_: None)
+
+    assert result.tested_combinations == 1
+    assert result.candidates[0].strategy_id == strategy.id
+    assert result.candidates[0].params == {}
+    assert len(result.walk_forward) == 2
+
+
 def test_workspace_persists_templates_alerts_and_read_state(tmp_path):
     store = WorkspaceStore(tmp_path / "workspace.sqlite3")
     saved = store.save_custom_strategy(custom_spec())

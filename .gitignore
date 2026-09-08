@@ -1,4 +1,5 @@
 .DS_Store
+Supervisor/
 .idea/
 .vscode/
 .env
@@ -14,6 +15,9 @@ backend/quant_lab.db
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+strategy/zkvm/target/
 coverage/
 .playwright-cli/
-output/
+.artifacts/
+output/playwright/
+atlas-backup-*/

@@ -46,6 +46,8 @@ def _finite(value: Any) -> float | None:
 
 
 def _expand_experiment(experiment: ResearchExperiment) -> list[dict[str, Any]]:
+    if experiment.custom_strategy is not None:
+        return [{}]
     strategy = get_strategy(experiment.strategy_id)
     definitions = {parameter.key: parameter for parameter in strategy.parameters}
     params = default_params(experiment.strategy_id)
@@ -88,7 +90,7 @@ def _subset(bundle: DataBundle, start: int, end: int) -> DataBundle:
 
 
 def _backtest_request(
-    request: ResearchRequest, strategy_id: str, params: dict[str, Any]
+    request: ResearchRequest, experiment: ResearchExperiment, params: dict[str, Any]
 ) -> BacktestRequest:
     return BacktestRequest(
         symbol=request.symbol,
@@ -96,7 +98,8 @@ def _backtest_request(
         interval=request.interval,
         adjustment=request.adjustment,
         data_source=request.data_source,
-        strategy_id=strategy_id,
+        strategy_id=experiment.strategy_id,
+        custom_strategy=experiment.custom_strategy,
         params=params,
         initial_capital=request.initial_capital,
         commission_rate=request.commission_rate,
@@ -111,11 +114,11 @@ def _backtest_request(
 def _run_metrics(
     request: ResearchRequest,
     bundle: DataBundle,
-    strategy_id: str,
+    experiment: ResearchExperiment,
     params: dict[str, Any],
 ) -> dict[str, float | int | None]:
     result = run_backtest(
-        _backtest_request(request, strategy_id, params), bundle, include_details=False
+        _backtest_request(request, experiment, params), bundle, include_details=False
     )
     return result.metrics
 
@@ -190,7 +193,7 @@ def run_research(
             if cancelled.is_set():
                 raise ResearchCancelled()
             try:
-                metrics = _run_metrics(request, train_bundle, experiment.strategy_id, params)
+                metrics = _run_metrics(request, train_bundle, experiment, params)
                 scored.append((_objective(metrics, request.objective), params, metrics))
             except ValueError:
                 pass
@@ -200,7 +203,7 @@ def run_research(
             raise ValueError(f"策略 {experiment.strategy_id} 没有可用的参数组合")
         scored.sort(key=lambda item: item[0], reverse=True)
         _, best_params, best_train = scored[0]
-        best_test = _run_metrics(request, test_bundle, experiment.strategy_id, best_params)
+        best_test = _run_metrics(request, test_bundle, experiment, best_params)
         chosen.append((experiment, best_params, best_train))
         for _, params, train_metrics in scored:
             is_best = params == best_params
@@ -251,7 +254,7 @@ def run_research(
                 scored = []
                 for params in combinations:
                     try:
-                        metrics = _run_metrics(request, train, experiment.strategy_id, params)
+                        metrics = _run_metrics(request, train, experiment, params)
                         scored.append((_objective(metrics, request.objective), params, metrics))
                     except ValueError:
                         pass
@@ -259,7 +262,7 @@ def run_research(
                     progress(min(0.96, completed / max(total_work, 1)), "Walk-forward滚动验证")
                 if scored:
                     _, params, train_metrics = max(scored, key=lambda item: item[0])
-                    test_metrics = _run_metrics(request, test, experiment.strategy_id, params)
+                    test_metrics = _run_metrics(request, test, experiment, params)
                     windows.append(
                         WalkForwardWindow(
                             strategy_id=experiment.strategy_id,

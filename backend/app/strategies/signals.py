@@ -2,13 +2,7 @@ import numpy as np
 import pandas as pd
 
 from app.indicators import ema, rsi
-from app.strategies.catalog import default_params
-
-
-def _merge_params(strategy_id: str, params: dict) -> dict:
-    merged = default_params(strategy_id)
-    merged.update(params)
-    return merged
+from app.strategies.catalog import validate_params
 
 
 def _hold_state(entries: pd.Series, exits: pd.Series) -> pd.Series:
@@ -33,7 +27,7 @@ def generate_target_exposure(
     Values are calculated from information available at the current close. The
     execution engine applies changes at the next bar open.
     """
-    p = _merge_params(strategy_id, params)
+    p = validate_params(strategy_id, params)
     close = frame["close"]
     target = pd.Series(0.0, index=frame.index)
     reason = pd.Series("等待信号", index=frame.index, dtype=object)
@@ -53,6 +47,8 @@ def generate_target_exposure(
         reason.loc[target > 0] = "快速均线位于慢速均线上方"
         reason.loc[target == 0] = "均线差距、确认期或趋势过滤未满足"
     elif strategy_id == "macd":
+        if int(p["fast"]) >= int(p["slow"]):
+            raise ValueError("快速周期必须小于慢速周期")
         fast_line = ema(close, int(p["fast"]))
         slow_line = ema(close, int(p["slow"]))
         macd_line = fast_line - slow_line
@@ -145,10 +141,13 @@ def generate_target_exposure(
         multiplier = float(p["multiplier"])
         if strategy_id == "martingale":
             oscillator = rsi(close, int(p["rsi_period"]))
+            # Entry and exit are distinct: the published entry_rsi parameter
+            # must gate entry, while 55 remains the existing recovery exit.
+            holding = _hold_state(oscillator < float(p["entry_rsi"]), oscillator >= 55)
             drawdown = close / close.rolling(20, min_periods=1).max() - 1
             levels = (-drawdown / float(p["drawdown_step"])).clip(0, 4).fillna(0).astype(int)
             target = pd.Series(
-                np.where(oscillator < 55, base * multiplier**levels, 0), index=frame.index
+                np.where(holding > 0, base * multiplier**levels, 0), index=frame.index
             )
             reason.loc[target > 0] = "回撤层级提高马丁目标仓位"
             reason.loc[target == 0] = "RSI退出马丁持仓"

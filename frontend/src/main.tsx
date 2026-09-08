@@ -2,6 +2,8 @@ import { createRoot } from 'react-dom/client'
 import AtlasShell from './AtlasShell'
 import './journal/styles/utilities.css'
 import './styles.css'
+import './workspace.css'
+import './operations.css'
 import './journal/styles/journal.css'
 import './shell.css'
 
