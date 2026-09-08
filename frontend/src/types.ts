@@ -41,6 +41,43 @@ export interface MarketData {
   indicators: Record<string, IndicatorPoint[]>
 }
 
+export type FundamentalUnit = 'ratio' | 'percent' | 'currency' | 'count' | 'number'
+
+export interface FundamentalMetric {
+  key: string
+  label: string
+  value: number | null
+  unit: FundamentalUnit
+  period: string
+  description: string
+  derived: boolean
+  currency: string | null
+}
+
+export interface FundamentalSection {
+  id: string
+  label: string
+  metrics: FundamentalMetric[]
+}
+
+export interface FundamentalsResponse {
+  asset: Asset
+  status: 'available' | 'partial' | 'not_applicable' | 'unavailable'
+  source: string
+  source_note: string
+  fetched_at: number
+  as_of: number | null
+  cache_hit: boolean
+  is_stale: boolean
+  currency: string
+  financial_currency: string
+  available_metric_count: number
+  total_metric_count: number
+  coverage: number
+  sections: FundamentalSection[]
+  warnings: string[]
+}
+
 export interface StrategyParameter {
   key: string
   label: string
@@ -88,6 +125,7 @@ export interface EquityPoint {
 }
 
 export interface BacktestResult {
+  valuation_currency?: string | null
   run_id: string
   created_at: string
   asset: Asset
@@ -105,6 +143,7 @@ export interface BacktestResult {
 }
 
 export interface PortfolioResult {
+  valuation_currency?: string | null
   run_id: string
   created_at: string
   strategy: Strategy
@@ -116,7 +155,7 @@ export interface PortfolioResult {
   trades: Trade[]
   metrics: Record<string, number | null>
   risk_contribution: Record<string, number>
-  correlation: Record<string, Record<string, number>>
+  correlation: Record<string, Record<string, number | null>>
   warnings: string[]
 }
 
@@ -166,6 +205,7 @@ export interface ResearchExperiment {
   strategy_id: string
   base_params: Record<string, number | string | boolean>
   parameter_grid: Record<string, Array<number | boolean>>
+  custom_strategy?: CustomStrategySpec | null
 }
 
 export interface ResearchCandidate {
@@ -251,4 +291,307 @@ export interface AlertNotification {
   triggered_at: string
   value: number
   read: boolean
+}
+
+export type QuantAgentType = 'ai_agent' | 'traditional'
+export type QuantCategory = 'stock_selection' | 'timing' | 'allocation' | 'multi_factor' | 'arbitrage'
+export type QuantRisk = 'low' | 'medium' | 'high' | 'extreme'
+export type QuantReportType = 'backtest' | 'live'
+
+export interface QuantCurvePoint {
+  time: number
+  return: number
+  benchmark_return: number
+}
+
+export interface QuantReport {
+  id: string
+  report_type: QuantReportType
+  period_start: string
+  period_end: string
+  metrics: Record<string, number>
+  public_curve: QuantCurvePoint[]
+  decision_count: number
+  decision_merkle_root: string
+  market_data_hash: string
+  previous_receipt_hash: string | null
+  receipt_hash: string
+  attestation_key_id: string
+  attestation_signature: string
+  external_proof: { proof_type: string; proof_hash: string; verifier: string; verifier_reference?: string | null } | null
+  zk_proof_id?: string | null
+  evidence_level?: 'platform_attested' | 'zk_verified'
+  chain_tx_hash: string | null
+  chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable'
+  chain_block_number: number | null
+  score: number
+  created_at: string
+  receipt_integrity_valid: boolean
+  public_curve_integrity_valid: boolean | null
+  privacy: { source_hidden: boolean; decisions_hidden: boolean; raw_equity_discarded: boolean }
+}
+
+export interface QuantAgent {
+  id: string
+  rank: number
+  name: string
+  developer_alias: string
+  agent_type: QuantAgentType
+  category: QuantCategory
+  asset_classes: string[]
+  description: string
+  risk_level: QuantRisk
+  monthly_price: number
+  price_currency: 'CNY' | 'USDT'
+  strategy_commitment: string
+  status: string
+  is_demo: boolean
+  subscriber_count: number
+  latest_report: QuantReport | null
+  reports?: QuantReport[]
+  created_at: string
+  updated_at: string
+}
+
+export interface QuantJudgeOverview {
+  agents: number
+  reports: number
+  live_reports: number
+  chain_confirmed_reports: number
+  active_subscriptions: number
+  median_score: number
+  attestation: { algorithm: string; key_id: string; public_key: string }
+  privacy_model: string
+}
+
+export interface QuantChainStatus {
+  connected: boolean
+  compatible: boolean
+  rpc_url: string
+  chain_id: number | null
+  block_number: number | null
+  error: string | null
+  expected_chain_id: number
+  read_only_source_policy: boolean
+  submission_policy: string
+}
+
+export interface QuantVerification {
+  report_id: string
+  receipt_hash: string
+  receipt_hash_valid: boolean
+  attestation_signature_valid: boolean
+  record_integrity_valid: boolean
+  public_curve_integrity_valid: boolean | null
+  calculation_verified: boolean
+  decision_merkle_root: string
+  strategy_commitment: string
+  external_proof_verified: boolean
+  zk_proof_id?: string | null
+  evidence_level?: string
+  proof_file_integrity_valid?: boolean | null
+  proof_cryptographic_valid?: boolean | null
+  chain: { status: string; transaction_hash: string | null; block_number: number | null; error?: string; payload_matches?: boolean }
+  proof_scope: string[]
+  limitations: string[]
+}
+
+export interface ZkProfile {
+  id: string
+  image_id: string
+  status: 'active' | 'revoked'
+  proof_system: string
+  guest_version: string
+  scope: string
+  verifier_ready: boolean
+  privacy_scope: string[]
+  unsupported: string[]
+}
+
+export interface ZkMarketDataset {
+  market_data_hash: string
+  source: string
+  symbol: string
+  interval: string
+  adjustment: string
+  period_start: number
+  period_end: number
+  bar_count: number
+  trust_model: string
+  fetched_at: string
+  dataset: Record<string, unknown>
+  download_url: string
+  limitation: string
+}
+
+export interface ZkProofRecord {
+  id: string
+  agent_id: string
+  proof_profile: string
+  image_id: string
+  public_statement: Record<string, unknown>
+  public_inputs_hash: string
+  proof_hash: string
+  receipt_size: number
+  receipt_kind: string
+  verifier_version: string
+  nullifier: string
+  status: 'verified' | 'revoked'
+  verified_at: string
+  private_witness_stored: false
+}
+
+export interface QuantSubscription {
+  id: string
+  agent_id: string
+  agent_name: string
+  investor_alias: string
+  billing_cycle: 'monthly' | 'quarterly' | 'yearly'
+  amount: number
+  currency: string
+  status: string
+  payment_mode: string
+  started_at: string
+  expires_at: string
+}
+
+export type StudioNodeType = 'market_data' | 'universe' | 'feature_engine' | 'strategy' | 'ai_guard' | 'position_sizer' | 'risk_gate' | 'execution_review' | 'execution' | 'audit' | 'output'
+export type StudioAIRole = 'regime_detection' | 'signal_review' | 'risk_control' | 'position_management' | 'execution_review'
+export type StudioAIAuthority = 'advisory' | 'veto' | 'bounded_adjustment'
+
+export interface StudioWorkflowNode {
+  id: string
+  type: StudioNodeType
+  label: string
+  config: Record<string, unknown>
+  enabled?: boolean
+}
+
+export interface StudioWorkflowEdge { source: string; target: string; condition?: string | null }
+
+export interface StudioWorkflow {
+  schema_version: '1.0'
+  id: string
+  name: string
+  package_id?: string | null
+  description?: string
+  nodes: StudioWorkflowNode[]
+  edges: StudioWorkflowEdge[]
+}
+
+export interface StudioValidation {
+  valid: boolean
+  errors: string[]
+  warnings: string[]
+  graph_hash: string
+  topological_order: string[]
+  summary: { nodes: number; edges: number; ai_nodes: number; hard_risk_gates: number }
+}
+
+export interface StudioTemplate {
+  id: string
+  name: string
+  description: string
+  workflow: StudioWorkflow
+}
+
+export interface StudioSpec {
+  native_format: string
+  archive: string
+  required_files: string[]
+  languages: Array<{ id: string; label: string; production: boolean; execution: string }>
+  limits: { archive_bytes: number; expanded_bytes: number; files: number }
+  ai_roles: Array<{ id: StudioAIRole; label: string; allowed_authority: StudioAIAuthority[] }>
+  security: Record<string, boolean>
+}
+
+export interface StrategyPackageRecord {
+  id: string
+  agent_id: string
+  strategy_key: string
+  name: string
+  version: string
+  language: string
+  manifest_hash: string
+  content_hash: string
+  file_count: number
+  expanded_bytes: number
+  warnings: string[]
+  status: string
+  created_at: string
+  source_private: boolean
+  encrypted_at_rest: boolean
+}
+
+export interface StudioWorkflowRecord {
+  id: string
+  agent_id: string
+  name: string
+  revision: number
+  graph_hash: string
+  workflow?: StudioWorkflow
+  validation: StudioValidation
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export type StrategyProjectStage = 'draft' | 'composed' | 'validated' | 'versioned' | 'published'
+export type StrategyProjectArtifactKind = 'strategy' | 'workflow' | 'research' | 'package' | 'report'
+
+export interface StrategyProjectGate {
+  id: string
+  label: string
+  passed: boolean
+  stage: StrategyProjectStage
+}
+
+export interface StrategyProject {
+  id: string
+  name: string
+  thesis: string
+  asset_symbol: string
+  asset_class: string
+  interval: Interval
+  benchmark: string
+  objective: 'sharpe' | 'calmar' | 'cagr' | 'total_return'
+  deployment_mode: 'research' | 'paper' | 'live'
+  custom_strategy_id: string | null
+  strategy_hash: string | null
+  workflow_id: string | null
+  workflow_revision: number | null
+  workflow_hash: string | null
+  workflow_valid: boolean
+  hard_risk_gates: number
+  research_job_id: string | null
+  research_status: string | null
+  research_hash: string | null
+  research_robust: boolean
+  walk_forward_windows: number
+  oos_trade_count: number
+  average_oos_sharpe: number | null
+  package_id: string | null
+  package_content_hash: string | null
+  package_manifest_hash: string | null
+  quant_report_id: string | null
+  version: string | null
+  commitment: string | null
+  stage: StrategyProjectStage
+  revision: number
+  completion: number
+  gates: StrategyProjectGate[]
+  next_gate: StrategyProjectGate | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StrategyProjectCreate {
+  name: string
+  thesis: string
+  asset_symbol: string
+  asset_class: string
+  interval: Interval
+  benchmark: string
+  objective: StrategyProject['objective']
+  deployment_mode: StrategyProject['deployment_mode']
 }

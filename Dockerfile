@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --uid 10001 --create-home atlas \
     && mkdir -p /data && chown atlas:atlas /data
 COPY backend/app ./app
+COPY strategy/zkvm/profiles.json /app/strategy/zkvm/profiles.json
 COPY --from=frontend /build/dist /app/frontend/dist
 USER atlas
 EXPOSE 8000

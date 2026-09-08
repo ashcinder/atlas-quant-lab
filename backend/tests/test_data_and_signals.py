@@ -40,6 +40,37 @@ def test_signal_has_no_future_dependency():
     pd.testing.assert_series_equal(original.iloc[:-20], recalculated.iloc[:-20])
 
 
+@pytest.mark.parametrize(
+    ("strategy_id", "params", "message"),
+    [
+        ("dca", {"every_bars": 0}, "不能小于"),
+        ("dca", {"every_bars": 2.5}, "必须为整数"),
+        ("dca", {"every_bars": True}, "必须为数字"),
+        ("dca", {"amount_pct": "nan"}, "必须为有限数字"),
+        ("dca", {"every_bars": None}, "必须为数字"),
+        ("sma_cross", {"unsupported": 1}, "未知参数"),
+        ("macd", {"zero_line_filter": "false"}, "必须为布尔值"),
+        ("macd", {"fast": 30, "slow": 20}, "快速周期必须小于慢速周期"),
+    ],
+)
+def test_single_strategy_rejects_invalid_catalog_parameters(strategy_id, params, message):
+    with pytest.raises(ValueError, match=message):
+        generate_target_exposure(demo_frame(), strategy_id, params, 0.95)
+
+
+def test_martingale_entry_parameter_controls_entry_and_recovery_exit(monkeypatch):
+    frame = demo_frame().iloc[:4]
+    oscillator = pd.Series([45.0, 30.0, 40.0, 56.0], index=frame.index)
+    monkeypatch.setattr("app.strategies.signals.rsi", lambda *_args: oscillator)
+    normal, _ = generate_target_exposure(frame, "martingale", {"entry_rsi": 35}, 0.95)
+    conservative, _ = generate_target_exposure(frame, "martingale", {"entry_rsi": 20}, 0.95)
+    assert normal.iloc[0] == 0
+    assert normal.iloc[1] > 0
+    assert normal.iloc[2] > 0
+    assert normal.iloc[3] == 0
+    assert conservative.eq(0).all()
+
+
 def test_demo_currency_conversion_is_explicit_and_deterministic(tmp_path):
     frame = demo_frame("AAPL")
     asset = find_asset("AAPL", "equity")

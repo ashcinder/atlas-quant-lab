@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0", "api_version": "atlas.strategy/v1", "id": "json_ma_cross",
+  "name": "JSON MA Cross", "version": "1.0.0", "language": "json_dsl", "entrypoint": "strategy.json",
+  "description": "A no-code moving-average crossover expressed in the safe Atlas JSON rule DSL.",
+  "asset_classes": ["crypto", "equity", "etf"], "intervals": ["1h", "4h", "1d"],
+  "capabilities": ["market_data.read", "signals.write"],
+  "parameters": [
+    {"key": "fast", "label": "Fast EMA", "kind": "integer", "default": 20, "minimum": 2, "maximum": 100},
+    {"key": "slow", "label": "Slow EMA", "kind": "integer", "default": 60, "minimum": 10, "maximum": 300}
+  ],
+  "ai_injection_points": [],
+  "research": {"holdout_ratio": 0.2, "walk_forward_required": true, "transaction_costs_required": true, "minimum_trades": 30, "regime_tests": ["bull", "bear", "sideways"]}
+}

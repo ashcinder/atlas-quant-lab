@@ -6,3 +6,6 @@ pandas>=2.2,<3
 scipy>=1.14,<2
 httpx[socks]>=0.28,<1
 yfinance>=1.6.0,<2
+cryptography>=44,<47
+python-multipart>=0.0.20,<1
+cbor2==6.0.1

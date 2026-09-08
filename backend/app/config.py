@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 APP_NAME = "Atlas Quant Lab API"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.3.0"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("ATLAS_DATA_DIR", ROOT_DIR / ".data")).expanduser()
 CACHE_DIR = DATA_DIR / "cache"

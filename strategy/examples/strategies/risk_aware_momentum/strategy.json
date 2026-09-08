@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "api_version": "atlas.strategy/v1",
+  "id": "risk_aware_momentum",
+  "name": "Risk-aware Momentum",
+  "version": "1.0.0",
+  "language": "python",
+  "entrypoint": "strategy.py:RiskAwareMomentum",
+  "description": "Causal cross-sectional momentum with volatility scaling and optional AI risk review.",
+  "asset_classes": ["equity", "etf", "crypto"],
+  "intervals": ["4h", "1d"],
+  "capabilities": ["market_data.read", "portfolio.read", "signals.write", "ai.request"],
+  "parameters": [
+    {"key": "lookback", "label": "Momentum lookback", "kind": "integer", "default": 60, "minimum": 10, "maximum": 252, "description": "Closed bars used to measure momentum."},
+    {"key": "volatility_window", "label": "Volatility window", "kind": "integer", "default": 20, "minimum": 10, "maximum": 120},
+    {"key": "target_volatility", "label": "Target volatility", "kind": "number", "default": 0.12, "minimum": 0.02, "maximum": 0.40},
+    {"key": "maximum_weight", "label": "Maximum weight", "kind": "number", "default": 0.20, "minimum": 0.01, "maximum": 0.50}
+  ],
+  "ai_injection_points": ["regime_detection", "risk_control"],
+  "research": {"holdout_ratio": 0.2, "walk_forward_required": true, "transaction_costs_required": true, "minimum_trades": 30, "regime_tests": ["bull", "bear", "sideways", "high_volatility"]}
+}

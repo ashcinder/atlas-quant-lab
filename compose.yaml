@@ -1,16 +1,71 @@
+name: atlas-quant
+
 services:
-  atlas:
-    build: .
+  api:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    image: atlas-quant-api:local
+    init: true
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8000:8000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2
+    stop_grace_period: 45s
     environment:
-      ATLAS_ALLOWED_ORIGINS: ${ATLAS_ALLOWED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
+      ATLAS_ALLOWED_ORIGINS: ${ATLAS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       ATLAS_ALLOW_REGISTRATION: ${ATLAS_ALLOW_REGISTRATION:-true}
       ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
-      # Only expose the loopback port behind your trusted HTTPS reverse proxy.
-      FORWARDED_ALLOW_IPS: "*"
+      QUANTJUDGE_SUPERVISOR_RPC_URL: ${QUANTJUDGE_SUPERVISOR_RPC_URL:-http://127.0.0.1:42515}
     volumes:
-      - atlas-data:/data
+      - atlas-data:/app/backend/.data
+    tmpfs:
+      - /tmp:size=128m,mode=1777,noexec,nosuid
+    healthcheck:
+      test: [CMD, python, -c, "import json, urllib.request; r = json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=3)); assert r['status'] == 'ok'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 4
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    image: atlas-quant-web:local
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+    # This is deliberately literal, not ATLAS_BIND=0.0.0.0.
+    ports:
+      - '127.0.0.1:${ATLAS_HTTP_PORT:-8080}:8080'
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+    healthcheck:
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/healthz]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 4
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
 volumes:
+  # SQLite, private-package ciphertext, encryption/signing keys and proof receipts
+  # must survive recreation together. Never use compose down --volumes casually.
   atlas-data:

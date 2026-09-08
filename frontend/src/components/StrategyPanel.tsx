@@ -1,7 +1,10 @@
-import { AlertTriangle, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
-import type { Strategy } from '../types'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, BarChart3, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
+import type { Asset, FundamentalsResponse, Strategy } from '../types'
+import { FundamentalsPanel } from './FundamentalsPanel'
 
 interface Props {
+  asset: Asset | null
   strategies: Strategy[]
   selectedId: string
   values: Record<string, number | string | boolean>
@@ -24,6 +27,10 @@ interface Props {
   onStopLoss: (value: number) => void
   onTakeProfit: (value: number) => void
   onReset: () => void
+  fundamentals: FundamentalsResponse | null
+  fundamentalsLoading: boolean
+  fundamentalsError: string | null
+  onFundamentals: (refresh?: boolean) => void
 }
 
 function riskClass(risk: Strategy['risk_level']): string {
@@ -31,11 +38,24 @@ function riskClass(risk: Strategy['risk_level']): string {
 }
 
 export function StrategyPanel(props: Props) {
+  const [view, setView] = useState<'strategy' | 'fundamentals'>('strategy')
   const selected = props.strategies.find((item) => item.id === props.selectedId)
+  const { asset, onFundamentals } = props
+  useEffect(() => {
+    if (view === 'fundamentals') onFundamentals()
+  }, [asset?.asset_class, asset?.symbol, onFundamentals, view])
+
   return (
     <aside className="strategy-panel">
-      <div className="panel-heading">
-        <span><SlidersHorizontal size={15} /> 策略参数</span>
+      <div className="analysis-tabs" role="tablist" aria-label="分析侧栏">
+        <button type="button" role="tab" aria-selected={view === 'strategy'} className={view === 'strategy' ? 'is-active' : ''} onClick={() => setView('strategy')}><SlidersHorizontal size={14} />策略参数</button>
+        <button type="button" role="tab" aria-selected={view === 'fundamentals'} className={view === 'fundamentals' ? 'is-active' : ''} onClick={() => setView('fundamentals')}><BarChart3 size={14} />金融指标</button>
+      </div>
+      {view === 'fundamentals' ? (
+        <FundamentalsPanel asset={props.asset} data={props.fundamentals} loading={props.fundamentalsLoading} error={props.fundamentalsError} onLoad={props.onFundamentals} />
+      ) : <>
+      <div className="panel-heading panel-context-heading">
+        <span>回测参数</span>
         <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button>
       </div>
       <div className="strategy-select-wrap">
@@ -87,6 +107,7 @@ export function StrategyPanel(props: Props) {
         ))}
         {selected?.parameters.length === 0 ? <div className="empty-inline">该策略没有额外参数</div> : null}
       </div>
+      </>}
     </aside>
   )
 }
