@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   Beaker, Braces, Check, FileArchive, FlaskConical, GitBranch, LoaderCircle,
-  ShieldCheck, LayoutDashboard, ArrowRight,
+  ShieldCheck, LayoutDashboard, ArrowRight, Code2,
 } from 'lucide-react'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { StudioTab } from './QuantStrategyStudio'
@@ -11,7 +11,9 @@ import type {
   StrategyProjectArtifactKind, StrategyProjectCreate, StudioWorkflowRecord,
 } from '../types'
 import { StrategyProjectBar } from './StrategyProjectBar'
+import './code-strategy.css'
 
+const CodeStrategyWorkspace = lazy(() => import('./CodeStrategyWorkspace').then((module) => ({ default: module.CodeStrategyWorkspace })))
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspace').then((module) => ({ default: module.ResearchWorkspace })))
 const QuantStrategyStudio = lazy(() => import('./QuantStrategyStudio').then((module) => ({ default: module.QuantStrategyStudio })))
 
@@ -55,6 +57,8 @@ const descriptions: Record<StrategyLabTab, string> = {
 }
 
 export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps }: Props) {
+  const [module, setModule] = useState<'visual' | 'code'>('visual')
+  const [codeVisited, setCodeVisited] = useState(false)
   const [tab, setTab] = useState<StrategyLabTab>(initialTab)
   const [researchVisited, setResearchVisited] = useState(initialTab === 'builder' || initialTab === 'validate')
   const [studioVisited, setStudioVisited] = useState(isStudioTab(initialTab))
@@ -127,7 +131,9 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
     finally { setPendingProjectRequests((current) => current - 1) }
   }
 
-  return <main className="strategy-lab" data-view={tab}>
+  return <div className="strategy-lab-modules">
+    <nav className="lab-module-switch" aria-label="策略开发方式"><button className={module === 'visual' ? 'is-active' : ''} aria-pressed={module === 'visual'} onClick={() => setModule('visual')}><GitBranch size={16} /><span>图形化策略</span><small>规则与 AI 积木</small></button><button className={module === 'code' ? 'is-active' : ''} aria-pressed={module === 'code'} onClick={() => { setModule('code'); setCodeVisited(true) }}><Code2 size={16} /><span>代码策略</span><small>多语言与 AI 助手</small></button></nav>
+    <div className="lab-module-content" hidden={module !== 'visual'} inert={module !== 'visual'}><main className="strategy-lab" data-view={tab}>
     <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
     <header className="strategy-lab-header">
       <nav aria-label="策略生命周期">{tabs.filter((item) => !['packages', 'proof', 'sdk'].includes(item.id)).map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}<details className="lab-tools"><summary>更多工具</summary><div>{tabs.filter((item) => ['packages', 'proof', 'sdk'].includes(item.id)).map((item) => <button key={item.id} onClick={() => chooseTab(item.id)}>{item.label}</button>)}</div></details></nav>
@@ -161,5 +167,7 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
         <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onEditRules={() => chooseTab('builder')} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
       </Suspense>
     </section> : null}
-  </main>
+  </main></div>
+    {codeVisited ? <div className="lab-module-content" hidden={module !== 'code'} inert={module !== 'code'}><Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}><CodeStrategyWorkspace /></Suspense></div> : null}
+  </div>
 }
