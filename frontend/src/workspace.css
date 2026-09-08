@@ -25,6 +25,9 @@ body { background: var(--bg); }
 :where(.quant-workspace) input, :where(.quant-workspace) select, :where(.quant-workspace) textarea { color-scheme: dark; }
 * { scrollbar-width: thin; scrollbar-color: #40516a transparent; }
 :where(.quant-workspace) .app-shell { --navigation-width: 184px; display: grid; height: 100dvh; min-height: 0; grid-template-columns: var(--navigation-width) minmax(0, 1fr); grid-template-rows: 68px 34px minmax(0, 1fr); }
+:where(.quant-workspace) .app-shell.mode-research { grid-template-rows: 54px 28px minmax(0, 1fr); }
+:where(.quant-workspace) .app-shell.mode-research .topbar { height: 54px; }
+:where(.quant-workspace) .app-shell.mode-research :is(.integrity-rail, .qj-global-rail) { min-height: 28px; }
 :where(.quant-workspace) .app-shell.navigation-is-collapsed { --navigation-width: 76px; }
 :where(.quant-workspace) .workspace-navigation { grid-column: 1; grid-row: 1 / -1; min-width: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border-soft); background: #121c2a; padding: 0 12px 16px; z-index: 21; }
 :where(.quant-workspace) .workspace-brand { height: 90px; display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; white-space: nowrap; }
@@ -120,8 +123,8 @@ body { background: var(--bg); }
 :where(.quant-workspace) .fundamentals-footnote, :where(.quant-workspace) .fundamentals-notice, :where(.quant-workspace) .fundamentals-meta { font-size: 11px; line-height: 1.7; }
 
 /* Strategy Lab: overview, task navigation, then one working surface. */
-:where(.quant-workspace) .strategy-lab { grid-template-rows: 54px 57px auto minmax(0, 1fr); background: #101925; }
-:where(.quant-workspace) .strategy-lab[data-view='overview'] { grid-template-rows: 54px 57px minmax(0, 1fr); }
+:where(.quant-workspace) .strategy-lab { grid-template-rows: 48px 48px 52px minmax(0, 1fr); background: #101925; }
+:where(.quant-workspace) .strategy-lab[data-view='overview'] { grid-template-rows: 48px 48px minmax(0, 1fr); }
 :where(.quant-workspace) .strategy-project-bar { background: #14202e; }
 :where(.quant-workspace) .project-switcher { width: 280px; flex-basis: 280px; grid-template-columns: 18px minmax(0, 1fr) 24px 24px; }
 :where(.quant-workspace) .project-switcher select { font-size: 12px; }
@@ -133,8 +136,9 @@ body { background: var(--bg); }
 :where(.quant-workspace) .project-gate-button small { font-size: 10px; }
 :where(.quant-workspace) .project-empty-line strong { font-size: 12px; }
 :where(.quant-workspace) .project-empty-line small { font-size: 11px; }
-:where(.quant-workspace) .strategy-lab-header { background: #14202e; padding: 0 16px; }
-:where(.quant-workspace) .strategy-lab-header nav { overflow-x: auto; align-items: stretch; }
+:where(.quant-workspace) .strategy-project-bar { min-height: 48px; }
+:where(.quant-workspace) .strategy-lab-header { min-height: 48px; background: #14202e; padding: 0 16px; }
+:where(.quant-workspace) .strategy-lab-header nav { height: 48px; overflow-x: auto; align-items: stretch; }
 :where(.quant-workspace) .strategy-lab-header nav button { flex: 0 0 auto; min-width: 0; gap: 7px; padding: 0 13px; border: 0; }
 :where(.quant-workspace) .strategy-lab-header nav button small { display: none; }
 :where(.quant-workspace) .strategy-lab-header nav button strong { font-size: 12px; }
@@ -143,9 +147,11 @@ body { background: var(--bg); }
 :where(.quant-workspace) .strategy-step-icon { border: 0; background: none; width: 20px; height: 24px; }
 :where(.quant-workspace) .strategy-lab-progress { flex: 0 0 120px; width: 120px; padding: 10px; }
 :where(.quant-workspace) .strategy-lab-progress small { display: none; }
-:where(.quant-workspace) .lab-stage-context { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 22px; background: #182536; border-bottom: 1px solid var(--border); }
-:where(.quant-workspace) .lab-stage-context strong { font-size: 16px; }
-:where(.quant-workspace) .lab-stage-context p { margin: 6px 0 0; color: #a5b6cc; font-size: 12px; line-height: 1.6; }
+:where(.quant-workspace) .lab-stage-context { min-height: 52px; display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 7px 16px; background: #182536; border-bottom: 1px solid var(--border); }
+:where(.quant-workspace) .lab-stage-context > div { min-width: 0; display: flex; align-items: baseline; gap: 12px; overflow: hidden; }
+:where(.quant-workspace) .lab-stage-context strong { flex: 0 0 auto; font-size: 14px; }
+:where(.quant-workspace) .lab-stage-context p { min-width: 0; margin: 0; overflow: hidden; color: #a5b6cc; font-size: 11px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
+:where(.quant-workspace) .lab-stage-context span { flex: 0 0 auto; padding-left: 12px; border-left: 1px solid #3a4b61; color: #7fcab8; font-size: 10px; white-space: nowrap; }
 :where(.quant-workspace) .lab-stage-context button, :where(.quant-workspace) .lab-project-summary > button { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; padding: 9px 12px; border: 1px solid #3e536d; border-radius: 6px; background: #1d2d42; color: #c7daf7; cursor: pointer; font-size: 12px; }
 :where(.quant-workspace) .lab-overview { overflow: auto; padding: 36px clamp(22px, 3vw, 52px) 40px; }
 :where(.quant-workspace) .eyebrow { color: #9fb9df; font: 10px var(--mono); letter-spacing: 1.8px; }
@@ -199,10 +205,13 @@ body { background: var(--bg); }
 :where(.quant-workspace) .research-run { font-size: 13px; height: 42px; }
 :where(.quant-workspace) .builder-canvas { padding: 24px; background: #101925; }
 :where(.quant-workspace) .builder-canvas { grid-template-rows: auto minmax(0, 1fr) auto; }
-:where(.quant-workspace) .builder-canvas > header { gap: 16px; padding: 0 0 20px; }
+:where(.quant-workspace) .builder-canvas > header { display: grid; grid-template-columns: minmax(0, 1fr) 124px; align-items: end; gap: 16px; padding: 0 0 20px; }
 :where(.quant-workspace) .builder-canvas > header > div { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 :where(.quant-workspace) .builder-canvas > header input { width: 100%; }
 :where(.quant-workspace) .builder-canvas > header label { font-size: 12px; min-width: 0; }
+:where(.quant-workspace) .builder-canvas > header .target-position { width: 124px; min-width: 124px; display: flex; flex-direction: column; gap: 8px; position: relative; }
+:where(.quant-workspace) .builder-canvas > header .target-position > span { white-space: nowrap; }
+:where(.quant-workspace) .builder-canvas > header .target-position input { width: 100%; padding-right: 24px; }
 :where(.quant-workspace) .builder-canvas > footer { flex-wrap: wrap; padding: 14px; gap: 10px; }
 :where(.quant-workspace) .builder-canvas > footer p { font-size: 11px; line-height: 1.7; flex: 1 1 200px; }
 :where(.quant-workspace) .logic-flow { padding: 20px 0; }
@@ -217,18 +226,28 @@ body { background: var(--bg); }
 :where(.quant-workspace) .builder-canvas label, :where(.quant-workspace) .builder-rule-title, :where(.quant-workspace) .builder-canvas p { font-size: 12px; }
 :where(.quant-workspace) .builder-canvas footer button { font-size: 12px; min-height: 38px; }
 :where(.quant-workspace) .qjs-shell { background: #111a27; grid-template-rows: auto minmax(0, 1fr); }
-:where(.quant-workspace) .qjs-toolbar { min-height: 66px; height: auto; padding: 10px 16px; gap: 12px; background: #152232; flex-wrap: wrap; }
+:where(.quant-workspace) .qjs-toolbar { min-height: 54px; height: auto; padding: 7px 12px; gap: 12px; background: #152232; flex-wrap: nowrap; }
 :where(.quant-workspace) .qjs-embedded-context { min-width: 0; padding: 0; }
 :where(.quant-workspace) .qjs-embedded-context strong { font-size: 12px; }
 :where(.quant-workspace) .qjs-embedded-context small { display: none; }
 :where(.quant-workspace) .qjs-embedded-context > em { font-size: 10px; }
-:where(.quant-workspace) .qjs-auth { min-width: 0; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+:where(.quant-workspace) .qjs-auth { min-width: 0; justify-content: flex-end; flex-wrap: nowrap; gap: 8px; }
 :where(.quant-workspace) .qjs-save-feedback { min-width: 0; max-width: 260px; font-size: 10px; }
 :where(.quant-workspace) .qjs-agent-select { min-width: 160px; }
+:where(.quant-workspace) .qjs-agent-empty { min-width: 220px; height: 38px; padding: 0 8px; border: 1px solid #455a75; border-radius: 6px; background: #1a2a3d; color: #aebfda; display: flex; align-items: center; gap: 7px; }
+:where(.quant-workspace) .qjs-agent-empty > span { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 1px; }
+:where(.quant-workspace) .qjs-agent-empty strong { font-size: 10px; color: #d4e0f3; }
+:where(.quant-workspace) .qjs-agent-empty small { overflow: hidden; font-size: 8px; color: #8496af; text-overflow: ellipsis; white-space: nowrap; }
+:where(.quant-workspace) .qjs-agent-empty button { flex: 0 0 auto; padding: 4px 7px; border: 1px solid #806331; border-radius: 4px; background: #211b11; color: #efbb62; font-size: 9px; cursor: pointer; }
 :where(.quant-workspace) .qjs-token { width: 166px; }
 :where(.quant-workspace) .qjs-agent-select select, :where(.quant-workspace) .qjs-token input, :where(.quant-workspace) .qjs-save { font-size: 11px; }
 :where(.quant-workspace) .qjs-save { margin-right: 0; }
-:where(.quant-workspace) .qjs-workflow-layout { grid-template-columns: 205px minmax(300px, 1fr) 280px; }
+:where(.quant-workspace) .qjs-workflow-layout { grid-template-columns: 190px minmax(380px, 1fr) 270px; grid-template-rows: 58px minmax(0, 1fr); }
+:where(.quant-workspace) .qjs-workflow-guide { grid-column: 1 / -1; min-width: 0; padding: 8px 14px; border-bottom: 1px solid #304057; background: #111c2a; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+:where(.quant-workspace) .qjs-workflow-guide > span { min-width: 0; display: grid; grid-template-columns: 22px minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 8px; align-content: center; }
+:where(.quant-workspace) .qjs-workflow-guide b { grid-row: 1 / 3; width: 22px; height: 22px; border: 1px solid #52719b; border-radius: 50%; color: #a9c6f2; display: grid; place-items: center; font: 10px var(--mono); }
+:where(.quant-workspace) .qjs-workflow-guide strong { overflow: hidden; color: #d7e2f1; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+:where(.quant-workspace) .qjs-workflow-guide small { overflow: hidden; color: #8294ad; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 :where(.quant-workspace) .qjs-library, :where(.quant-workspace) .qjs-inspector { background: #152130; }
 :where(.quant-workspace) .qjs-side-title, :where(.quant-workspace) .qjs-template strong, :where(.quant-workspace) .qjs-role strong, :where(.quant-workspace) .qjs-inspector-title { font-size: 12px; }
 :where(.quant-workspace) .qjs-template small, :where(.quant-workspace) .qjs-role small, :where(.quant-workspace) .qjs-safety-note small, :where(.quant-workspace) .qjs-help, :where(.quant-workspace) .qjs-node-contract small { font-size: 11px; line-height: 1.6; }
@@ -275,6 +294,11 @@ body { background: var(--bg); }
 :where(.quant-workspace) .qjs-dropzone { min-height: 210px; background: #18293e; border: 1px dashed #6481a8; }
 :where(.quant-workspace) .qjs-dropzone strong { font-size: 18px; }
 :where(.quant-workspace) .qjs-dropzone span, :where(.quant-workspace) .qjs-empty { font-size: 12px; }
+:where(.quant-workspace) .qjs-package-boundary { margin: 16px 16px 0; padding: 12px 14px; border: 1px solid #6d5833; border-radius: 7px; background: #211c14; color: #e1b866; display: flex; align-items: flex-start; gap: 10px; }
+:where(.quant-workspace) .qjs-package-boundary svg { flex: 0 0 auto; margin-top: 2px; }
+:where(.quant-workspace) .qjs-package-boundary span { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+:where(.quant-workspace) .qjs-package-boundary strong { font-size: 11px; }
+:where(.quant-workspace) .qjs-package-boundary small { color: #bca47a; font-size: 10px; line-height: 1.6; }
 :where(.quant-workspace) .qjs-code pre { font-size: 12px; line-height: 1.8; }
 
 /* Portfolio and marketplace use the same reading scale. */
@@ -372,7 +396,7 @@ body { background: var(--bg); }
   :where(.quant-workspace) .lab-overview-grid { grid-template-columns: minmax(0, 1fr) 250px; gap: 24px; }
   :where(.quant-workspace) .strategy-lab-progress { display: none; }
   :where(.quant-workspace) .qj-kpis { display: none; }
-  :where(.quant-workspace) .qjs-workflow-layout { grid-template-columns: 185px minmax(260px, 1fr) 250px; }
+  :where(.quant-workspace) .qjs-workflow-layout { grid-template-columns: 180px minmax(300px, 1fr) 250px; }
   :where(.quant-workspace) .qjs-save-feedback { display: none; }
 }
 @media (max-width: 1100px) and (min-width: 821px) {
@@ -387,6 +411,8 @@ body { background: var(--bg); }
   :where(.quant-workspace) .qj-market { min-height: 520px; overflow: visible; }
   :where(.quant-workspace) .qj-detail { overflow: visible; border-top: 1px solid var(--border); }
   :where(.quant-workspace) .qjs-workflow-layout { grid-template-columns: 165px minmax(230px, 1fr) 220px; }
+  :where(.quant-workspace) .qjs-auth { flex-wrap: wrap; }
+  :where(.quant-workspace) .qjs-agent-empty { min-width: 170px; }
   :where(.quant-workspace) .qjs-flow { padding: 12px; }
   :where(.quant-workspace) .qjs-node { grid-template-columns: minmax(0, 1fr) auto; }
   :where(.quant-workspace) .qjs-node > i, :where(.quant-workspace) .qjs-node > b { display: none; }
@@ -429,7 +455,10 @@ body { background: var(--bg); }
   :where(.quant-workspace) .strategy-lab-header { min-height: 57px; padding: 0 8px; }
   :where(.quant-workspace) .strategy-lab-header nav { height: 57px; }
   :where(.quant-workspace) .strategy-lab-header nav button { padding: 0 10px; }
-  :where(.quant-workspace) .lab-stage-context { padding: 16px; align-items: flex-start; }
+  :where(.quant-workspace) .lab-stage-context { min-height: 76px; padding: 12px 16px; align-items: flex-start; }
+  :where(.quant-workspace) .lab-stage-context > div { display: grid; gap: 4px; }
+  :where(.quant-workspace) .lab-stage-context p { white-space: normal; }
+  :where(.quant-workspace) .lab-stage-context span { padding: 0; border: 0; }
   :where(.quant-workspace) .lab-stage-context button { padding: 7px; font-size: 11px; }
   :where(.quant-workspace) .lab-overview { padding: 24px 16px; overflow: visible; }
   :where(.quant-workspace) .lab-overview-heading { flex-direction: column; align-items: flex-start; margin-bottom: 26px; gap: 16px; }
@@ -446,6 +475,8 @@ body { background: var(--bg); }
   :where(.quant-workspace) .qjs-agent-select { flex: 1; }
   :where(.quant-workspace) .qjs-token { width: 150px; }
   :where(.quant-workspace) .qjs-workflow-layout { display: flex; flex-direction: column; overflow: visible; }
+  :where(.quant-workspace) .qjs-workflow-guide { display: flex; overflow-x: auto; }
+  :where(.quant-workspace) .qjs-workflow-guide > span { min-width: 230px; }
   :where(.quant-workspace) .qjs-shell { display: block; overflow: visible; }
   :where(.quant-workspace) .qjs-library { max-height: 330px; overflow: auto; }
   :where(.quant-workspace) .qjs-canvas { min-height: 700px; max-height: 1000px; }
@@ -456,9 +487,10 @@ body { background: var(--bg); }
   :where(.quant-workspace) .qjs-contract { flex-direction: column; align-items: stretch; }
   :where(.quant-workspace) .qjs-code pre { font-size: 11px; }
   :where(.quant-workspace) .builder-canvas { padding: 18px 14px; display: block; }
-  :where(.quant-workspace) .builder-canvas > header { flex-wrap: wrap; align-items: start; }
+  :where(.quant-workspace) .builder-canvas > header { display: grid; grid-template-columns: 1fr; align-items: start; }
   :where(.quant-workspace) .builder-canvas > header > div { flex-basis: 100%; }
-  :where(.quant-workspace) .builder-canvas .target-position input { width: 110px; }
+  :where(.quant-workspace) .builder-canvas .target-position { width: 124px; }
+  :where(.quant-workspace) .builder-canvas .target-position input { width: 100%; }
   :where(.quant-workspace) .rule-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   :where(.quant-workspace) .rule-delete { grid-column: 2; justify-self: end; }
   :where(.quant-workspace) .indicator-editor { grid-template-columns: minmax(0, 1fr) 45px; }

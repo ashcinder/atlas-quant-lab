@@ -57,11 +57,11 @@ async function openMarket() {
 describe('QuantJudge evidence and navigation', () => {
   it('keeps keyboard focus in the publish dialog and restores it on Escape', async () => {
     await openMarket()
-    const trigger = screen.getByRole('button', { name: '发布 Agent' })
+    const trigger = screen.getByRole('button', { name: '创建策略身份' })
     trigger.focus()
     fireEvent.click(trigger)
-    expect(document.activeElement).toBe(screen.getByLabelText('Agent 名称'))
-    const close = screen.getByRole('button', { name: '关闭发布窗口' })
+    expect(document.activeElement).toBe(screen.getByLabelText('策略名称'))
+    const close = screen.getByRole('button', { name: '关闭创建窗口' })
     close.focus()
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
     expect(document.activeElement?.textContent).toBe('取消')

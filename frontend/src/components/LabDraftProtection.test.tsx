@@ -86,8 +86,8 @@ afterEach(cleanup)
 async function openStudio(activeTab: 'workflow' | 'packages' | 'proof' = 'workflow', onWorkflowSaved = vi.fn()) {
   const onError = vi.fn()
   const result = render(<QuantStrategyStudio embedded activeTab={activeTab} onError={onError} onWorkflowSaved={onWorkflowSaved} />)
-  await screen.findByRole('combobox', { name: '选择保存工作流的 Agent' })
-  fireEvent.change(screen.getByRole('combobox', { name: '选择保存工作流的 Agent' }), { target: { value: 'agent-a' } })
+  await screen.findByRole('combobox', { name: '选择用于归属工作流的策略身份' })
+  fireEvent.change(screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' }), { target: { value: 'agent-a' } })
   fireEvent.change(screen.getByLabelText('开发者凭证'), { target: { value: 'private-token-a' } })
   return { ...result, onError }
 }
@@ -156,11 +156,11 @@ describe('workflow drafts and private sessions', () => {
 
   it('clears credentials, loaded packages, and package bindings when changing Agent', async () => {
     const { rerender, onError } = await openStudio('packages')
-    fireEvent.click(screen.getByRole('button', { name: '读取策略包' }))
+    fireEvent.click(screen.getByRole('button', { name: '读取版本' }))
     await screen.findByText('A 私密策略包')
     rerender(<QuantStrategyStudio embedded activeTab="workflow" onError={onError} />)
     fireEvent.change(screen.getByRole('combobox', { name: /绑定策略包/ }), { target: { value: privatePackage.id } })
-    fireEvent.change(screen.getByRole('combobox', { name: '选择保存工作流的 Agent' }), { target: { value: 'agent-b' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' }), { target: { value: 'agent-b' } })
     expect((screen.getByLabelText('开发者凭证') as HTMLInputElement).value).toBe('')
     expect((screen.getByRole('combobox', { name: /绑定策略包/ }) as HTMLSelectElement).value).toBe('')
     expect(screen.queryByRole('option', { name: /A 私密策略包/ })).toBeNull()
@@ -170,13 +170,13 @@ describe('workflow drafts and private sessions', () => {
     const request = deferred<StrategyPackageRecord[]>()
     vi.mocked(api.listStrategyPackages).mockReturnValue(request.promise)
     await openStudio('packages')
-    fireEvent.click(screen.getByRole('button', { name: '读取策略包' }))
-    const agentSelect = screen.getByRole('combobox', { name: '选择保存工作流的 Agent' })
+    fireEvent.click(screen.getByRole('button', { name: '读取版本' }))
+    const agentSelect = screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' })
     fireEvent.change(agentSelect, { target: { value: 'agent-b' } })
     fireEvent.change(agentSelect, { target: { value: 'agent-a' } })
     await act(async () => request.resolve([privatePackage]))
     expect(screen.queryByText('A 私密策略包')).toBeNull()
-    expect((screen.getByRole('button', { name: '读取策略包' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: '读取版本' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('ignores a late workflow save from the previous Agent', async () => {
@@ -187,7 +187,7 @@ describe('workflow drafts and private sessions', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '工作流名称' }), { target: { value: '私密草稿' } })
     await screen.findByText('结构校验通过')
     fireEvent.click(screen.getByRole('button', { name: '保存修订' }))
-    fireEvent.change(screen.getByRole('combobox', { name: '选择保存工作流的 Agent' }), { target: { value: 'agent-b' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' }), { target: { value: 'agent-b' } })
     await act(async () => save.resolve(savedWorkflow))
     expect(onSaved).not.toHaveBeenCalled()
     expect(screen.getByDisplayValue('私密草稿')).toBeTruthy()
@@ -205,7 +205,7 @@ describe('workflow drafts and private sessions', () => {
       target: { files: [new File(['proof'], 'proof.r0')] },
     })
     await waitFor(() => expect(api.uploadZkProof).toHaveBeenCalled())
-    fireEvent.change(screen.getByRole('combobox', { name: '选择保存工作流的 Agent' }), { target: { value: 'agent-b' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' }), { target: { value: 'agent-b' } })
     await act(async () => request.resolve(proof))
     expect(screen.queryByText(proof.proof_hash)).toBeNull()
     expect(screen.queryByText('dataset-a')).toBeNull()

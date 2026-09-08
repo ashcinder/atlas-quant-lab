@@ -19,6 +19,7 @@ export type StrategyLabTab = 'overview' | 'builder' | 'workflow' | 'validate' | 
 
 interface Props extends Omit<ResearchWorkspaceProps, 'view' | 'showHeader'> {
   initialTab?: StrategyLabTab
+  onOpenMarket?: () => void
 }
 
 const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: typeof Braces }> = [
@@ -26,9 +27,9 @@ const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: type
   { id: 'builder', label: '规则构建', stage: '01 DRAFT', icon: Braces },
   { id: 'workflow', label: 'AI 工作流', stage: '02 COMPOSE', icon: GitBranch },
   { id: 'validate', label: '研究验证', stage: '03 VALIDATE', icon: FlaskConical },
-  { id: 'packages', label: '版本包', stage: '04 VERSION', icon: FileArchive },
-  { id: 'proof', label: 'ZKP 证明', stage: '05 PROVE', icon: ShieldCheck },
-  { id: 'sdk', label: 'SDK 与格式', stage: 'DEVKIT', icon: Beaker },
+  { id: 'packages', label: '策略版本', stage: '04 PACKAGE', icon: FileArchive },
+  { id: 'proof', label: 'ZKP 验证', stage: '05 PROVE', icon: ShieldCheck },
+  { id: 'sdk', label: '开发接入', stage: 'DEVKIT', icon: Beaker },
 ]
 
 const studioTabFor = (tab: StrategyLabTab): StudioTab => tab === 'packages' ? 'packages' : tab === 'proof' ? 'proof' : tab === 'sdk' ? 'sdk' : 'workflow'
@@ -54,7 +55,16 @@ const descriptions: Record<StrategyLabTab, string> = {
   sdk: '查看策略契约、格式说明与 Python 示例，准备自己的策略包。',
 }
 
-export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps }: Props) {
+const outputs: Partial<Record<StrategyLabTab, string>> = {
+  builder: '产出：可回测的交易规则',
+  workflow: '产出：受硬风控约束的执行流程',
+  validate: '产出：样本外研究证据',
+  packages: '产出：内容哈希与私密不可变版本',
+  proof: '产出：可独立验证的跑分回执',
+  sdk: '用途：下载格式、SDK 与接入示例',
+}
+
+export function StrategyLabWorkspace({ initialTab = 'overview', onOpenMarket, ...researchProps }: Props) {
   const [tab, setTab] = useState<StrategyLabTab>(initialTab)
   const [researchVisited, setResearchVisited] = useState(initialTab === 'builder' || initialTab === 'validate')
   const [studioVisited, setStudioVisited] = useState(isStudioTab(initialTab))
@@ -144,12 +154,12 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
         <div className="section-label"><h2>选择你的起点</h2><span>从规则开始，或带来已有代码</span></div>
         <div className="lab-entry-cards">
           <button onClick={() => chooseTab('builder')}><Braces size={25} /><span className="capability-tag">可回测</span><h3>可视化构建</h3><p>使用价格、均线、动量等指标组合交易规则，无需编写代码。</p><span className="entry-link">打开规则编辑器 <ArrowRight size={15} /></span></button>
-          <button onClick={() => chooseTab('packages')}><FileArchive size={25} /><span className="capability-tag neutral">上传与归档</span><h3>导入策略包</h3><p>使用 .qstrategy 管理代码与版本。Python 隔离执行尚未接入。</p><span className="entry-link">上传已有策略 <ArrowRight size={15} /></span></button>
+          <button onClick={() => chooseTab('packages')}><FileArchive size={25} /><span className="capability-tag neutral">上传与归档</span><h3>导入策略包</h3><p>使用 .qstrategy 管理代码与版本；在 Linux gVisor 配置就绪后进行隔离研究执行。</p><span className="entry-link">上传已有策略 <ArrowRight size={15} /></span></button>
         </div>
         <div className="section-label"><h2>研究到发布</h2><span>每一步都有明确的产出</span></div>
         <div className="lab-journey">{tabs.filter((item) => item.id !== 'overview' && item.id !== 'sdk').map((item, index) => <button key={item.id} onClick={() => chooseTab(item.id)}><span className={`journey-number ${tabComplete(item.id, project) ? 'done' : ''}`}>{tabComplete(item.id, project) ? <Check size={16} /> : index + 1}</span><span><strong>{item.label}</strong><small>{descriptions[item.id]}</small></span><ArrowRight size={16} /></button>)}</div>
-      </div><aside className="lab-project-summary"><span className="eyebrow">当前研究</span><h2>{project?.name ?? '探索工作区'}</h2><p>{project?.thesis ?? '先试用规则编辑器。准备归档研究时，在顶部创建策略项目。'}</p><dl><div><dt>研究标的</dt><dd>{project?.asset_symbol ?? researchProps.asset?.symbol ?? '待选择'}</dd></div><div><dt>时间周期</dt><dd>{project?.interval ?? researchProps.interval}</dd></div><div><dt>已通过门禁</dt><dd>{project ? `${project.gates.filter((gate) => gate.passed).length} / ${project.gates.length}` : '未创建项目'}</dd></div></dl><div className="lab-next-step"><strong>下一步</strong><p>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '查看版本与发布状态' : '在顶部创建项目，将策略与验证结果关联保存。')}</p></div><button onClick={() => chooseTab('sdk')}>查看开发指南 <ArrowRight size={15} /></button><div className="lab-capabilities"><strong>当前能力边界</strong><p>规则回测、策略包存储与 SMA 零知识证明可用。AI、TEE 和通用 Python 执行仍待接入。</p></div></aside></div>
-    </section> : <div className="lab-stage-context"><div><strong>{tabs.find((item) => item.id === tab)?.label}</strong><p>{descriptions[tab]}</p></div><button onClick={() => chooseTab('overview')}>返回总览</button></div>}
+      </div><aside className="lab-project-summary"><span className="eyebrow">当前研究</span><h2>{project?.name ?? '探索工作区'}</h2><p>{project?.thesis ?? '先试用规则编辑器。准备归档研究时，在顶部创建策略项目。'}</p><dl><div><dt>研究标的</dt><dd>{project?.asset_symbol ?? researchProps.asset?.symbol ?? '待选择'}</dd></div><div><dt>时间周期</dt><dd>{project?.interval ?? researchProps.interval}</dd></div><div><dt>已通过门禁</dt><dd>{project ? `${project.gates.filter((gate) => gate.passed).length} / ${project.gates.length}` : '未创建项目'}</dd></div></dl><div className="lab-next-step"><strong>下一步</strong><p>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '查看版本与发布状态' : '在顶部创建项目，将策略与验证结果关联保存。')}</p></div><button onClick={() => chooseTab('sdk')}>查看开发指南 <ArrowRight size={15} /></button><div className="lab-capabilities"><strong>当前能力边界</strong><p>可视化规则回测、加密策略版本和可编程 zkVM v2 证明已接入；Python 需 gVisor 环境才会执行，真实 TEE 与任意 Python / AI 推理 ZKP 仍属能力边界。</p></div></aside></div>
+    </section> : <div className="lab-stage-context"><div><strong>{tabs.find((item) => item.id === tab)?.label}</strong><p>{descriptions[tab]}</p>{outputs[tab] ? <span>{outputs[tab]}</span> : null}</div><button onClick={() => chooseTab('overview')}>返回总览</button></div>}
 
     {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究引擎…</div>}>
@@ -158,7 +168,7 @@ export function StrategyLabWorkspace({ initialTab = 'overview', ...researchProps
     </section> : null}
     {studioVisited ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载私密策略工作室…</div>}>
-        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onPackageUploaded={(record: StrategyPackageRecord, token: string) => void linkArtifact('package', record.id, token)} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
+        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onOpenMarket={onOpenMarket} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onPackageUploaded={(record: StrategyPackageRecord, token: string) => void linkArtifact('package', record.id, token)} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
       </Suspense>
     </section> : null}
   </main>

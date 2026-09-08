@@ -1677,11 +1677,32 @@
   max-width: calc(100vw - 30px) !important;
   max-height: 90dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  color-scheme: dark;
   border-radius: 16px !important;
   padding: 30px !important;
   gap: 15px !important;
-  box-shadow: none;
-  background: white !important;
+  border: 1px solid #34465e !important;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .55), 0 0 0 1px rgba(137, 168, 207, .06) !important;
+  background: #162232 !important;
+  color: var(--foreground) !important;
+}
+:where(.journal-root) [data-slot="dialog-overlay"] {
+  background: rgba(4, 9, 15, .72) !important;
+  backdrop-filter: blur(5px);
+}
+:where(.journal-root) .app-dialog [data-slot="dialog-close"] {
+  border: 1px solid #3a4c63;
+  background: #1d2b3c;
+  color: #9fb1c8;
+}
+:where(.journal-root) .app-dialog [data-slot="dialog-close"]:hover {
+  background: #26384d;
+  color: #f0f5fb;
+}
+:where(.journal-root) .app-dialog :is(input, select, textarea):focus-visible {
+  outline: 2px solid #78a7ef;
+  outline-offset: 2px;
 }
 :where(.journal-root) .app-dialog [data-slot="dialog-title"] {
   font-size: 20px;
