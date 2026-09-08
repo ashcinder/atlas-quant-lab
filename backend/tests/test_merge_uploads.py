@@ -1,6 +1,4 @@
-"""Exercise uploads through the merged login middleware, not a standalone router."""
-
-import secrets
+"""Exercise retired and supported uploads through the merged login middleware."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,27 +19,38 @@ def owner():
     client.close()
 
 
-def test_authenticated_package_upload_over_json_limit_and_download(owner):
+def test_historical_package_created_in_store_remains_downloadable(owner):
     client, agent_id, headers = owner
-    content = package_bytes({"README.md": secrets.token_hex(4_100_000)})
-    assert 4_000_000 < len(content) < 10 * 1024 * 1024
+    content = package_bytes()
     endpoint = f"/api/v1/quantjudge/agents/{agent_id}/packages"
-    uploaded = client.post(endpoint, headers=headers, files={"file": ("merge.qstrategy", content)})
-    assert uploaded.status_code == 201, uploaded.text
-    package_id = uploaded.json()["id"]
+    package = main.strategy_studio_store.upload_package(
+        agent_id, "historical.qstrategy", content, headers["X-Developer-Token"]
+    )
+    package_id = package["id"]
     downloaded = client.get(f"{endpoint}/{package_id}/download", headers=headers)
     assert downloaded.status_code == 200, downloaded.text
     assert downloaded.content == content
 
 
-def test_uploads_keep_login_origin_token_and_json_boundaries(owner):
+def test_package_upload_is_authenticated_then_rejected_without_store_write(owner, monkeypatch):
     client, agent_id, headers = owner
     endpoint = f"/api/v1/quantjudge/agents/{agent_id}/packages"
     files = {"file": ("merge.qstrategy", package_bytes())}
+    writes = []
+    monkeypatch.setattr(main.strategy_studio_store, "upload_package", lambda *args: writes.append(args))
+
     with TestClient(main.app) as anonymous:
         assert anonymous.post(endpoint, headers=headers, files=files).status_code == 401
-    assert client.post(endpoint, files=files).status_code == 401
     assert client.post(endpoint, headers={**headers, "Origin": "https://other.example"}, files=files).status_code == 403
+    response = client.post(endpoint, headers=headers, files=files)
+    assert response.status_code == 410
+    assert "图形化策略画布" in response.json()["detail"]
+    assert writes == []
+
+
+def test_uploads_keep_json_boundaries(owner):
+    client, _, _ = owner
+    files = {"file": ("merge.qstrategy", package_bytes())}
     assert client.post("/api/v1/backtests", files=files).status_code == 415
     assert client.post("/api/v1/backtests", content=b"x" * 4_000_001, headers={"Content-Type": "application/json"}).status_code == 413
 

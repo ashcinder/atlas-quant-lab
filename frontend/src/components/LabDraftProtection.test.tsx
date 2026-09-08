@@ -12,7 +12,7 @@ vi.mock('../api', () => ({ api: {
   listCustomStrategies: vi.fn(), saveCustomStrategy: vi.fn(), deleteCustomStrategy: vi.fn(),
   getStudioSpec: vi.fn(), getStudioTemplates: vi.fn(), listQuantAgents: vi.fn(), listZkProfiles: vi.fn(),
   validateStudioWorkflow: vi.fn(), saveStudioWorkflow: vi.fn(), listStrategyPackages: vi.fn(),
-  uploadStrategyPackage: vi.fn(), createZkMarketDataset: vi.fn(), uploadZkProof: vi.fn(), publishZkReport: vi.fn(),
+  createZkMarketDataset: vi.fn(), uploadZkProof: vi.fn(), publishZkReport: vi.fn(),
 } }))
 
 function deferred<T>() {
@@ -128,6 +128,69 @@ describe('rule drafts', () => {
 })
 
 describe('workflow drafts and private sessions', () => {
+  it('adds contextual AI blocks and preserves the graph when removing them', async () => {
+    await openStudio()
+    fireEvent.click(screen.getByRole('button', { name: '让 AI 复核交易信号' }))
+    expect(screen.getByRole('button', { name: /配置 信号复核 #ai_signal_review_1/ })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(/私密指令/), { target: { value: '仅在交易量支持趋势时建议买入' } })
+    await waitFor(() => expect(api.validateStudioWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({
+      nodes: expect.arrayContaining([expect.objectContaining({ id: 'ai_signal_review_1', config: expect.objectContaining({ instructions: '仅在交易量支持趋势时建议买入' }) })]),
+      edges: [{ source: 'strategy', target: 'review' }, { source: 'review', target: 'ai_signal_review_1' }],
+    })))
+    fireEvent.click(screen.getByRole('button', { name: '删除 AI 节点' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(screen.queryByRole('button', { name: /#ai_signal_review_1/ })).toBeNull()
+    await waitFor(() => expect(api.validateStudioWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ edges: template.workflow.edges })))
+  })
+
+  it('persists the default limit when enabling bounded AI adjustment', async () => {
+    const studioSpec = await api.getStudioSpec()
+    vi.mocked(api.getStudioSpec).mockResolvedValue({ ...studioSpec, ai_roles: [{ id: 'signal_review', label: '信号复核', allowed_authority: ['advisory', 'bounded_adjustment'] }] })
+    await openStudio()
+    fireEvent.click(screen.getByRole('button', { name: /配置 信号复核 #review/ }))
+    fireEvent.change(screen.getByLabelText('允许 AI 做到哪一步'), { target: { value: 'bounded_adjustment' } })
+    await waitFor(() => expect(api.validateStudioWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ nodes: expect.arrayContaining([expect.objectContaining({ id: 'review', config: expect.objectContaining({ authority: 'bounded_adjustment', max_adjustment_bps: 100 }) })]) })))
+  })
+
+  it('shows validation request errors and retries after editing', async () => {
+    vi.mocked(api.validateStudioWorkflow).mockRejectedValueOnce(new Error('配置校验失败'))
+    await openStudio()
+    await screen.findByText('流程检查失败')
+    expect(screen.queryByText('正在检查流程…')).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: '工作流名称' }), { target: { value: '重试检查' } })
+    await screen.findByText('结构校验通过')
+    expect(screen.queryByText('流程检查失败')).toBeNull()
+  })
+
+  it('renders AI risk review before the hard risk gate in saved flow order', async () => {
+    vi.mocked(api.getStudioTemplates).mockResolvedValue([{ ...template, workflow: { ...template.workflow, nodes: [
+      { id: 'ai-risk', type: 'ai_guard', label: 'AI 风险检查', config: { role: 'risk_control', authority: 'advisory', provider_ref: 'server:model', timeout_ms: 1000, on_error: 'deny' } },
+      { id: 'risk', type: 'risk_gate', label: '不可绕过的风控', config: {} },
+    ], edges: [{ source: 'ai-risk', target: 'risk' }] } }])
+    await openStudio()
+    const ai = screen.getByRole('button', { name: '配置 AI 风险检查 #ai-risk' })
+    const gate = screen.getByRole('button', { name: '配置 不可绕过的风控 #risk' })
+    expect(ai.compareDocumentPosition(gate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('stores displayed risk percentages as fractions', async () => {
+    vi.mocked(api.getStudioTemplates).mockResolvedValue([{ ...template, workflow: { ...template.workflow, nodes: [
+      { id: 'risk', type: 'risk_gate', label: '风险限额', config: { max_gross_exposure: 0.95, max_single_position: 0.2, max_daily_loss: 0.03, max_drawdown: 0.15, max_participation_rate: 0.1 } },
+    ], edges: [] } }])
+    await openStudio()
+    const exposure = screen.getByRole('spinbutton', { name: /总暴露/ })
+    expect((exposure as HTMLInputElement).value).toBe('95')
+    fireEvent.change(exposure, { target: { value: '80' } })
+    await waitFor(() => expect(api.validateStudioWorkflow).toHaveBeenLastCalledWith(expect.objectContaining({ nodes: [expect.objectContaining({ config: expect.objectContaining({ max_gross_exposure: 0.8 }) })] })))
+  })
+
+  it('offers historical archives without a source upload input', async () => {
+    const { container } = await openStudio('packages')
+    expect(container.querySelector('input[type="file"]')).toBeNull()
+    expect(screen.queryByText('选择 .qstrategy')).toBeNull()
+    expect(screen.getByText('历史策略档案')).toBeTruthy()
+  })
+
   it('protects private instructions from an unconfirmed template replacement', async () => {
     await openStudio()
     fireEvent.click(screen.getByRole('button', { name: /信号复核.*#review/ }))

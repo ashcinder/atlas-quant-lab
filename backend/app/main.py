@@ -58,7 +58,6 @@ from app.strategy_projects import (
     StrategyProjectUpdate,
 )
 from app.strategy_studio import (
-    MAX_ARCHIVE_BYTES,
     StrategyPackageError,
     StrategyStudioStore,
     studio_spec,
@@ -144,11 +143,18 @@ async def require_atlas_user(request: Request, call_next):
         if user is None:
             return JSONResponse({"error": "需要登录"}, status_code=401, headers={"X-Atlas-Session-Required": "1"})
         request.state.user = user
-    if request.url.path.startswith('/api/') and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+    retired_package_upload = request.method == 'POST' and re.fullmatch(
+        r'/api/v1/quantjudge/agents/[^/]+/packages', request.url.path
+    ) is not None
+    if (
+        request.url.path.startswith('/api/')
+        and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
+        and not retired_package_upload
+    ):
         if not _origin_ok(request):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)
         multipart_upload = request.method == 'POST' and re.fullmatch(
-            r'/api/v1/quantjudge/agents/[^/]+/(packages|zk-proofs)', request.url.path
+            r'/api/v1/quantjudge/agents/[^/]+/zk-proofs', request.url.path
         ) is not None
         content_type = request.headers.get('content-type', '').split(';')[0].strip()
         body_limit = MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000
@@ -745,24 +751,13 @@ def list_quant_strategy_packages(
 
 @app.post(
     "/api/v1/quantjudge/agents/{agent_id}/packages",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_410_GONE,
 )
-async def upload_quant_strategy_package(
-    agent_id: str,
-    file: UploadFile = File(...),
-    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
-):
-    content = await file.read(MAX_ARCHIVE_BYTES + 1)
-    try:
-        return strategy_studio_store.upload_package(
-            agent_id, file.filename or "strategy.qstrategy", content, developer_token
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    except StrategyPackageError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+def upload_quant_strategy_package(agent_id: str):
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="策略代码上传已停用，请使用图形化策略画布创建和配置策略。",
+    )
 
 
 @app.get("/api/v1/quantjudge/agents/{agent_id}/packages/{package_id}/download")

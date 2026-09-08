@@ -203,11 +203,6 @@ export const api = {
   listStrategyPackages(agentId: string, token: string) {
     return request<StrategyPackageRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { headers: { 'X-Developer-Token': token } })
   },
-  uploadStrategyPackage(agentId: string, token: string, file: File) {
-    const body = new FormData()
-    body.append('file', file)
-    return request<StrategyPackageRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { method: 'POST', headers: { 'X-Developer-Token': token }, body })
-  },
   listStudioWorkflows(agentId: string, token: string) {
     return request<StudioWorkflowRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows`, { headers: { 'X-Developer-Token': token } })
   },
