@@ -81,11 +81,11 @@ def main() -> None:
         assert request("/strategy-lab")[0] == html, "SPA fallback must serve the app"
         assert request("/healthz")[0].strip() == b"ok"
         assert api("/api/v1/health")["status"] == "ok"
+        assert not api("/api/session")["authenticated"]
         api("/api/register", {"email": "smoke@example.test", "password": uuid4().hex})
         assert api("/api/session")["authenticated"] is True
         assert "/api/v1/health" in api("/openapi.json")["paths"]
         assert b"/openapi.json" in request("/api/docs")[0]
-        assert not api("/api/session")["authenticated"]
         api("/api/register", {"email": "container-fixture@example.test", "password": "disposable-fixture-password"})
         assert api("/api/session")["authenticated"]
         assert api("/api/ledger")["state"]["accounts"] == []
