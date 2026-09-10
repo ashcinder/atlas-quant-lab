@@ -1,5 +1,7 @@
 const API_ROOT = (import.meta.env.VITE_API_ROOT ?? '/api/v1').replace(/\/$/, '')
 
+export const RUNTIME_CHANGED_EVENT = 'atlas-runtime-changed'
+
 export class ApiError extends Error {
   readonly status: number | null
   readonly kind: 'http' | 'network' | 'timeout' | 'invalid_response'
@@ -46,6 +48,10 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
       if (response.status === 401 && (!headers.has('X-Developer-Token') || response.headers.get('X-Atlas-Session-Required') === '1')) window.dispatchEvent(new Event('atlas-session-expired'))
       const body: unknown = await response.json().catch(() => null)
       throw new ApiError(errorDetail(body) ?? `服务请求失败（HTTP ${response.status}）。请稍后重试或查看系统状态。`, 'http', response.status)
+    }
+    if (!['GET', 'HEAD'].includes((options.method ?? 'GET').toUpperCase())
+      && /^\/(strategy-releases|strategy-subscriptions|trading|custom-strategies)(\/|$)/.test(path)) {
+      window.dispatchEvent(new Event(RUNTIME_CHANGED_EVENT))
     }
     if (response.status === 204) return undefined as T
     try { return await response.json() as T }

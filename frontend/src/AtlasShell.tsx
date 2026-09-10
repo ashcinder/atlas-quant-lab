@@ -8,6 +8,15 @@ const TradingWorkspace = lazy(() => import('./components/TradingWorkspace'))
 const JournalWorkspace = lazy(() => import('./journal/components/investment-app'))
 type Session = { authenticated: boolean; registrationEnabled: boolean; email: string | null; userId?: string }
 const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
+const titleFromHash = () => {
+  if (window.location.hash.startsWith('#/trading')) return '交易账户 · Atlas'
+  if (window.location.hash.startsWith('#/journal')) {
+    const tab = window.location.hash.split('/')[2]?.split('?')[0] ?? 'overview'
+    return `${({ overview: '资产总览', accounts: '我的账户', records: '投资记录', plans: '定投计划', analysis: '收益分析', trading: '自动交易账本' } as Record<string, string>)[tab] ?? '资产账本'} · Atlas`
+  }
+  const route = window.location.hash.slice(1).split('?')[0]
+  return `${({ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' } as Record<string, string>)[route] ?? '行情与回测'} · Atlas`
+}
 
 export default function AtlasShell() {
   const switcher = useRef<HTMLDetailsElement>(null)
@@ -30,7 +39,10 @@ export default function AtlasShell() {
     const initial = workspaceFromHash()
     return { quant: initial === 'quant', trading: initial === 'trading', journal: initial === 'journal' }
   })
-  useEffect(() => { if (workspace === 'journal') document.title = '资产账本 · Atlas' }, [workspace])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { document.title = titleFromHash() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [workspace])
   async function refreshSession() {
     const requestId = ++sessionRequest.current
     const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })

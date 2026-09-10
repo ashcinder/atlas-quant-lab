@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { request } from '../request'
 import TradingWorkspace from './TradingWorkspace'
 
-vi.mock('../request', () => ({ request: vi.fn() }))
+vi.mock('../request', async (importOriginal) => ({ ...await importOriginal<object>(), request: vi.fn() }))
 const caps = { authorized: true, user_id: 'test-user', venues: [{ venue: 'binance', mode: 'demo', configured: true, can_trade: true }] }
 const preview = { id: 'aq-test', order: { venue: 'binance', symbol: 'BTC-USDT', side: 'buy', quantity: '0.001', price: '10000' }, mode: 'demo', expires: 9999999999, state: 'preview', result: {} }
 beforeEach(() => {
@@ -69,10 +69,31 @@ it('shows a prominent warning for an HTTP-success response with unknown executio
   vi.mocked(request).mockImplementation(async (path) => {
     if (path.endsWith('/confirm')) return { ...preview, state: 'unknown' }
     if (path.endsWith('/capabilities')) return caps
-    return [{ ...preview, state: 'unknown' }]
+    if (path === '/trading/orders') return [{ ...preview, state: 'unknown' }]
+    return []
   })
   fireEvent.change(screen.getByLabelText('确认文字'), { target: { value: '确认模拟下单' } })
   fireEvent.click(screen.getByRole('button', { name: '确认提交订单' }))
   expect((await screen.findByRole('alert')).textContent).toContain('不要重复下单')
   await screen.findByRole('button', { name: '查询状态' })
+})
+
+
+it('opens a run detail with its curve and attributed fills', async () => {
+  const run = { id: 'run_aa', release_id: 'rel_aa', strategy_name: '动量测试', strategy_version: 1,
+    account_name: '美股模拟', market: 'US', environment: 'platform_sim', symbol: 'AAPL', interval: '1d',
+    status: 'active', initial_cash: '1000', cash: '500', quantity: '5', average_cost: '100',
+    realized_pnl: '0', equity: '1050', return_rate: '0.05', currency: 'USD', mark_price: '110',
+    position_value: '550', curve: [{ bar_time: 1700000000, equity: '1000' }, { bar_time: 1700100000, equity: '1050' }],
+    signals: [], orders: [], fills: [{ id:'fill_aa', side:'buy', quantity:'5', price:'100', fee:'0.5', fee_currency:'USD', executed_at:'2026-09-10T00:00:00Z' }] }
+  vi.mocked(request).mockImplementation(async (path) => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return [run]
+    if (path === '/trading/runs/run_aa') return run
+    return []
+  })
+  render(<TradingWorkspace />)
+  fireEvent.click(await screen.findByRole('button', { name:'运行详情' }))
+  expect(await screen.findByRole('img', { name: '动量测试 净值曲线，共 2 个快照' })).toBeTruthy()
+  expect(screen.getByText('费用 0.5 USD')).toBeTruthy()
 })

@@ -201,6 +201,56 @@ export interface CustomStrategyRecord {
   updated_at: string
 }
 
+export type RuntimeMarket = 'CRYPTO' | 'US' | 'CN'
+export type RuntimeEnvironment = 'platform_sim' | 'exchange_test' | 'live'
+export interface StrategyRelease {
+  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom'
+  strategy_id: string; markets: RuntimeMarket[]; description: string; content_hash: string
+  params?: Record<string, unknown>; custom_strategy?: CustomStrategySpec | null; owned: boolean; created_at: string
+}
+export interface StrategySubscription {
+  id: string; release_id: string; name: string; version: number; markets: RuntimeMarket[]
+  content_hash: string; status: 'active' | 'cancelled'; owned_release: boolean; created_at: string
+  upgrade_release_id?: string | null; upgrade_version?: number | null
+}
+export interface RuntimeAccount {
+  id: string; name: string; market: RuntimeMarket; environment: RuntimeEnvironment
+  currency: 'USD' | 'CNY' | 'USDT'; created_at: string
+}
+export interface StrategySignal {
+  id: string; run_id: string; bar_time: number; target: string; reason: string
+  status: 'queued' | 'filled' | 'partially_filled' | 'recommendation' | 'superseded'; created_at: string
+}
+export interface RuntimeFill {
+  id: string; run_id: string | null; signal_id: string | null; side: 'buy' | 'sell'; quantity: string
+  price: string; fee: string; fee_currency: string; realized_pnl: string | null; pnl_currency: string
+  environment: RuntimeEnvironment; executed_at: string; symbol?: string; market?: RuntimeMarket
+  account_id?: string; order_id?: string; strategy_name?: string; strategy_version?: number
+}
+export interface StrategyRun {
+  id: string; release_id: string; subscription_id: string | null; account_id: string
+  market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; interval: Interval
+  initial_cash: string; cash: string; quantity: string; average_cost: string; realized_pnl: string
+  status: 'draft' | 'active' | 'paused' | 'stopped' | 'error'; latest_signal: string | null
+  latest_error: string | null; strategy_name: string; strategy_version: number; strategy_hash: string
+  valuation_complete?: boolean; currency?: string; account_name?: string; recommendation?: { id: string; side: 'buy' | 'sell'; quantity: string; reference_price: string; reason: string } | null
+  equity: string; return_rate: string; mark_price?: string | null; position_value?: string; updated_at: string; signals?: StrategySignal[]
+  orders?: Array<{ id: string; side: string; requested_quantity: string; filled_quantity: string; status: string; created_at: string }>; fills?: RuntimeFill[]; curve?: Array<{ bar_time: number; equity: string; cash: string; position_value: string; mark_price: string; return_rate: string }>
+}
+export interface TradingAccountAssets {
+  manual_account_id?: string | null; account_id: string; name: string; environment: RuntimeEnvironment
+  status: string; synced_at: string | null; message: string
+  balances: Array<{ asset: string; available: string; locked: string; total: string; attributed_quantity: string; unattributed_quantity: string; reconciliation_shortfall: string }>
+}
+export interface TradingLedgerSnapshot {
+  account_assets?: TradingAccountAssets[]
+  manual_accounts?: Array<{ id: string; name: string; currency: string }>
+  accounts: RuntimeAccount[]; runs: StrategyRun[]
+  totals: Record<string, { environment: RuntimeEnvironment; currency: string; equity: string; cash: string; profit: string; valuation_complete?: boolean }>
+  positions: Array<{ run_id: string; account_id: string; strategy_name: string; strategy_version: number; market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; quantity: string; average_cost: string; mark_price: string | null; market_value: string; unrealized_pnl: string | null }>
+  fills: RuntimeFill[]; limit: number; offset: number
+}
+
 export interface ResearchExperiment {
   strategy_id: string
   base_params: Record<string, number | string | boolean>

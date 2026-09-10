@@ -6,6 +6,7 @@ import {
   Sparkles, UserRoundCheck, X, Zap,
 } from 'lucide-react'
 import { api } from '../api'
+import StrategyRuntimeLibrary from './StrategyRuntimeLibrary'
 import type {
   QuantAgent, QuantCategory, QuantChainStatus, QuantJudgeOverview, QuantReport,
   QuantSubscription, QuantVerification,
@@ -130,7 +131,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem(userStorageKey('quantjudge-investor')) ?? '')
   const [subscriptions, setSubscriptions] = useState<QuantSubscription[]>([])
-  const [activeView, setActiveView] = useState<'market' | 'subscriptions'>('market')
+  const [activeView, setActiveView] = useState<'market' | 'subscriptions' | 'runtime'>('market')
   const dialogRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -177,7 +178,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   }, [category, onError, query, reportType])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => load(), 180)
+    const timer = window.setTimeout(() => load(), 0)
     return () => { window.clearTimeout(timer); loadRequest.current += 1; verificationRequest.current += 1 }
   }, [load])
 
@@ -260,12 +261,13 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
       <section className="qj-tabs">
         <nav aria-label="QuantJudge 页面">
           <button aria-pressed={activeView === 'market'} className={activeView === 'market' ? 'is-active' : ''} onClick={() => setActiveView('market')}><Activity size={15} />策略排行</button>
+          <button aria-pressed={activeView === 'runtime'} className={activeView === 'runtime' ? 'is-active' : ''} onClick={() => setActiveView('runtime')}><Zap size={15} />可运行策略</button>
           <button aria-pressed={activeView === 'subscriptions'} className={activeView === 'subscriptions' ? 'is-active' : ''} onClick={openSubscriptions}><UserRoundCheck size={15} />我的订阅</button>
         </nav>
         <div><ShieldCheck size={14} /><span><strong>证据优先</strong>收益排名不会替代证明等级与风险判断</span></div>
       </section>
 
-      {activeView === 'subscriptions' ? (
+      {activeView === 'runtime' ? <StrategyRuntimeLibrary /> : activeView === 'subscriptions' ? (
         <section className="qj-subscriptions-view">
           <header><div><strong>我的订阅</strong><small>本地投资人身份与策略授权记录</small></div><label>投资人别名<input value={investorAlias} onChange={(event) => setInvestorAlias(event.target.value)} /><button onClick={openSubscriptions}>查询</button></label></header>
           <div className="qj-subscription-list">

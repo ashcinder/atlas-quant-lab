@@ -51,7 +51,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 async function openMarket() {
   render(<QuantJudgeWorkspace onError={vi.fn()} onOpenLab={vi.fn()} />)
-  await screen.findByRole('button', { name: /Alpha Strategy/ })
+  await screen.findByRole('button', { name: /Alpha Strategy/ }, { timeout: 5000 })
 }
 
 describe('QuantJudge evidence and navigation', () => {

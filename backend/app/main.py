@@ -81,7 +81,8 @@ from app.zkp import (
 from app.zkp_models import ZkReportPublishCreate
 from app.strategy_code_api import router as strategy_code_router
 from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
-from app.trading_api import router as trading_router
+from app.trading_api import ManualTradeSyncScheduler, router as trading_router
+from app.strategy_runtime import StrategyRuntimeScheduler, StrategyRuntimeStore, runtime_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -95,13 +96,20 @@ zk_proof_store = ZkProofStore()
 quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
 strategy_project_store = StrategyProjectStore()
+strategy_runtime_store = StrategyRuntimeStore(data_service)
+strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
+manual_trade_sync_scheduler = ManualTradeSyncScheduler()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     alert_monitor.start()
     journal_scheduler.start()
+    strategy_runtime_scheduler.start()
+    manual_trade_sync_scheduler.start()
     yield
+    manual_trade_sync_scheduler.stop()
+    strategy_runtime_scheduler.stop()
     alert_monitor.stop()
     journal_scheduler.stop()
     research_service.shutdown()
@@ -120,6 +128,7 @@ app.include_router(strategy_code_router)
 app.include_router(cloud_ai_router)
 app.include_router(exchange_account_router)
 app.include_router(trading_router)
+app.include_router(runtime_router(strategy_runtime_store))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
