@@ -2,17 +2,21 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { ChartCandlestick, Wallet, LogOut, LoaderCircle } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
+import { useTheme, type ThemePreference } from './theme'
 
 const QuantWorkspace = lazy(() => import('./App'))
+const TradingWorkspace = lazy(() => import('./components/TradingWorkspace'))
 const JournalWorkspace = lazy(() => import('./journal/components/investment-app'))
 type Session = { authenticated: boolean; registrationEnabled: boolean; email: string | null; userId?: string }
-const workspaceFromHash = () => window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
+const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
 
 export default function AtlasShell() {
+  const [theme, setTheme] = useTheme()
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [workspace, setWorkspace] = useState(workspaceFromHash)
+  useEffect(() => { if (workspace === 'journal') document.title = '资产账本 · Atlas' }, [workspace])
   async function refreshSession() {
     const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })
     if (!response.ok) throw new Error('无法连接 Atlas，请检查后端服务后重试。')
@@ -75,13 +79,15 @@ export default function AtlasShell() {
       <a className="atlas-brand" href="#single"><ChartCandlestick size={23} /><strong>Atlas <span>Quant Lab</span></strong></a>
       <nav className="atlas-workspaces" aria-label="主导航">
         <a href="#single" aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
+        <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />交易账户</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产账本</a>
       </nav>
+      <label className="atlas-theme"><span>主题</span><select aria-label="显示主题" value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>
-      {workspace === 'quant' ? <div className="quant-workspace"><QuantWorkspace /></div> : <div className="journal-root"><JournalWorkspace /><div id="journal-portals" /></div>}
+      {workspace === 'trading' ? <TradingWorkspace /> : workspace === 'quant' ? <div className="quant-workspace"><QuantWorkspace /></div> : <div className="journal-root"><JournalWorkspace /><div id="journal-portals" /></div>}
     </Suspense>
   </div>
 }

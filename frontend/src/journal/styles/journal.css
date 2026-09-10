@@ -51,7 +51,7 @@
   min-height: calc(100dvh - 52px);
 }
 :where(.journal-root) .sidebar {
-  background: #0e141c;
+  background: var(--panel);
   color: var(--muted);
   width: 234px;
   position: fixed;
@@ -105,10 +105,10 @@
   font-size: 13px;
 }
 :where(.journal-root) .sidebar nav button:hover {
-  background: #0e141c;
+  background: var(--panel);
 }
 :where(.journal-root) .sidebar nav button.active {
-  background: #0e141c;
+  background: var(--panel);
   color: var(--muted);
   box-shadow: none;
 }
@@ -132,7 +132,7 @@
 :where(.journal-root) .tiny-line {
   width: 32px;
   height: 2px;
-  background: #172431;
+  background: var(--panel-raised);
   margin-top: 20px;
 }
 :where(.journal-root) .profile {
@@ -150,7 +150,7 @@
   white-space: nowrap;
 }
 :where(.journal-root) .avatar {
-  background: #172431;
+  background: var(--panel-raised);
   border: 1px solid var(--border);
   width: 34px;
   height: 34px;
@@ -195,7 +195,7 @@
 :where(.journal-root) .status i {
   width: 6px;
   height: 6px;
-  background: #172431;
+  background: var(--panel-raised);
   border-radius: 50%;
 }
 :where(.journal-root) .page {
@@ -232,7 +232,7 @@
 }
 :where(.journal-root) .primary-button {
   background: var(--accent) !important;
-  color: #111820 !important;
+  color: var(--muted) !important;
   padding: 12px 19px !important;
   height: 42px !important;
   border-radius: 8px !important;
@@ -541,7 +541,7 @@
   font-size: 9px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: #172431;
+  background: var(--panel-raised);
   color: var(--muted);
 }
 :where(.journal-root) .secondary-total {
@@ -871,10 +871,10 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #172431;
+  background: var(--panel-raised);
 }
 :where(.journal-root) .market-dot.closed {
-  background: #172431;
+  background: var(--panel-raised);
 }
 :where(.journal-root) .rhythm-note {
   display: flex;
@@ -1864,7 +1864,7 @@
   left: calc(50% + 100px);
   transform: translateX(-50%);
   max-width: calc(100vw - 35px);
-  background: #0e141c;
+  background: var(--panel);
   color: var(--muted);
   padding: 15px 18px;
   border-radius: 10px;
@@ -2022,7 +2022,7 @@
     position: fixed;
     inset: 0;
     border: 0;
-    background: #15333455;
+    background: color-mix(in srgb, var(--positive-soft) 33%, transparent);
     backdrop-filter: blur(2px);
     z-index: 55;
   }
@@ -2980,7 +2980,7 @@
   opacity: 0.2;
   background-image: none;
   background-size: 44px 44px;
-  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000);
+  mask-image: linear-gradient(to bottom, transparent, var(--muted) 30%, var(--muted));
 }
 :where(.journal-root) .login-brand,
 :where(.journal-root) .login-copy,
@@ -3048,7 +3048,7 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #172431;
+  background: var(--panel-raised);
 }
 :where(.journal-root) .login-orbit i:nth-child(2) {
   opacity: 0.65;
@@ -3192,12 +3192,12 @@
   border: 0;
   border-radius: 8px;
   color: var(--muted);
-  background: #ffffff0a;
+  background: color-mix(in srgb, var(--surface-selected) 4%, transparent);
   font-size: 10px;
 }
 :where(.journal-root) .logout-button:hover {
   color: var(--muted);
-  background: #ffffff12;
+  background: color-mix(in srgb, var(--surface-selected) 7%, transparent);
 }
 @media (max-width: 820px) {
   :where(.journal-root) .login-page {

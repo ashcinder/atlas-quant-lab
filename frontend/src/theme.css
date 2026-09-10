@@ -1,0 +1,201 @@
+/* Shared semantic theme tokens. Keep component styles independent of raw palette values. */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c131c;
+  --panel: #121c28;
+  --panel-raised: #1b2838;
+  --surface-0: #0c131c;
+  --surface-1: #121c28;
+  --surface-2: #1b2838;
+  --surface-3: #233247;
+  --surface-input: #0f1823;
+  --surface-hover: #202f42;
+  --surface-selected: #293e5c;
+  --surface-overlay: rgb(15 24 35 / 96%);
+  --border: #34455a;
+  --border-soft: #263549;
+  --border-strong: #526881;
+  --text: #edf3f9;
+  --muted: #a9b6c7;
+  --accent: #9bb9ff;
+  --accent-hover: #bad0ff;
+  --on-accent: #10213b;
+  --accent-soft: #203653;
+  --positive: #4bc8a7;
+  --positive-soft: #15342e;
+  --negative: #ff7b87;
+  --negative-soft: #351d25;
+  --warning: #e6b965;
+  --warning-soft: #352d20;
+  --blue: #83afff;
+  --blue-soft: #203653;
+  --on-blue: #101a29;
+  --scrim: rgb(4 9 15 / 76%);
+  --shadow-color: rgb(0 0 0 / 46%);
+  --chart-grid: #28384b;
+  --chart-axis: #93a3b6;
+  --code-keyword: #cbbdf8;
+  --code-string: #9fd7b7;
+  --code-number: #e7bd8e;
+  --code-comment: #9eafc2;
+  --header-height: 52px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --display: 'Avenir Next', 'PingFang SC', 'Segoe UI', sans-serif;
+  --body: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+  --mono: 'Menlo', 'SFMono-Regular', Consolas, monospace;
+  --shadow-raised: 0 16px 42px var(--shadow-color);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --panel-raised: #edf2f8;
+  --surface-0: #f4f7fb;
+  --surface-1: #ffffff;
+  --surface-2: #edf2f8;
+  --surface-3: #e2e9f2;
+  --surface-input: #ffffff;
+  --surface-hover: #e9eff7;
+  --surface-selected: #dbe8fa;
+  --surface-overlay: rgb(255 255 255 / 96%);
+  --border: #c4cfdd;
+  --border-soft: #d9e1eb;
+  --border-strong: #8fa1b6;
+  --text: #172334;
+  --muted: #5d6d80;
+  --accent: #315fa8;
+  --accent-hover: #254d8c;
+  --on-accent: #ffffff;
+  --accent-soft: #e1ebfb;
+  --positive: #087863;
+  --positive-soft: #dff5ee;
+  --negative: #c23948;
+  --negative-soft: #fde8eb;
+  --warning: #895b0a;
+  --warning-soft: #fff2d7;
+  --blue: #2f66b7;
+  --blue-soft: #e1ebfb;
+  --on-blue: #ffffff;
+  --scrim: rgb(25 35 49 / 42%);
+  --shadow-color: rgb(26 41 61 / 16%);
+  --chart-grid: #d8e0ea;
+  --chart-axis: #607188;
+  --code-keyword: #6f4db1;
+  --code-string: #23724f;
+  --code-number: #965a17;
+  --code-comment: #63758b;
+  --shadow-raised: 0 16px 42px var(--shadow-color);
+}
+
+html { font-family: var(--body); font-size: 14px; background: var(--bg); color: var(--text); }
+body { background: var(--bg); color: var(--text); }
+::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--text); }
+* { scrollbar-color: var(--border-strong) var(--bg); }
+input, select, textarea { color-scheme: inherit; }
+
+/* The main workspaces use the same elevation and interaction hierarchy in both themes. */
+:where(.quant-workspace) { color: var(--text); background: var(--bg); }
+:where(.quant-workspace) :is(.workspace-navigation, .market-sidebar, .strategy-panel, .research-config, .builder-library, .qjs-toolbar, .qjs-library, .qjs-inspector, .portfolio-parameters, .history-drawer, .alert-drawer) { background: var(--panel); }
+:where(.quant-workspace) :is(.topbar, .integrity-rail, .qj-global-rail, .strategy-project-bar, .strategy-lab-header, .lab-stage-context, .guided-heading, .code-studio-toolbar, .code-editor-tabs, .code-assistant, .system-status-summary) { background: var(--panel-raised); }
+:where(.quant-workspace) :is(.search-field, .segmented, input, select, textarea, .settings-popover, .project-gate-popover, .project-editor, .asset-picker, .qjs-flow-summary, .qjs-inspector-actions button, .private-execution) { background-color: var(--surface-input); border-color: var(--border); color: var(--text); }
+:where(.quant-workspace) :is(.asset-row, .workspace-navigation nav button, .strategy-lab-header nav button, .lab-entry-cards > button, .lab-journey > button, .qjs-template, .qjs-role, .code-prompt-examples button):hover { background: var(--surface-hover); color: var(--text); }
+:where(.quant-workspace) :is(.asset-row.is-active, .workspace-navigation nav button[aria-current], .segmented button.is-active) { background: var(--surface-selected); color: var(--text); }
+:where(.quant-workspace) :is(.settings-popover, .project-gate-popover, .asset-picker, .system-status-dialog, .lab-confirm-dialog) { box-shadow: var(--shadow-raised); }
+:where(.quant-workspace) :is(.error-banner, .project-editor-error) { background: var(--negative-soft); border-color: var(--negative); color: var(--negative); }
+:where(.quant-workspace) :is(.run-button, .primary-action, .research-run, .code-ai-composer button) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+:where(.quant-workspace) :is(.run-button, .primary-action, .research-run, .code-ai-composer button):hover { background: var(--accent-hover); }
+:where(.quant-workspace) :is(.drawer-backdrop.is-open, .system-status-backdrop, .lab-confirm-backdrop) { background: var(--scrim); }
+:where(.quant-workspace) :is(.sidebar-heading, .panel-heading, .ohlc-row b, .form-section h3, .lab-stage-context strong, .section-label h2, .guided-heading h1, .code-writing-guide h2, .code-writing-guide dt) { color: var(--text); }
+:where(.quant-workspace) :is(.workspace-brand small, .navigation-caption, .workspace-navigation nav small, .symbol-block span, .strategy-description p, .strategy-description small, .lab-stage-context p, .section-label > span, .lab-entry-cards p, .lab-journey small, .guided-heading p, .guided-field small, .code-ai-status, .code-assistant-intro p, .code-ai-composer small, .code-studio-feedback) { color: var(--muted); }
+
+/* Dense editor metadata remains readable without expanding the fixed desktop layout. */
+:where(.quant-workspace) .workspace-navigation nav strong { font-size: 14px; }
+:where(.quant-workspace) .workspace-navigation nav small,
+:where(.quant-workspace) .navigation-caption,
+:where(.quant-workspace) .navigation-bottom > a,
+:where(.quant-workspace) .navigation-collapse { font-size: 13px; }
+:where(.quant-workspace) :is(.strategy-lab, .guided-studio, .code-studio) :is(button, input, select, textarea, label) { font-size: 13px; }
+:where(.quant-workspace) :is(.strategy-lab, .guided-studio, .code-studio) small { font-size: 12px; line-height: 1.55; }
+:where(.quant-workspace) :is(.strategy-lab, .guided-studio, .code-studio) :is(p, li, dd, dt) { font-size: 13px; }
+:where(.quant-workspace) :is(.code-editor-surface textarea, .code-highlight, .code-line-numbers) { font-size: 14px; line-height: 24px; }
+:where(.quant-workspace) :is(.code-editor-status, .code-ai-status, .code-studio-feedback) { font-size: 12px; }
+
+/* Ledger surfaces share the same panel, control and text colors as the shell. */
+:where(.journal-root) { --background: var(--bg); --foreground: var(--text); --primary: var(--accent); --secondary: var(--panel-raised); color: var(--text); background: var(--bg); }
+:where(.journal-root) :is(.sidebar, .topbar, .panel, .stat-card, .strategy-card, .account-card, .login-card, .login-story) { background: var(--panel); border-color: var(--border); color: var(--text); }
+:where(.journal-root) :is(.total-card, .asset-icon, .return-tag, .currency-switch, .login-mark, .nav-count, .tag, .pill) { background: var(--panel-raised); }
+:where(.journal-root) :is(input, select, textarea, [data-slot='input'], [data-slot='textarea'], [data-slot='native-select']) { background: var(--surface-input); border-color: var(--border); color: var(--text); }
+:where(.journal-root) :is(.sidebar nav button, .icon-button, .text-button):hover { background: var(--surface-hover); color: var(--text); }
+:where(.journal-root) .sidebar nav button.active { background: var(--surface-selected); color: var(--accent); }
+:where(.journal-root) :is(.primary-button, [data-slot='button'][data-variant='default']) { background: var(--accent); color: var(--on-accent); }
+:where(.journal-root) :is(.primary-button, [data-slot='button'][data-variant='default']):hover { background: var(--accent-hover); }
+:where(.journal-root) :is(.login-error, .error-message, .error-box) { background: var(--negative-soft); color: var(--negative); }
+:where(.journal-root) [data-slot='dialog-content'] { background: var(--panel); color: var(--text); border-color: var(--border-strong); box-shadow: var(--shadow-raised); }
+:where(.journal-root) [data-slot='dialog-overlay'] { background: var(--scrim); }
+:where(.journal-root) :is(.page-heading p, .panel-heading p, .stat-label, .stat-card p, .strategy-card p, .muted, .profile small) { color: var(--muted); }
+:where(.journal-root) :is(.sidebar nav button, .topbar, input, select, textarea) { font-size: 13px; }
+
+/* A quiet global shell and one primary task per workspace. */
+.atlas-header { gap: 20px; }
+.atlas-theme { display: flex; gap: 8px; align-items: center; margin-left: auto; white-space: nowrap; color: var(--muted); font-size: 13px; }
+.atlas-theme select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
+.atlas-session { margin-left: 0; }
+.atlas-session > span { max-width: 150px; }
+:where(.quant-workspace) .app-shell[data-workspace='research'] { grid-template-rows: 60px 0 minmax(0,1fr); }
+:where(.quant-workspace) .app-shell[data-workspace='research']:has(.research-data-status) { grid-template-rows: 60px 36px minmax(0,1fr); }
+:where(.quant-workspace) .research-data-status { grid-column: 2; grid-row: 2; background: var(--warning-soft); color: var(--warning); font-size: 13px; padding: 8px 20px; }
+:where(.quant-workspace) .app-shell[data-workspace='research'] > .topbar { height: 60px; }
+:where(.quant-workspace) .workspace-brand { height: 64px; }
+:where(.quant-workspace) .workspace-navigation nav button { min-height: 50px; }
+:where(.quant-workspace) .lab-module-switch { padding: 8px 22px; gap: 8px; }
+:where(.quant-workspace) .lab-module-switch button { padding: 9px 16px; }
+:where(.quant-workspace) .project-empty-line { gap: 12px; }
+:where(.quant-workspace) .project-empty-line strong { font-size: 13px; font-weight: 400; color: var(--muted); }
+:where(.quant-workspace) .guided-heading { padding: 8px 0 18px; background: transparent; }
+:where(.quant-workspace) .guided-heading h1 { font-size: 26px; }
+:where(.quant-workspace) .guided-start { padding-bottom: 14px; }
+:where(.quant-workspace) .guided-outline { margin-bottom: 18px; }
+:where(.quant-workspace) .guided-block small { font-size: 13px; }
+:where(.quant-workspace) .guided-stage-heading h2 { font-size: 18px; }
+:where(.quant-workspace) .lab-journey-details { margin-top: 24px; }
+:where(.quant-workspace) .lab-journey-details summary, .trade-help summary { color: var(--muted); cursor: pointer; padding: 10px 0; font-size: 14px; }
+.trade-help { margin-bottom: 16px; }
+.trading-workspace { font-size: 15px; }
+.trading-workspace .trade-primary { color: var(--on-accent); }
+.trading-workspace small { font-size: 13px; }
+.trading-workspace code { overflow-wrap: anywhere; }
+:where(.quant-workspace) :is(.run-button, .primary-action, .research-run, .code-check, .code-ai-composer button),
+.journal-root .primary-button, .journal-root [data-slot='button'][data-variant='default'] { background: var(--accent); color: var(--on-accent); }
+:where(.quant-workspace) :is(.code-highlight, .code-line-numbers, .code-editor-surface .code-text-layer textarea) { font-size: 14px; line-height: 24px; }
+:where(.quant-workspace) .code-editor-surface .code-text-layer textarea { background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--text); }
+:where(.quant-workspace) .code-highlight { background: transparent; color: var(--text); }
+:where(.quant-workspace) .syntax-keyword { color: var(--code-keyword); }
+:where(.quant-workspace) .syntax-string { color: var(--code-string); }
+:where(.quant-workspace) .syntax-number { color: var(--code-number); }
+:where(.quant-workspace) .syntax-comment { color: var(--code-comment); }
+@media (max-width: 1100px) { .atlas-session > span { display: none; } }
+@media (max-width: 820px) {
+  .atlas-header { height: auto; min-height: var(--header-height); flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .atlas-theme > span { display: none; }
+  .atlas-theme { margin-left: auto; }
+  .atlas-workspaces { min-height: 40px; margin-left: 0; }
+  :where(.quant-workspace) .research-data-status { min-height: 36px; height: auto; }
+}
+@media (max-width: 500px) {
+  .atlas-brand { display: none; }
+  .atlas-workspaces { order: 3; flex-basis: 100%; justify-content: space-between; }
+  .atlas-workspaces a { justify-content: center; flex: 1; }
+  .atlas-theme { margin-left: 0; }
+  .atlas-session { margin-left: auto; }
+  :where(.quant-workspace) .lab-module-switch { padding: 10px 12px; }
+  :where(.quant-workspace) .guided-heading h1 { font-size: 23px; }
+}
+:where(.quant-workspace) :is(.field-stack > span, .field-row > span, .form-section h3, .strategy-description p, .strategy-description small, .strategy-select select, .field-stack input, .field-stack select, .field-row input, .panel-tabs button, .results-tabs button) { font-size: 13px; line-height: 1.5; }
+:where(.quant-workspace) :is(.market-sidebar .asset-row strong, .market-sidebar .asset-row small, .rail-item, .rail-title, .pane-caption, .chart-time-axis, .indicator-toggles button, .market-freshness, .metric-cell span) { font-size: 12px; }
+:where(.quant-workspace) .rail-rules { position: relative; font-size: 12px; }
+:where(.quant-workspace) .rail-rules summary { cursor: pointer; color: var(--muted); }
+:where(.quant-workspace) .rail-rules > div { position: fixed; z-index: 80; margin-top: 10px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); }
+:where(.quant-workspace) .rail-rules p { margin: 8px 0; }

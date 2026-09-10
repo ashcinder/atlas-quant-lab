@@ -38,7 +38,7 @@ export function TopBar(props: Props) {
       <div className="symbol-block">
         <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
         <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 开发 / 验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
-        <em>{props.mode === 'quantjudge' ? 'QJ' : props.mode === 'research' ? 'LAB' : props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em>
+        {props.mode === 'single' || props.mode === 'portfolio' ? <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em> : null}
       </div>
       <div className="toolbar-spacer" />
       <button className="icon-button system-status-trigger" aria-label="系统状态" title="系统状态与能力" onClick={props.onSystemStatus}><Activity size={17} /></button>

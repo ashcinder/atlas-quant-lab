@@ -1,8 +1,6 @@
-:root { --header-height: 52px; }
 body { font-size: 14px; }
 body:has(.journal-root) { overflow: auto; }
-::selection { background: #f3b45140; color: var(--text); }
-* { scrollbar-color: #435064 var(--bg); scrollbar-width: thin; }
+* { scrollbar-color: var(--border-strong) var(--bg); scrollbar-width: thin; }
 input, textarea { caret-color: var(--accent); }
 .atlas-shell { min-height: 100dvh; }
 .atlas-header { height: var(--header-height); display: flex; align-items: center; gap: 28px; padding: 0 20px; background: var(--bg); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 45; }
@@ -20,13 +18,13 @@ input, textarea { caret-color: var(--accent); }
 .atlas-connecting { min-height: calc(100dvh - 52px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; color: var(--muted); }
 .atlas-connecting h1 { color: var(--text); font-size: 22px; margin: 0; }
 .atlas-connecting p { margin: 0; }
-.atlas-connecting button { padding: 10px 20px; background: var(--accent); color: #16120a; border: 0; border-radius: 5px; cursor: pointer; }
+.atlas-connecting button { padding: 10px 20px; background: var(--accent); color: var(--on-accent); border: 0; border-radius: 5px; cursor: pointer; }
 .atlas-global-error { position: fixed; z-index: 110; top: 58px; right: 12px; padding: 12px; background: var(--panel); color: var(--negative); border: 1px solid var(--negative); }
 .quant-workspace .app-shell { height: calc(100dvh - var(--header-height)); }
 .quant-workspace .brand-block { display: none; }
 .journal-root { --background: var(--bg); --foreground: var(--text); --primary: var(--accent); --secondary: var(--panel-raised); --radius: 8px; color: var(--text); background: var(--bg); font-size: 14px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
 .journal-root .ledger-shell { min-height: calc(100dvh - var(--header-height)); }
-.journal-root .sidebar { top: var(--header-height); width: 204px; padding: 26px 16px 16px; background: #0e141c; border-right: 1px solid var(--border); }
+.journal-root .sidebar { top: var(--header-height); width: 204px; padding: 26px 16px 16px; background: var(--panel); border-right: 1px solid var(--border); }
 .journal-root .brand { padding: 0 12px 24px; font-size: 18px; }
 .journal-root .brand > svg { color: var(--accent); }
 .journal-root .brand span { color: var(--muted); letter-spacing: 0; font-size: 12px; }
@@ -45,17 +43,17 @@ input, textarea { caret-color: var(--accent); }
 .journal-root .page-heading h1 { font-size: 26px; font-weight: 650; letter-spacing: -.02em; }
 .journal-root .eyebrow { display: none; }
 .journal-root .panel, .journal-root .stat-card, .journal-root .strategy-card, .journal-root .account-card { border-radius: 8px; background: var(--panel); border-color: var(--border); box-shadow: none; }
-.journal-root .primary-button, .journal-root [data-slot="button"][data-variant="default"] { background: var(--accent); color: #16120a; }
+.journal-root .primary-button, .journal-root [data-slot="button"][data-variant="default"] { background: var(--accent); color: var(--on-accent); }
 .journal-root [data-slot="button"] { border-style: solid; }
 .journal-root [data-slot="button"][data-variant="ghost"] { background: transparent; border-color: transparent; }
 .journal-root [data-slot="button"][data-variant="outline"] { background: var(--bg); border: 1px solid var(--border); }
-.journal-root [data-slot="button"][data-variant="default"]:hover { background: #ffc867; }
+.journal-root [data-slot="button"][data-variant="default"]:hover { background: var(--accent-hover); }
 .journal-root [data-slot="input"], .journal-root [data-slot="textarea"], .journal-root [data-slot="native-select"] { border: 1px solid var(--border); color: var(--text); background-color: var(--bg); }
-.journal-root input::placeholder, .journal-root textarea::placeholder { color: #95a2b2; opacity: 1; }
+.journal-root input::placeholder, .journal-root textarea::placeholder { color: var(--muted); opacity: 1; }
 .journal-root .gain { color: var(--positive); }
 .journal-root .loss { color: var(--negative); }
-.journal-root [data-slot="dialog-content"] { background: var(--panel); color: var(--text); border: 1px solid #435064; box-shadow: 0 18px 70px #0008; z-index: 120; }
-.journal-root [data-slot="dialog-overlay"] { background: #0009; z-index: 119; }
+.journal-root [data-slot="dialog-content"] { background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); box-shadow: var(--shadow-raised); z-index: 120; }
+.journal-root [data-slot="dialog-overlay"] { background: var(--scrim); z-index: 119; }
 .journal-root [data-slot="dialog-close"] { color: var(--muted); }
 .journal-root [data-slot="dialog-close"]:hover { color: var(--text); }
 .journal-root .login-page { background: var(--bg); min-height: 100dvh; }
@@ -69,7 +67,7 @@ input, textarea { caret-color: var(--accent); }
 .journal-root .login-mark { background: var(--panel-raised); color: var(--accent); }
 .journal-root .login-input { background: var(--bg); border-color: var(--border); }
 .journal-root .login-capabilities { display: flex; flex-direction: column; gap: 10px; color: var(--muted); font-size: 13px; }
-.journal-root .login-error { color: var(--negative); background: #301e25; }
+.journal-root .login-error { color: var(--negative); background: var(--negative-soft); }
 .journal-root .login-card .primary-button { min-height: 40px; }
 .journal-root .auth-switch button { color: var(--accent); }
 .journal-root button:focus-visible, .journal-root a:focus-visible, .atlas-header a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

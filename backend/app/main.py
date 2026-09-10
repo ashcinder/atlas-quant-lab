@@ -77,6 +77,7 @@ from app.zkp import (
 from app.zkp_models import ZkReportPublishCreate
 from app.execution_api import execution_router
 from app.strategy_code_api import router as strategy_code_router
+from app.trading_api import router as trading_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -112,6 +113,7 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(execution_router(strategy_studio_store, zk_proof_store))
 app.include_router(strategy_code_router)
+app.include_router(trading_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),

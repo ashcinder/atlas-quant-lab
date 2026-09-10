@@ -34,10 +34,11 @@ export function IntegrityRail({ dataSource, tradeCount = 0, hasResult, warningCo
   ]
   return (
     <div className="integrity-rail">
-      <span className="rail-title">回测可信度</span>
-      {items.map(({ icon: Icon, label, state }) => (
+      <span className="rail-title">数据与回测</span>
+      {items.slice(2).map(({ icon: Icon, label, state }) => (
         <span className={`rail-item ${state}`} key={label}><Icon size={13} />{label}</span>
       ))}
+      <details className="rail-rules"><summary>成交规则</summary><div>{items.slice(0, 2).map(({ label }) => <p key={label}>{label}</p>)}</div></details>
       {warningCount > 0 ? <span className="rail-item warn"><AlertTriangle size={13} />{warningCount} 项提示</span> : null}
     </div>
   )
