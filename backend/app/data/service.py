@@ -20,6 +20,7 @@ from app.data.providers import (
     YahooProvider,
 )
 from app.models import Asset
+from app.data.candle_store import CandleStore
 
 
 @dataclass
@@ -38,6 +39,7 @@ class MarketDataService:
 
     def __init__(self, cache_dir: Path = CACHE_DIR):
         self.cache_dir = cache_dir
+        self.store = CandleStore(cache_dir / "market.sqlite3")
         self.providers: dict[str, MarketDataProvider] = {
             "yahoo": YahooProvider(),
             "sina": SinaProvider(),
@@ -73,25 +75,27 @@ class MarketDataService:
         )
 
     def _read_cache(self, path: Path) -> pd.DataFrame | None:
+        stored = self.store.read(path.name)
+        if stored is not None:
+            return stored
         if not path.exists():
             return None
         try:
             frame = pd.read_csv(path, index_col=0, parse_dates=True)
             frame.index = pd.to_datetime(frame.index, utc=True)
+            self.store.write(path.name, frame, datetime.fromtimestamp(path.stat().st_mtime, UTC))
             return frame
         except Exception:
             return None
 
     def _write_cache(self, path: Path, frame: pd.DataFrame) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_csv(path, compression="gzip")
+        self.store.write(path.name, frame)
 
-    @staticmethod
-    def _cache_time(path: Path) -> datetime:
-        return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+    def _cache_time(self, path: Path) -> datetime:
+        return self.store.timestamp(path.name) or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
 
     def _cache_is_fresh(self, path: Path, interval: str, end: datetime | None) -> bool:
-        if end is not None:
+        if end is not None and (datetime.now(UTC) - self._cache_time(path)).total_seconds() < 86400:
             end_time = pd.Timestamp(end)
             end_time = (
                 end_time.tz_localize("UTC")
@@ -153,13 +157,16 @@ class MarketDataService:
                     asset=asset,
                     frame=cached,
                     source=f"{provider_name}:cache",
-                    source_note="真实行情缓存命中",
+                    source_note="真实行情数据库命中；历史缓存，近期K线按有效期更新",
                     fetched_at=self._cache_time(cache_path),
                     cache_hit=True,
                 )
             try:
                 fetch_start = start
-                if cached is not None and len(cached) >= 3 and end is None:
+                # Adjusted equity history can change after corporate actions;
+                # re-fetch the requested history daily rather than mixing bases.
+                full_refresh = asset.asset_class != "crypto" and (datetime.now(UTC) - self._cache_time(cache_path)).total_seconds() > 86400 if cached is not None else False
+                if cached is not None and len(cached) >= 3 and end is None and not full_refresh:
                     overlap_start = cached.index[-3].to_pydatetime()
                     fetch_start = max(start, overlap_start) if start else overlap_start
                 fresh = provider.fetch_bars(asset, interval, fetch_start, end, adjustment)
@@ -167,7 +174,7 @@ class MarketDataService:
                     pd.concat([cached, fresh])
                     .loc[lambda value: ~value.index.duplicated(keep="last")]
                     .sort_index()
-                    if cached is not None
+                    if cached is not None and not full_refresh
                     else fresh
                 )
                 if len(frame) < minimum_bars:

@@ -2,6 +2,7 @@ import { memo, useEffect, useRef } from 'react'
 import { ColorType, createChart, HistogramSeries, LineSeries, type UTCTimestamp } from 'lightweight-charts'
 import { formatNumber, formatPercent } from '../format'
 import type { EquityPoint } from '../types'
+import { bindChartTheme } from '../chartTheme'
 
 export const EquityChart = memo(function EquityChart({ points }: { points: EquityPoint[] }) {
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -24,6 +25,7 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
       rightPriceScale: { borderColor: '#253140' },
       timeScale: { borderColor: '#253140', timeVisible: true },
     })
+    const releaseTheme = bindChartTheme(chart)
     const equity = chart.addSeries(LineSeries, { color: '#22c7a9', lineWidth: 2, priceLineVisible: false }, 0)
     const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false }, 0)
     const drawdown = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'percent' } }, 1)
@@ -52,6 +54,7 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     return () => {
       resizeObserver.disconnect()
       container.removeEventListener('pointerup', syncCaptions)
+      releaseTheme()
       chart.remove()
     }
   }, [points])

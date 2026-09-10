@@ -1,8 +1,9 @@
 :where(.quant-workspace) .strategy-lab-modules { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: #111a27; }
-:where(.quant-workspace) .lab-module-switch { display: flex; flex: 0 0 auto; gap: 10px; padding: 12px 22px; border-bottom: 1px solid #304056; background: #111a27; }
-:where(.quant-workspace) .lab-module-switch button { display: flex; align-items: center; gap: 9px; padding: 10px 16px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #b5c4d9; font: inherit; font-size: 14px; cursor: pointer; }
-:where(.quant-workspace) .lab-module-switch button.is-active { background: #26384d; border-color: #56718d; color: #e4edfa; }
-:where(.quant-workspace) .lab-module-switch small { color: #b0c2d8; font-size: 11px; margin-left: 8px; }
+:where(.quant-workspace) .lab-command-bar { position: relative; z-index: 6; min-height: 48px; flex: 0 0 48px; display: flex; align-items: stretch; border-bottom: 1px solid #2b394c; background: #131e2c; }
+:where(.quant-workspace) .lab-module-switch { width: 194px; flex: 0 0 194px; display: flex; align-items: center; gap: 3px; padding: 7px 9px; border-right: 1px solid #2b394c; background: transparent; }
+:where(.quant-workspace) .lab-module-switch button { min-height: 32px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 10px; border: 0; border-radius: 6px; background: transparent; color: #8f9fb5; font: inherit; font-size: 12px; cursor: pointer; }
+:where(.quant-workspace) .lab-module-switch button:hover { background: #192638; color: #d6dfec; }
+:where(.quant-workspace) .lab-module-switch button.is-active { background: #263850; color: #e9f0fb; box-shadow: inset 0 0 0 1px #3b526f; }
 :where(.quant-workspace) .lab-module-content { min-height: 0; flex: 1; }
 :where(.quant-workspace) .lab-module-content[hidden] { display: none; }
 :where(.quant-workspace) .lab-module-content > .strategy-lab { height: 100%; }
@@ -85,9 +86,9 @@
 @media (max-width:1100px) { :where(.quant-workspace) .code-draft-state, :where(.quant-workspace) .code-language small { display: none; } :where(.quant-workspace) .code-studio-toolbar { padding: 12px; gap: 7px; } }
 @media (max-width:820px) {
  :where(.quant-workspace) .strategy-lab-modules { height: auto; min-height: 100%; overflow: visible; }
- :where(.quant-workspace) .lab-module-switch { padding: 10px 12px; }
- :where(.quant-workspace) .lab-module-switch button { flex: 1; justify-content: center; padding: 10px; }
- :where(.quant-workspace) .lab-module-switch small { display: none; }
+ :where(.quant-workspace) .lab-command-bar { min-height: 96px; flex-basis: 96px; flex-wrap: wrap; }
+ :where(.quant-workspace) .lab-module-switch { width: 100%; flex-basis: 100%; height: 44px; padding: 6px 10px; border-right: 0; border-bottom: 1px solid #2b394c; }
+ :where(.quant-workspace) .lab-module-switch button { flex: 1; justify-content: center; padding: 7px; }
  :where(.quant-workspace) .code-studio { height: auto; }
  :where(.quant-workspace) .code-studio-toolbar { flex-wrap: wrap; }
  :where(.quant-workspace) .code-name { flex-basis: 60%; }

@@ -44,14 +44,14 @@ class LocalAIGuard:
         ):
             raise RunnerUnavailable("需配置本地模型名称和数值回环地址；不会向外部服务发送策略数据")
 
-    def review(self, evidence: dict, weight: float, authority: str) -> tuple[float, dict]:
+    def review(self, evidence: dict, weight: float, authority: str, *, instructions: str = "", timeout_ms: int = 30000) -> tuple[float, dict]:
         request_id = uuid4().hex
         payload = {"request_id": request_id, "proposed_weight": weight, "evidence": evidence}
         transcript = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         digest = hashlib.sha256(transcript.encode()).hexdigest()
         status, action, scale = "failed_closed", "deny", 0.0
         try:
-            with httpx.Client(timeout=30, trust_env=False, follow_redirects=False) as client:
+            with httpx.Client(timeout=timeout_ms / 1000, trust_env=False, follow_redirects=False) as client:
                 with client.stream(
                     "POST",
                     self.url,
@@ -63,7 +63,7 @@ class LocalAIGuard:
                         "messages": [
                             {
                                 "role": "system",
-                                "content": SYSTEM_PROMPT,
+                                "content": SYSTEM_PROMPT + ("\nAdditional review criteria: " + instructions if instructions else ""),
                             },
                             {"role": "user", "content": transcript},
                         ],

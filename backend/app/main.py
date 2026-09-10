@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.auth import parse_session
+from app.exchange_accounts import router as exchange_account_router
+from fastapi.exceptions import RequestValidationError
 from app.backtest import run_backtest, run_portfolio_backtest
 from app.catalog import search_assets
 from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, STATIC_DIR
@@ -77,6 +79,7 @@ from app.zkp import (
 from app.zkp_models import ZkReportPublishCreate
 from app.execution_api import execution_router
 from app.strategy_code_api import router as strategy_code_router
+from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -112,6 +115,8 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(execution_router(strategy_studio_store, zk_proof_store))
 app.include_router(strategy_code_router)
+app.include_router(cloud_ai_router)
+app.include_router(exchange_account_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -125,6 +130,12 @@ app.include_router(journal_router)
 @app.exception_handler(json.JSONDecodeError)
 async def invalid_json(_request, _error):
     return JSONResponse({"error": "请求 JSON 格式无效"}, status_code=400)
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request_fields(_request, error):
+    # Pydantic errors contain raw input by default, including submitted keys.
+    return JSONResponse({"detail": [{"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]} for item in error.errors()]}, status_code=422)
 
 
 @app.exception_handler(ValueError)
@@ -252,7 +263,8 @@ def create_backtest(request: BacktestRequest, http_request: Request):
             request.adjustment,
             request.data_source,
         )
-        result = run_backtest(request, bundle)
+        cloud_config = cloud_ai_config(http_request) if request.execution_pipeline and any(stage.enabled for stage in request.execution_pipeline.ai_stages) else None
+        result = run_backtest(request, bundle, supplied_ai_guard=CloudGuard(cloud_config) if cloud_config else None)
     except (ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.persist:

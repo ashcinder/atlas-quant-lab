@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   Beaker, Braces, Check, FileArchive, FlaskConical, GitBranch, LoaderCircle,
-  ShieldCheck, LayoutDashboard, ArrowRight, Code2,
+  ShieldCheck, LayoutDashboard, ArrowRight, Code2, Copy,
 } from 'lucide-react'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { StudioTab } from './QuantStrategyStudio'
@@ -12,6 +12,9 @@ import type {
 } from '../types'
 import { StrategyProjectBar } from './StrategyProjectBar'
 import './code-strategy.css'
+import './lab-compact.css'
+import { defaultPipeline, ExecutionPipelinePanel } from './ExecutionPipelinePanel'
+import { TemplateStrategyWorkspace } from './TemplateStrategyWorkspace'
 
 const CodeStrategyWorkspace = lazy(() => import('./CodeStrategyWorkspace').then((module) => ({ default: module.CodeStrategyWorkspace })))
 const ResearchWorkspace = lazy(() => import('./ResearchWorkspace').then((module) => ({ default: module.ResearchWorkspace })))
@@ -57,7 +60,8 @@ const descriptions: Record<StrategyLabTab, string> = {
 }
 
 export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps }: Props) {
-  const [module, setModule] = useState<'visual' | 'code'>('visual')
+  const [module, setModule] = useState<'visual' | 'code' | 'template'>('visual')
+  const [pipeline, setPipeline] = useState(defaultPipeline)
   const [codeVisited, setCodeVisited] = useState(false)
   const [tab, setTab] = useState<StrategyLabTab>(initialTab)
   const [researchVisited, setResearchVisited] = useState(initialTab === 'builder' || initialTab === 'validate')
@@ -132,11 +136,14 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
   }
 
   return <div className="strategy-lab-modules">
-    <nav className="lab-module-switch" aria-label="策略开发方式"><button className={module === 'visual' ? 'is-active' : ''} aria-pressed={module === 'visual'} onClick={() => setModule('visual')}><GitBranch size={16} /><span>图形化策略</span><small>规则与 AI 积木</small></button><button className={module === 'code' ? 'is-active' : ''} aria-pressed={module === 'code'} onClick={() => { setModule('code'); setCodeVisited(true) }}><Code2 size={16} /><span>代码策略</span><small>多语言与 AI 助手</small></button></nav>
+    <header className="lab-command-bar">
+      <nav className="lab-module-switch" aria-label="策略开发方式"><button title="从现有策略模板调整参数" className={module === 'template' ? 'is-active' : ''} aria-pressed={module === 'template'} onClick={() => setModule('template')}><Copy size={15} /><span>模板</span></button><button title="使用规则与 AI 积木构建策略" className={module === 'visual' ? 'is-active' : ''} aria-pressed={module === 'visual'} onClick={() => setModule('visual')}><GitBranch size={15} /><span>图形化</span></button><button title="使用多语言编辑器和 AI 助手" className={module === 'code' ? 'is-active' : ''} aria-pressed={module === 'code'} onClick={() => { setModule('code'); setCodeVisited(true) }}><Code2 size={15} /><span>代码</span></button></nav>
+      <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
+    </header>
+    <div className="lab-module-content template-mode" hidden={module !== 'template'} inert={module !== 'template'}><TemplateStrategyWorkspace key={projectId} {...researchProps} pipeline={pipeline} storageKey={`atlas:template-presets:${projectId || 'scratch'}`} /><details className="template-flow-settings"><summary>交易流程与 AI 设置</summary><ExecutionPipelinePanel value={pipeline} onChange={setPipeline} /></details></div>
     <div className="lab-module-content" hidden={module !== 'visual'} inert={module !== 'visual'}><main className="strategy-lab" data-view={tab}>
-    <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
     <header className="strategy-lab-header">
-      <nav aria-label="策略生命周期">{tabs.filter((item) => !['packages', 'proof', 'sdk'].includes(item.id)).map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}<details className="lab-tools"><summary>更多工具</summary><div>{tabs.filter((item) => ['packages', 'proof', 'sdk'].includes(item.id)).map((item) => <button key={item.id} onClick={() => chooseTab(item.id)}>{item.label}</button>)}</div></details></nav>
+      <nav aria-label="策略生命周期">{tabs.filter((item) => !['packages', 'proof', 'sdk'].includes(item.id)).map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}<details className="lab-tools"><summary>工具</summary><div>{tabs.filter((item) => ['packages', 'proof', 'sdk'].includes(item.id)).map((item) => <button key={item.id} onClick={() => chooseTab(item.id)}>{item.label}</button>)}</div></details></nav>
       <div className="strategy-lab-progress" aria-label={project ? `项目完成度 ${Math.round(project.completion * 100)}%` : '尚未创建项目'}>
         <span><ShieldCheck size={14} /><strong>{project ? `${Math.round(project.completion * 100)}%` : '沙盒'}</strong></span>
         <div><i style={{ width: `${project ? project.completion * 100 : 0}%` }} /></div>
@@ -155,14 +162,16 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
         <div className="section-label"><h2>研究到发布</h2><span>每一步都有明确的产出</span></div>
         <div className="lab-journey">{tabs.filter((item) => ['workflow', 'builder', 'validate'].includes(item.id)).map((item, index) => <button key={item.id} onClick={() => chooseTab(item.id)}><span className={`journey-number ${tabComplete(item.id, project) ? 'done' : ''}`}>{tabComplete(item.id, project) ? <Check size={16} /> : index + 1}</span><span><strong>{item.label}</strong><small>{descriptions[item.id]}</small></span><ArrowRight size={16} /></button>)}</div>
       </div><aside className="lab-project-summary"><h2>{project?.name ?? '探索工作区'}</h2><p>{project?.thesis ?? '先试用规则编辑器。准备归档研究时，在顶部创建策略项目。'}</p><dl><div><dt>研究标的</dt><dd>{project?.asset_symbol ?? researchProps.asset?.symbol ?? '待选择'}</dd></div><div><dt>时间周期</dt><dd>{project?.interval ?? researchProps.interval}</dd></div><div><dt>已通过门禁</dt><dd>{project ? `${project.gates.filter((gate) => gate.passed).length} / ${project.gates.length}` : '未创建项目'}</dd></div></dl><div className="lab-next-step"><strong>下一步</strong><p>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '查看版本与发布状态' : '在顶部创建项目，将策略与验证结果关联保存。')}</p></div><button onClick={() => chooseTab('sdk')}>查看开发指南 <ArrowRight size={15} /></button><div className="lab-capabilities"><strong>当前能力边界</strong><p>规则可以回测，AI 画布可以编排与保存。AI 执行仍待接入，配置完成不代表验证通过。</p></div></aside></div>
-    </section> : tab === 'workflow' ? null : <div className="lab-stage-context"><div><strong>{tabs.find((item) => item.id === tab)?.label}</strong><p>{descriptions[tab]}</p></div><button onClick={() => chooseTab('overview')}>返回总览</button></div>}
+    </section> : null}
+
+    {tab === 'workflow' ? <div className="strategy-lab-pane is-active executable-flow"><ExecutionPipelinePanel value={pipeline} onChange={setPipeline} /><button className="pipeline-edit-rules" onClick={() => chooseTab('builder')}>编辑买卖规则并回测</button><details><summary>高级工作流档案</summary><QuantStrategyStudio onError={researchProps.onError} embedded activeTab="workflow" onWorkflowSaved={(record, token) => void linkArtifact('workflow', record.id, token)} onEditRules={() => chooseTab('builder')} assetSymbol={researchProps.asset?.symbol} interval={researchProps.interval} /></details></div> : null}
 
     {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究引擎…</div>}>
-        <ResearchWorkspace {...researchProps} view={tab === 'builder' ? 'builder' : 'optimize'} showHeader={false} onStrategySaved={(record: CustomStrategyRecord) => void linkArtifact('strategy', record.id)} onResearchCompleted={(job: ResearchJob) => void linkArtifact('research', job.id)} />
+        <ResearchWorkspace {...researchProps} executionPipeline={pipeline} view={tab === 'builder' ? 'builder' : 'optimize'} showHeader={false} onStrategySaved={(record: CustomStrategyRecord) => void linkArtifact('strategy', record.id)} onResearchCompleted={(job: ResearchJob) => void linkArtifact('research', job.id)} />
       </Suspense>
     </section> : null}
-    {studioVisited ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
+    {studioVisited && tab !== 'workflow' ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载私密策略工作室…</div>}>
         <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onEditRules={() => chooseTab('builder')} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
       </Suspense>

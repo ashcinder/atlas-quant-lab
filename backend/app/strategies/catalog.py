@@ -57,15 +57,28 @@ def boolean(key: str, label: str, default: bool, help: str | None = None) -> Str
 
 STRATEGIES = [
     StrategyDefinition(
+        id="scheduled_dca", name="定期定额（固定金额）", category="资金计划",
+        description="按日历间隔买入固定金额，使用账户可用资金；不按仓位百分比逐步加仓。",
+        suitable_for="固定金额定投；资金不足时跳过，不虚构入金", risk_level="中",
+        parameters=[
+            number("amount", "每次定投金额（标的报价币种，含手续费）", 1000, 1, 10000000, 100),
+            integer("every", "间隔数量", 1, 1, 365),
+            StrategyParameter(key="unit", label="间隔单位", kind="select", default="weeks", options=[
+                {"value":"hours", "label":"小时"}, {"value":"days", "label":"天"},
+                {"value":"weeks", "label":"周"}, {"value":"months", "label":"月"}]),
+            integer("start_delay", "开始延迟（K线）", 0, 0, 10000),
+        ],
+    ),
+    StrategyDefinition(
         id="dca",
-        name="定期定额",
+        name="分期建仓（旧版）",
         category="资金计划",
         description="按固定K线间隔逐步投入未使用资金。",
         suitable_for="长期积累、弱择时",
         risk_level="中",
         parameters=[
             integer("every_bars", "投入间隔（K线）", 20, 1, 260),
-            number("amount_pct", "每次投入占初始资金", 0.05, 0.005, 0.5, 0.005),
+            number("amount_pct", "每次增加目标仓位（0.05=5个百分点）", 0.05, 0.005, 0.5, 0.005),
             integer("start_delay", "首次投入延迟", 0, 0, 500, help="跳过开头指定数量的K线"),
             integer("max_contributions", "最多投入次数（0=不限）", 0, 0, 500),
         ],
