@@ -4,6 +4,21 @@ import { request } from './request'
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('API transport', () => {
+  it('expires the login session on an ordinary 401, but not a developer credential rejection', async () => {
+    const expired = vi.fn()
+    window.addEventListener('atlas-session-expired', expired)
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(new Response('{}', { status: 401 }))))
+    try {
+      await expect(request('/runs')).rejects.toMatchObject({ status: 401 })
+      expect(expired).toHaveBeenCalledTimes(1)
+      await expect(request('/packages', { headers: { 'X-Developer-Token': 'wrong-test-token' } })).rejects.toMatchObject({ status: 401 })
+      expect(expired).toHaveBeenCalledTimes(1)
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401, headers: { 'X-Atlas-Session-Required': '1' } })))
+      await expect(request('/packages', { headers: { 'X-Developer-Token': 'valid-test-token' } })).rejects.toMatchObject({ status: 401 })
+      expect(expired).toHaveBeenCalledTimes(2)
+    } finally { window.removeEventListener('atlas-session-expired', expired) }
+  })
+
   it('formats validation errors without exposing submitted secret inputs', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: [
       { loc: ['body', 'params', 'fast'], msg: 'Must be greater than zero', input: 'private-secret', ctx: { secret: 'secret' } },
@@ -16,6 +31,7 @@ describe('API transport', () => {
     vi.stubGlobal('fetch', fetchMock)
     await request('/upload', { method: 'POST', headers: { 'X-Developer-Token': 'test-only' }, body: new FormData() })
     const headers: Headers = fetchMock.mock.calls[0][1].headers
+    expect(fetchMock.mock.calls[0][1].credentials).toBe('include')
     expect(headers.get('X-Developer-Token')).toBe('test-only')
     expect(headers.has('Content-Type')).toBe(false)
   })

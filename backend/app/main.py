@@ -1,19 +1,9 @@
+from contextlib import asynccontextmanager
 import json
 import re
-from contextlib import asynccontextmanager
 from datetime import UTC
 
-from fastapi import (
-    FastAPI,
-    File,
-    Header,
-    HTTPException,
-    Query,
-    Request,
-    Response,
-    UploadFile,
-    status,
-)
+from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -69,7 +59,6 @@ from app.strategy_projects import (
     StrategyProjectUpdate,
 )
 from app.strategy_studio import (
-    MAX_ARCHIVE_BYTES,
     StrategyPackageError,
     StrategyStudioStore,
     studio_spec,
@@ -87,6 +76,9 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
+from app.execution_api import execution_router
+from app.strategy_code_api import router as strategy_code_router
+from app.trading_api import router as trading_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -94,12 +86,12 @@ run_store = RunStore()
 workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
+journal_scheduler = JournalScheduler(journal_store)
 quantjudge_store = QuantJudgeStore()
 zk_proof_store = ZkProofStore()
 quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
 strategy_project_store = StrategyProjectStore()
-journal_scheduler = JournalScheduler(journal_store)
 
 
 @asynccontextmanager
@@ -121,6 +113,8 @@ app = FastAPI(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(execution_router(strategy_studio_store, zk_proof_store))
+app.include_router(strategy_code_router)
+app.include_router(trading_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -152,33 +146,30 @@ async def require_atlas_user(request: Request, call_next):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)
         user = parse_session(request, journal_store.find_session_user)
         if user is None:
-            return JSONResponse({"error": "需要登录"}, status_code=401)
+            return JSONResponse({"error": "需要登录"}, status_code=401, headers={"X-Atlas-Session-Required": "1"})
         request.state.user = user
-    if request.url.path.startswith("/api/") and request.method in {
-        "POST",
-        "PUT",
-        "PATCH",
-        "DELETE",
-    }:
+    retired_package_upload = request.method == 'POST' and re.fullmatch(
+        r'/api/v1/quantjudge/agents/[^/]+/packages', request.url.path
+    ) is not None
+    if (
+        request.url.path.startswith('/api/')
+        and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
+        and not retired_package_upload
+    ):
         if not _origin_ok(request):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)
-        upload = re.fullmatch(
-            r"/api/v1/quantjudge/agents/[^/]+/(packages|zk-proofs)", request.url.path
-        )
-        multipart = bool(upload and request.method == "POST")
-        limit = (
-            ((MAX_ARCHIVE_BYTES if upload[1] == "packages" else MAX_RECEIPT_BYTES) + 65536)
-            if multipart
-            else 4_000_000
-        )
-        expected_type = "multipart/form-data" if multipart else "application/json"
+        multipart_upload = request.method == 'POST' and re.fullmatch(
+            r'/api/v1/quantjudge/agents/[^/]+/zk-proofs', request.url.path
+        ) is not None
+        content_type = request.headers.get('content-type', '').split(';')[0].strip()
+        body_limit = MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000
         body = bytearray()
         async for chunk in request.stream():
-            if len(body) + len(chunk) > limit:
-                return JSONResponse({"error": "请求超过允许大小"}, status_code=413)
             body.extend(chunk)
-        if body and request.headers.get("content-type", "").split(";")[0].strip() != expected_type:
-            return JSONResponse({"error": f"请使用 {expected_type}"}, status_code=415)
+            if len(body) > body_limit:
+                return JSONResponse({"error": "请求体超过大小限制"}, status_code=413)
+        if body and content_type != 'application/json' and not (multipart_upload and content_type == 'multipart/form-data'):
+            return JSONResponse({"error": "请使用 application/json"}, status_code=415)
         request._body = bytes(body)
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
@@ -417,15 +408,13 @@ def update_strategy_project(project_id: str, request: StrategyProjectUpdate, htt
 
 @app.post("/api/v1/strategy-projects/{project_id}/artifacts")
 def link_strategy_project_artifact(
-    project_id: str,
-    request: ProjectArtifactLink,
-    http_request: Request,
+    project_id: str, request: ProjectArtifactLink, http_request: Request,
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return strategy_project_store.link_artifact(
-            project_id, request, http_request.state.user.id, developer_token
-        )
+        return strategy_project_store.link_artifact(project_id, request, http_request.state.user.id, developer_token)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="策略项目不存在") from exc
     except ProjectConflictError as exc:
@@ -487,6 +476,13 @@ def mark_notifications_read(http_request: Request):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# The production build and API share one origin; Vite remains the development server.
+if STATIC_DIR.is_dir():
+    app.mount('/assets', StaticFiles(directory=STATIC_DIR / 'assets'), name='assets')
+
+    @app.get('/')
+    def frontend():
+        return FileResponse(STATIC_DIR / 'index.html', headers={'Cache-Control': 'no-cache'})
 @app.get("/api/v1/quantjudge/overview")
 def quantjudge_overview():
     return quantjudge_store.overview()
@@ -720,9 +716,7 @@ def subscribe_quant_agent(agent_id: str, request: SubscriptionCreate, http_reque
 
 
 @app.get("/api/v1/quantjudge/subscriptions")
-def list_quant_subscriptions(
-    http_request: Request, investor_alias: str = Query(min_length=2, max_length=60)
-):
+def list_quant_subscriptions(http_request: Request, investor_alias: str = Query(min_length=2, max_length=60)):
     return quantjudge_store.list_subscriptions(investor_alias, http_request.state.user.id)
 
 
@@ -761,24 +755,13 @@ def list_quant_strategy_packages(
 
 @app.post(
     "/api/v1/quantjudge/agents/{agent_id}/packages",
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_410_GONE,
 )
-async def upload_quant_strategy_package(
-    agent_id: str,
-    file: UploadFile = File(...),  # noqa: B008 - FastAPI upload dependency
-    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
-):
-    content = await file.read(MAX_ARCHIVE_BYTES + 1)
-    try:
-        return strategy_studio_store.upload_package(
-            agent_id, file.filename or "strategy.qstrategy", content, developer_token
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
-    except PermissionError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-    except StrategyPackageError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+def upload_quant_strategy_package(agent_id: str):
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="策略代码上传已停用，请使用图形化策略画布创建和配置策略。",
+    )
 
 
 @app.get("/api/v1/quantjudge/agents/{agent_id}/packages/{package_id}/download")
@@ -846,13 +829,3 @@ def save_quant_workflow(
         raise HTTPException(status_code=401, detail=str(exc)) from exc
     except StrategyPackageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-# The production build and API share one origin; Vite remains the development server.
-if STATIC_DIR.is_dir():
-    if (STATIC_DIR / "assets").is_dir():
-        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
-
-    @app.get("/")
-    def frontend():
-        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})

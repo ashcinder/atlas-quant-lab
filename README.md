@@ -1,12 +1,10 @@
 # Atlas Quant Lab
 
+Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人资产账本平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
+
 > Strategy developers: see [Atlas Strategy Lab](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
 
 > 新增：[隔离执行、AI / TEE 与程序 ZKP 的实际能力和部署说明](docs/EXECUTION_TRUST.md)。支持有界整数策略程序的真实 ZKP，不等于任意 Python 或 AI 已可证明；TEE 尚无真实硬件端到端验收。
-
-Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略研究与历史回测平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
-
-现已整合 `main` 的投资账本：登录后可在“策略工作台”和“资产账本”间切换。账户/持仓、流水、定投计划、汇率、OCR 和备份恢复共享同一 FastAPI 服务；QuantJudge、策略实验室、gVisor 与程序 ZKP 保持在 `QuantJudge` 分支。完整启动及技术栈见 [合并交付与运行指南](docs/MAIN_MERGE.md)。
 
 > 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。
 
@@ -29,9 +27,29 @@ Atlas Quant Lab 是一个个人本地使用、前后端分离的多资产策略�
 - 历史回放：逐根推进 K 线且严格隐藏未来数据，支持播放、单步、带手续费与滑点的模拟买卖，并按标的恢复回放进度。
 - 提醒中心：支持价格、单根涨幅、RSI 和 MACD 条件；后端独立轮询、冷却去重、通知持久化，并可选浏览器桌面通知。
 - 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。
-- 本地优先：首次使用创建本机账号，行情缓存、策略模板、回测历史和投资账本保存在本机；不同账号隔离。
-- 投资账本：账户与持仓、入金/出金/收益/费用/转账、预算、投资手记、定投日历、历史汇率、JSON 备份与 CSV 导出。
-- 截图录入：浏览器本地 OCR 识别后由用户确认；识别结果不会自动提交，不执行实盘交易。
+- 本地优先：邮箱注册后使用独立工作区，账本、策略模板、回测历史与提醒保存在 SQLite。
+
+## 整合后的资产账本
+
+顶部可在“策略工作台”和“资产账本”之间切换，统一使用 Atlas 深色界面。
+
+- 资产总览、USD/CNY 汇总、资产配置、收益与历史曲线。
+- 账户、账户图片、资产管理；当前金额与本金/收益额/收益率三种录入依据。
+- 流水、账户间转账、估值、本金更正、归档、删除和筛选。
+- 多资产金额/比例定投，北京时间调度，CN/US/Crypto 交易日历，暂停、跳过与补记。
+- 投资手记、月度预算、汇率更新、手工汇率和休市日历维护。
+- 浏览器内截图 OCR，确认后原子保存；JSON 备份恢复、CSV 流水导出、两种清空模式。
+- 注册、登录、退出与改密；账本、回测、研究任务、模板、提醒和通知均按用户隔离。
+
+生产业务后端统一为 **FastAPI + SQLite**，不需要澄明 Node 服务、Cloudflare、D1 或 ChatGPT 登录。原澄明项目保留原样作为参考，整合后的应用可独立运行。
+
+新用户从空账本开始，不迁移原数据库。JSON 导入/导出仍兼容澄明 v1 账本格式。内置汇率是标有日期的历史参考值，自动更新失败时可手工维护；自动定投只记账、不执行真实交易。
+
+完整功能映射、修改位置和验证记录见 [整合说明](docs/INTEGRATION.md)。
+
+## QuantJudge 与可信策略开发
+
+策略项目和订阅按登录账号隔离；公开 Agent 与跑分可在登录后浏览，私密包和工作流还需要对应开发者凭证。
 - QuantJudge 市场：量化策略 / AI Agent 公开跑分、分类排行、证据账本、本地沙盒订阅和开发者发布流程。
 - 隐私证明：固定 RISC Zero zkVM guest 可证明私密 SMA 参数或 v2 有界整数策略程序在指定行情和成本模型上生成公开业绩；证明路径不保存 witness、参数或逐笔决策。普通 Python 上传包仍为平台可解密存储，不具备此保密性。
 - Supervisor 验证：通过独立 JSON-RPC 适配器读取链 ID、区块与交易回执；只接收外部钱包已签名交易，平台不保管链上私钥。
@@ -70,13 +88,14 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 cd frontend
-pnpm install --frozen-lockfile
-pnpm dev
+npm ci
+npm run dev
+
 ```
 
 建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。依赖安装后也可在仓库根目录运行 `bash scripts/dev.sh` 同时启动两个服务。
 
-**升级已有数据**：首次启动前备份 `backend/.data/`（停服后复制整个目录，包括隐藏密钥）。旧无账户记录保留为 `local` 归属，不自动转给新注册用户；不是删除。旧投资账本可由用户主动导入 v1 JSON 备份，旧策略记录归属需另行明确迁移。切勿删除数据目录或运行 `docker compose down --volumes` 来解决登录问题。
+安装完成后，也可在项目根目录运行 `./scripts/dev.sh` 同时启动前后端。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
 
 ## 测试
 
@@ -100,3 +119,37 @@ QuantJudge 默认使用 `http://127.0.0.1:42515` 读取 Supervisor JSON-RPC，�
 ![单标的策略回测](docs/assets/ui-single.png)
 
 ![多资产风险分析](docs/assets/ui-portfolio.png)
+
+## 独立服务器部署
+
+```bash
+cp .env.example .env
+# 编辑 .env，将 ATLAS_ALLOWED_ORIGINS 设置为实际 HTTPS 域名。
+docker compose up -d --build
+```
+
+Compose 使用前端 Nginx 与后端 API 两个容器，仅映射 `127.0.0.1:8080`。SQLite、行情缓存和会话/证明/包加密密钥保存在 `atlas-data` 命名卷中。后端单进程启动研究、提醒和自动定投。旧单镜像 `Dockerfile` 仍可单独构建使用。已有部署升级前请阅读 [部署指南](docs/DEPLOYMENT.md)，核对原 Compose 项目名和数据卷，避免连接空卷。
+
+例如 Nginx 的站点 location（证书配置由服务器管理）：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    client_max_body_size 20m;
+}
+```
+
+首次注册自己的账号后，可将 `ATLAS_ALLOW_REGISTRATION=false` 关闭公开注册，再重建容器配置。默认会话密钥首次生成后保存在数据目录 `.session-secret`；也可显式提供不少于 32 字符的 `ATLAS_SESSION_SECRET`。修改密码会使其他设备的会话失效。
+
+不使用 Docker 时，先构建前端，然后运行：
+
+```bash
+cd frontend && npm ci && npm run build
+cd ../backend
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+环境变量：`ATLAS_DATA_DIR` 指定存储目录；`ATLAS_STATIC_DIR` 指定前端构建目录；`ATLAS_ALLOWED_ORIGINS` 是逗号分隔的前端来源。对外服务请配置 HTTPS，并只信任实际反向代理传入的转发头。

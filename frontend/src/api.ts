@@ -203,11 +203,6 @@ export const api = {
   listStrategyPackages(agentId: string, token: string) {
     return request<StrategyPackageRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { headers: { 'X-Developer-Token': token } })
   },
-  uploadStrategyPackage(agentId: string, token: string, file: File) {
-    const body = new FormData()
-    body.append('file', file)
-    return request<StrategyPackageRecord>(`/quantjudge/agents/${encodeURIComponent(agentId)}/packages`, { method: 'POST', headers: { 'X-Developer-Token': token }, body })
-  },
   listStudioWorkflows(agentId: string, token: string) {
     return request<StudioWorkflowRecord[]>(`/quantjudge/agents/${encodeURIComponent(agentId)}/workflows`, { headers: { 'X-Developer-Token': token } })
   },
@@ -235,10 +230,9 @@ export const api = {
       method: 'PATCH', body: JSON.stringify({ expected_revision: revision, ...payload }),
     })
   },
-  linkStrategyProjectArtifact(id: string, revision: number, kind: StrategyProjectArtifactKind, artifactId: string, token?: string) {
+  linkStrategyProjectArtifact(id: string, revision: number, kind: StrategyProjectArtifactKind, artifactId: string, developerToken?: string) {
     return request<StrategyProject>(`/strategy-projects/${encodeURIComponent(id)}/artifacts`, {
-      method: 'POST', body: JSON.stringify({ expected_revision: revision, kind, artifact_id: artifactId }),
-      headers: token ? { 'X-Developer-Token': token } : undefined,
+      method: 'POST', headers: developerToken ? { 'X-Developer-Token': developerToken } : undefined, body: JSON.stringify({ expected_revision: revision, kind, artifact_id: artifactId }),
     })
   },
   freezeStrategyProject(id: string, revision: number, version: string) {

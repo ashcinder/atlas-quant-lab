@@ -7,14 +7,14 @@ Only the randomly named test project's containers/network/volume are removed.
 from __future__ import annotations
 
 import json
+from http.cookiejar import CookieJar
 import os
 from pathlib import Path
 import re
 import socket
 import subprocess
 from urllib.error import HTTPError
-from urllib.request import Request, build_opener, HTTPCookieProcessor
-from http.cookiejar import CookieJar
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 from uuid import uuid4
 
 REPO = Path(__file__).resolve().parents[1]
@@ -31,7 +31,7 @@ def main() -> None:
         "QUANTJUDGE_SUPERVISOR_RPC_URL": "http://127.0.0.1:42515",
     }
     command = ["docker", "compose", "-f", str(REPO / "compose.yaml"), "-p", project]
-    browser = build_opener(HTTPCookieProcessor(CookieJar()))
+    opener = build_opener(HTTPCookieProcessor(CookieJar()))
 
     def compose(*args: str, capture: bool = False, check: bool = True) -> str:
         result = subprocess.run(
@@ -46,7 +46,7 @@ def main() -> None:
             f"http://127.0.0.1:{port}{path}", data=data,
             headers={"Content-Type": "application/json"} if data else {},
         )
-        with browser.open(req, timeout=60) as response:
+        with opener.open(req, timeout=60) as response:
             return response.read(), response.headers.get("Content-Type", "")
 
     def api(path: str, payload: dict | None = None):
@@ -81,6 +81,8 @@ def main() -> None:
         assert request("/strategy-lab")[0] == html, "SPA fallback must serve the app"
         assert request("/healthz")[0].strip() == b"ok"
         assert api("/api/v1/health")["status"] == "ok"
+        api("/api/register", {"email": "smoke@example.test", "password": uuid4().hex})
+        assert api("/api/session")["authenticated"] is True
         assert "/api/v1/health" in api("/openapi.json")["paths"]
         assert b"/openapi.json" in request("/api/docs")[0]
         assert not api("/api/session")["authenticated"]

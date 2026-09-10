@@ -241,6 +241,7 @@ class QuantJudgeStore:
                     ON qj_reports(agent_id, created_at DESC);
                 CREATE TABLE IF NOT EXISTS qj_subscriptions (
                     id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL DEFAULT 'local',
                     agent_id TEXT NOT NULL REFERENCES qj_agents(id) ON DELETE CASCADE,
                     investor_alias TEXT NOT NULL,
                     billing_cycle TEXT NOT NULL,
@@ -265,6 +266,18 @@ class QuantJudgeStore:
                     "ALTER TABLE qj_reports ADD COLUMN evidence_level TEXT NOT NULL "
                     "DEFAULT 'platform_attested'"
                 )
+            subscription_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(qj_subscriptions)")
+            }
+            if "owner_id" not in subscription_columns:
+                connection.execute(
+                    "ALTER TABLE qj_subscriptions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_qj_subscriptions_owner_created "
+                "ON qj_subscriptions(owner_id, created_at DESC)"
+            )
 
             subscription_columns = {row["name"] for row in connection.execute("PRAGMA table_info(qj_subscriptions)")}
             if "owner_id" not in subscription_columns:
@@ -839,7 +852,12 @@ class QuantJudgeStore:
             )
         return self.verify_report(report_id)
 
-    def subscribe(self, agent_id: str, request: SubscriptionCreate, owner_id: str = "local") -> dict[str, Any]:
+    def subscribe(
+        self,
+        agent_id: str,
+        request: SubscriptionCreate,
+        owner_id: str = "local",
+    ) -> dict[str, Any]:
         with self._connect() as connection:
             agent = connection.execute("SELECT * FROM qj_agents WHERE id = ?", (agent_id,)).fetchone()
         if agent is None:
@@ -855,38 +873,51 @@ class QuantJudgeStore:
             connection.execute(
                 """
                 INSERT INTO qj_subscriptions (
-                    id, agent_id, investor_alias, billing_cycle, amount, currency, status,
-                    payment_mode, payment_reference, started_at, expires_at, created_at, owner_id
+                    id, owner_id, agent_id, investor_alias, billing_cycle, amount, currency, status,
+                    payment_mode, payment_reference, started_at, expires_at, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    subscription_id, agent_id, request.investor_alias, request.billing_cycle,
+                    subscription_id, owner_id, agent_id, request.investor_alias, request.billing_cycle,
                     amount, agent["price_currency"], status, payment_mode, request.payment_reference,
                     started.isoformat(), expires.isoformat(), started.isoformat(), owner_id,
                 ),
             )
-        return self.get_subscription(subscription_id)
+        return self.get_subscription(subscription_id, owner_id)
 
-    def get_subscription(self, subscription_id: str) -> dict[str, Any]:
+    def get_subscription(
+        self, subscription_id: str, owner_id: str = "local"
+    ) -> dict[str, Any]:
         with self._connect() as connection:
             row = connection.execute(
                 """SELECT s.*, a.name AS agent_name FROM qj_subscriptions s
-                   JOIN qj_agents a ON a.id = s.agent_id WHERE s.id = ?""",
-                (subscription_id,),
+                   JOIN qj_agents a ON a.id = s.agent_id
+                   WHERE s.id = ? AND s.owner_id = ?""",
+                (subscription_id, owner_id),
             ).fetchone()
         if row is None:
             raise KeyError(subscription_id)
-        return dict(row)
+        payload = dict(row)
+        payload.pop("owner_id", None)
+        return payload
 
-    def list_subscriptions(self, investor_alias: str, owner_id: str = "local") -> list[dict[str, Any]]:
+    def list_subscriptions(
+        self, investor_alias: str, owner_id: str = "local"
+    ) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT s.*, a.name AS agent_name FROM qj_subscriptions s
                    JOIN qj_agents a ON a.id = s.agent_id
-                   WHERE s.investor_alias = ? AND s.owner_id = ? ORDER BY s.created_at DESC""",
+                   WHERE s.investor_alias = ? AND s.owner_id = ?
+                   ORDER BY s.created_at DESC""",
                 (investor_alias, owner_id),
             ).fetchall()
-        return [dict(row) for row in rows]
+        output = []
+        for row in rows:
+            payload = dict(row)
+            payload.pop("owner_id", None)
+            output.append(payload)
+        return output
 
     def overview(self) -> dict[str, Any]:
         agents = self.list_agents()

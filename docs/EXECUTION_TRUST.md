@@ -1,13 +1,13 @@
 # 私密策略执行与证明：交付边界
 
-更新：2026-09-07。**研究执行、硬件证明和零知识证明是三条不同的能力，不可相互替代。** 当前不是“上传任意 Python 即可对平台保密并自动生成 ZKP”的产品。
+更新：2026-09-08。**研究执行、硬件证明和零知识证明是三条不同的能力，不可相互替代。** 当前不是“上传任意 Python 即可对平台保密并自动生成 ZKP”的产品。
 
 ## 能力矩阵
 
 | 能力 | 当前实现 | 尚不包含 |
 | --- | --- | --- |
 | Python 隔离研究 | `.qstrategy` / `atlas.strategy/v1`，gVisor、只读容器、无网络、资源限制、逐根供数、平台独立记账 | 任意依赖安装、多资产、实盘、自动执行可视化 DAG、对平台运营者保密 |
-| 本地 AI | Ollama 结构化风险审查、请求绑定、减仓/否决权限、失败关闭、最终硬风控 | 已验证的真实模型实例、机密推理、zkML、AI 决策正确性的保证 |
+| 本地 AI | Ollama 结构化风险审查与多语言策略代码辅助；请求绑定、减仓/否决权限、失败关闭、最终硬风控 | 已验证的真实模型实例、机密推理、zkML、AI 决策正确性的保证 |
 | Nitro 验证 | AWS 根证书固定、证书链、COSE ES384、PCR、时效、nonce、绑定及一次性挑战 | 已部署的 Enclave、私密密钥交付、在 Enclave 内执行策略/模型、业绩硬件证明 |
 | 程序 ZKP v2 | 真实 RISC Zero receipt；私密有界整数程序、16 个状态寄存器、因果行情、成本后收益和公开报告绑定 | 任意 Python/LLM 证明、多资产、真实成交真实性、数据源签名 |
 
@@ -46,7 +46,7 @@ export ATLAS_AI_MODEL='<本机已安装并验收的模型名>'
 export ATLAS_AI_URL='http://127.0.0.1:11434/api/chat'
 ```
 
-只允许数值回环 HTTP 地址，禁用代理继承和重定向。发送的是风险摘要和目标仓位，不是源码或私密提示词；摘要本身仍可能泄露策略行为。不能仅凭设置环境变量声称模型已经通过实际推理验收。现有测试验证协议、权限和失败分支，没有实际模型验收结果。
+只允许数值回环 HTTP 地址，禁用代理继承和重定向。执行期风险审查发送风险摘要和目标仓位；策略代码助手会把用户指令和编辑器中的当前源码发送给同一本地服务，并只生成代码、不执行代码。两类内容都可能泄露策略信息。不能仅凭设置环境变量声称模型已经通过实际推理验收。现有测试验证协议、权限和失败分支，没有实际模型验收结果。
 
 ## TEE 路径：目前止于通道验证
 
@@ -111,3 +111,7 @@ python3 strategy/zkvm/scripts/program_witness.py --bind-existing private-draft.j
 - 本机已生成真实、非 dev-mode RISC Zero receipt，并实际验证、在临时数据库注册和发布报告、重新验证；拒绝重放、字节篡改及错误 image ID，检查公共输出不含私密程序/盐。
 - Linux gVisor 集成验收已通过：[Actions #34102419565](https://github.com/ashcinder/atlas-quant-lab/actions/runs/34102419565)，对应 `7a6bee3`。`isolated-runner` 涵盖真实 SDK 策略、无网络/宿主文件/只读挂载与超时、内存、输出上限；frontend、backend、containers 也均成功。
 - 尚无真实模型推理、Nitro 硬件、机密端到端流程或通用 Python ZKP 验收。需要提供可用主机和模型信息后继续。
+
+### 多语言代码编辑（2026-09-08）
+代码模块支持 Python、JavaScript、TypeScript、C、C++、Java、C#、Go、Rust、R、Julia、Pine Script、MQL4/MQL5 的编辑、模板、导入下载和 AI 编写。请求可携带 language，省略时为 python。只有 Python 提供静态检查；其他语言的 validate 返回422，不表示可编译或可运行。所有语言均未在此模块接入隔离回测。
+Pine 模板参照 [TradingView 策略文档](https://www.tradingview.com/pine-script-docs/concepts/strategies/)，MQL5 数据顺序参照 [CopyClose 文档](https://www.mql5.com/en/docs/series/copyclose)。平台模板仍需在目标平台验证。

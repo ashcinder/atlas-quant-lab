@@ -5,6 +5,7 @@
 !backend/app/
 !backend/app/**
 !backend/requirements.lock
+!backend/requirements.txt
 !frontend/
 !frontend/src/
 !frontend/src/**
@@ -12,8 +13,8 @@
 !frontend/public/**
 !frontend/index.html
 !frontend/package.json
-!frontend/pnpm-lock.yaml
-!frontend/pnpm-workspace.yaml
+!frontend/package-lock.json
+!frontend/postcss.config.mjs
 !frontend/tsconfig*.json
 !frontend/vite.config.ts
 !frontend/postcss.config.mjs

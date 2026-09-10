@@ -116,7 +116,7 @@ export function StrategyProjectBar({
     <section className="strategy-project-bar">
       <div className="project-switcher">
         <FolderKanban size={14} aria-hidden="true" />
-        <span><small>STRATEGY PROJECT</small><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
+        <span><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
         <button aria-label="新建策略项目" title="新建策略项目" onClick={() => openEditor('create')}><Plus size={12} /></button>
         {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={() => openEditor('edit')}><Pencil size={12} /></button> : null}
       </div>
@@ -129,7 +129,7 @@ export function StrategyProjectBar({
           <span className={project.commitment ? 'is-ready' : ''}><Fingerprint size={12} /><small>版本</small></span>
         </div>
         <button className="project-gate-button" onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong><small>{(project.next_gate ? `待完成：${project.next_gate.label}` : null) ?? '可发布'}</small></span><ChevronDown size={11} /></button>
-      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>当前是未归档沙盒</strong><small>可以探索模板；创建项目后，规则、工作流与验证结果才会进入同一审计版本。</small></span><button onClick={() => openEditor('create')}>创建策略项目</button></div>}
+      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>尚未保存为项目</strong></span><button onClick={() => openEditor('create')}>创建策略项目</button></div>}
     </section>
 
     {gateOpen && project ? <aside className="project-gate-popover">

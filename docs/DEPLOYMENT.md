@@ -4,7 +4,7 @@
 
 ## 当前边界
 
-- 已加入邮箱/密码认证及账本、回测、研究、模板、提醒、策略项目、订阅的账户隔离；未完成公网多租户审计、完整配额、找回密码或邮件验证。不可直接绑定公网地址。
+- 已有邮箱登录以及账本、回测、研究、模板、提醒、策略项目和订阅的账号隔离。QuantJudge 的公开目录是共享市场，私密包/工作流仍以开发者凭证授权；高成本服务尚无完整账号配额，部署仍面向本机/受控私网。
 - 不连接真实交易账户；支付仍为沙盒。
 - 研究任务与提醒在进程内运行，后端必须只有一个 worker，不能直接水平扩容。
 - 容器提供行情、规则与组合回测、策略归档和平台签名服务。基础镜像不包含 zkVM 验证器：`verifier_ready` 会为 false，不能声称容器已完成 ZKP 验收。
@@ -32,6 +32,12 @@ docker compose logs --tail 100 api web
 ```
 
 也可点击应用顶部“系统状态”查看后端、证明配置及链连接；这个检查不提交交易、报告或证明。
+
+## 从投资日志版 main 升级
+
+新 Compose 默认项目名为 `atlas-quant`，API 的数据卷挂载点为 `/app/backend/.data`。旧单容器使用 `/data`，且项目名可能来自旧目录名。升级前停止旧服务并备份完整数据卷；明确使用原 Compose 项目名（`docker compose -p 原项目名 ...`）以保留同名 `atlas-data` 卷，或在独立测试卷恢复完整快照后切换。不要让新默认项目名悄悄创建空卷；本次代码合并没有迁移任何真实数据库。
+
+新增策略项目和订阅的 owner_id 列以 `local` 保留旧 QuantJudge 记录，不自动将无归属记录分配给新账号。
 
 ## 持久化、升级与停止
 
@@ -63,7 +69,7 @@ docker compose start api
 
 ## 可复现依赖与 CI
 
-- 前端直接依赖及 pnpm 版本固定，容器与 CI 使用 `pnpm install --frozen-lockfile`。
+- 前端统一使用 npm 和 `package-lock.json`，容器与 CI 使用 `npm ci`；保留原投资日志依赖及测试。
 - `backend/requirements.lock` 是测试环境的精确版本清单；`requirements-dev.lock` 补充测试工具。它们不是带哈希的供应链完整性锁。
 - 镜像使用精确版本标签，但尚未锁定 digest。镜像下载仍依赖上游仓库可用性。
 - `.github/workflows/ci.yml` 包含前端构建 / lint / 测试、隔离后端测试和容器冒烟测试。它不向服务器部署，也不推送镜像。
@@ -77,7 +83,11 @@ docker compose start api
 
 这项验证不覆盖本机 Docker 环境、生产数据备份恢复演练、容器 ZKP 验证器或真实 AI / TEE。不能用容器健康接口在线代替这些检查。
 
-对公网开放之前，还需要独立完成身份鉴别与租户权限、TLS、速率和资源限制、外置任务队列、可观测性、备份恢复演练、依赖安全审查，以及 AI / 通用策略 Runner / TEE 的隔离与可信执行实现。
+对公网开放之前，还需要独立审查身份鉴别与租户权限，并完成 TLS、速率和资源限制、外置任务队列、可观测性、备份恢复演练、依赖安全审查，以及 AI / 通用策略 Runner / TEE 的隔离与可信执行实现。
 # Optional private execution components
 
 Python gVisor Runner, local AI configuration, Nitro attestation verification and program ZKP are separately gated. Follow [EXECUTION_TRUST.md](EXECUTION_TRUST.md); the base Compose deployment does not enable these by mounting a Docker socket or claim hardware confidentiality. Backend images include OpenSSL for strict Nitro certificate-chain validation, not a Nitro runtime.
+
+## 合并后的 OCR
+
+截图在浏览器本地识别；首次运行由 jsDelivr 加载 Tesseract worker、WASM 和语言模型。Nginx CSP 允许该域的脚本/连接、blob worker 与图片预览、WASM 编译；没有将用户截图上传到 CDN。离线首次使用仍需要预缓存模型。

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { PrivateExecutionPanel } from './PrivateExecutionPanel'
+import { GuidedWorkflow } from './GuidedWorkflow'
+import './guided-strategy.css'
 import type { ReactNode } from 'react'
 import {
-  Bot, Box, Braces, Check, ChevronDown, CircleAlert, Code2, Cpu, FileArchive,
-  Fingerprint, GitBranch, KeyRound, LockKeyhole, PackageCheck, Play, Plus,
-  Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, UploadCloud, Workflow, X,
+  Braces, Check, ChevronDown, CircleAlert, Code2, Cpu, FileArchive,
+  Fingerprint, GitBranch, KeyRound, LockKeyhole, PackageCheck,
+  Save, ShieldCheck, Sparkles, Trash2, Workflow, X,
 } from 'lucide-react'
 import { api } from '../api'
 import { LabConfirmDialog } from './LabConfirmDialog'
@@ -19,9 +21,8 @@ interface Props {
   activeTab?: StudioTab
   embedded?: boolean
   onTabChange?: (tab: StudioTab) => void
-  onOpenMarket?: () => void
-  onWorkflowSaved?: (record: StudioWorkflowRecord, token: string) => void
-  onPackageUploaded?: (record: StrategyPackageRecord, token: string) => void
+  onWorkflowSaved?: (record: StudioWorkflowRecord, developerToken: string) => void
+  onEditRules?: () => void
   onDraftChange?: (dirty: boolean) => void
   assetSymbol?: string
   assetClass?: string
@@ -34,19 +35,6 @@ const roleLabels: Record<StudioAIRole, string> = {
 }
 const authorityLabels: Record<StudioAIAuthority, string> = {
   advisory: '仅建议', veto: '可否决', bounded_adjustment: '有界调整',
-}
-const typeMeta: Record<string, { tag: string; hint: string }> = {
-  market_data: { tag: 'DATA', hint: '时点对齐 / 复权 / 质量门' },
-  universe: { tag: 'UNIV', hint: '标的筛选与退市处理' },
-  feature_engine: { tag: 'FACTOR', hint: '因果特征，禁止未来函数' },
-  strategy: { tag: 'ALPHA', hint: '私密策略包 / Runner' },
-  position_sizer: { tag: 'SIZE', hint: '生成基准目标仓位' },
-  ai_guard: { tag: 'AI', hint: '结构化建议 / 否决 / 有界调整' },
-  risk_gate: { tag: 'HARD RISK', hint: '确定性限额，AI 无法绕过' },
-  execution_review: { tag: 'REVIEW', hint: '流动性与订单复核' },
-  execution: { tag: 'EXEC', hint: '下一根 K 线 / 成本 / 滑点' },
-  audit: { tag: 'PROOF', hint: '决策承诺与追责回执' },
-  output: { tag: 'SCORE', hint: '回测、实盘与跑分' },
 }
 const nodeStage: Record<string, number> = {
   market_data: 10, universe: 10, feature_engine: 20, strategy: 30, position_sizer: 40,
@@ -78,7 +66,7 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
 }
 
 function ValidationPanel({ validation }: { validation: StudioValidation | null }) {
-  if (!validation) return <div className="qjs-validation is-pending" aria-live="polite"><Cpu className="spin" size={15} /><span><strong>正在编译…</strong><small>检查 DAG、AI 权限与硬风控路径</small></span></div>
+  if (!validation) return <div className="qjs-validation is-pending" aria-live="polite"><Cpu className="spin" size={15} /><span><strong>正在检查流程…</strong><small>检查步骤顺序、AI 权限与风控路径</small></span></div>
   return <div className={`qjs-validation ${validation.valid ? 'is-valid' : 'is-invalid'}`}>
     {validation.valid ? <ShieldCheck size={16} /> : <CircleAlert size={16} />}
     <span><strong>{validation.valid ? '结构校验通过' : `校验未通过 · ${validation.errors.length} 项`}</strong><small>{validation.valid ? `${validation.summary.nodes} 个节点 · ${validation.summary.ai_nodes} 个 AI 职责 · 风控路径完整` : validation.errors[0]}</small></span>
@@ -86,7 +74,7 @@ function ValidationPanel({ validation }: { validation: StudioValidation | null }
 }
 
 export function QuantStrategyStudio({
-  onError, activeTab, embedded = false, onTabChange, onOpenMarket, onWorkflowSaved, onPackageUploaded, onDraftChange,
+  onError, activeTab, embedded = false, onTabChange, onWorkflowSaved, onEditRules, onDraftChange,
   assetSymbol = 'BTC-USD', assetClass = 'crypto', interval = '1d',
 }: Props) {
   const [localTab, setLocalTab] = useState<StudioTab>('workflow')
@@ -101,10 +89,10 @@ export function QuantStrategyStudio({
   const [workflow, setWorkflow] = useState<StudioWorkflow | null>(null)
   const [selectedId, setSelectedId] = useState('')
   const [validation, setValidation] = useState<StudioValidation | null>(null)
+  const [validationError, setValidationError] = useState('')
   const [agentId, setAgentId] = useState('')
   const [token, setToken] = useState('')
   const [packages, setPackages] = useState<StrategyPackageRecord[]>([])
-  const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [zkProfiles, setZkProfiles] = useState<import('../types').ZkProfile[]>([])
   const [proofProfileId, setProofProfileId] = useState('atlas_program_backtest_risc0_v2')
@@ -112,27 +100,25 @@ export function QuantStrategyStudio({
   const [zkProof, setZkProof] = useState<import('../types').ZkProofRecord | null>(null)
   const [publishedProofReport, setPublishedProofReport] = useState<string | null>(null)
   const [proofBusy, setProofBusy] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [activeTemplateId, setActiveTemplateId] = useState('')
   const [saveNotice, setSaveNotice] = useState<{ tone: 'info' | 'error' | 'success'; text: string } | null>(null)
   const [removeArmed, setRemoveArmed] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<StudioTemplate | null>(null)
   const [loadingPackages, setLoadingPackages] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
   const proofFileRef = useRef<HTMLInputElement>(null)
   const validationRequest = useRef(0)
   const draftRevision = useRef(0)
   const privateSession = useRef(0)
   const packageRequest = useRef(0)
   const savingRef = useRef(false)
-  const uploadingRef = useRef(false)
   const proofBusyRef = useRef(false)
 
   const markEdited = useCallback(() => {
     draftRevision.current += 1
     validationRequest.current += 1
     setValidation(null)
+    setValidationError('')
     setDirty(true)
     setSaveNotice(null)
     setActiveTemplateId('')
@@ -147,6 +133,7 @@ export function QuantStrategyStudio({
       setProofProfileId((current) => nextProfiles.some((profile) => profile.id === current) ? current : nextProfiles[0]?.id ?? current)
       if (nextTemplates[0] && draftRevision.current === 0) {
         const first = cloneWorkflow(nextTemplates[0].workflow)
+        if (first.name === '专业基线树干') first.name = '我的交易策略'
         setWorkflow(first); setSelectedId(first.nodes[0]?.id ?? ''); setActiveTemplateId(nextTemplates[0].id)
       }
     }).catch((reason) => { if (active) onError(reason instanceof Error ? reason.message : '策略工作室加载失败') })
@@ -164,7 +151,8 @@ export function QuantStrategyStudio({
         if (requestId === validationRequest.current) setValidation(nextValidation)
       }).catch((reason) => {
         if (requestId !== validationRequest.current) return
-        setValidation(null); onError(reason instanceof Error ? reason.message : '工作流校验失败')
+        const message = reason instanceof Error ? reason.message : '工作流校验失败'
+        setValidation(null); setValidationError(message); onError(message)
       })
     }, 280)
     return () => { window.clearTimeout(timer); validationRequest.current += 1 }
@@ -185,7 +173,7 @@ export function QuantStrategyStudio({
     const next = cloneWorkflow(template.workflow)
     draftRevision.current += 1
     validationRequest.current += 1
-    setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? ''); setValidation(null)
+    setWorkflow(next); setSelectedId(next.nodes[0]?.id ?? ''); setValidation(null); setValidationError('')
     setActiveTemplateId(template.id); setDirty(true); setRemoveArmed(false)
     setPendingTemplate(null)
     setSaveNotice({ tone: 'info', text: `已载入“${template.name}”，保存后才会形成版本。` })
@@ -230,10 +218,9 @@ export function QuantStrategyStudio({
     // Every private response belongs to the credentials used when it started.
     privateSession.current += 1
     packageRequest.current += 1
-    savingRef.current = false; uploadingRef.current = false; proofBusyRef.current = false
-    setSaving(false); setUploading(false); setLoadingPackages(false); setProofBusy(false)
+    savingRef.current = false; proofBusyRef.current = false
+    setSaving(false); setLoadingPackages(false); setProofBusy(false)
     setPackages([]); setZkProof(null); setPublishedProofReport(null); setSaveNotice(null)
-    if (fileRef.current) fileRef.current.value = ''
     if (proofFileRef.current) proofFileRef.current.value = ''
     if (workflow?.package_id) {
       markEdited()
@@ -243,23 +230,6 @@ export function QuantStrategyStudio({
   const changeAgent = (next: string) => {
     clearPrivateSession()
     setAgentId(next); setToken(''); setZkDataset(null)
-  }
-
-  const upload = async (file: File) => {
-    if (uploadingRef.current) return
-    if (!agentId || !token) { onError('先选择自己的 Agent 并填入开发者凭证'); return }
-    const session = privateSession.current
-    uploadingRef.current = true
-    setUploading(true)
-    try {
-      const uploaded = await api.uploadStrategyPackage(agentId, token, file)
-      if (session !== privateSession.current) return
-      packageRequest.current += 1
-      setLoadingPackages(false)
-      setPackages((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]); goTab('packages')
-      onPackageUploaded?.(uploaded, token)
-    } catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : '策略包上传失败') }
-    finally { if (session === privateSession.current) { uploadingRef.current = false; setUploading(false) } }
   }
 
   const loadPackages = async () => {
@@ -342,72 +312,47 @@ export function QuantStrategyStudio({
   }
 
   if (!workflow) return <div className="qjs-loading"><Cpu className="spin" size={22} />加载策略开发套件…</div>
-  const ordered = orderNodes(workflow.nodes)
 
   return <section className={`qjs-shell ${embedded ? 'is-embedded' : ''}`}>
     {pendingTemplate ? <LabConfirmDialog title="替换未保存的工作流？" description={`载入“${pendingTemplate.name}”会替换当前节点、配置和私密指令。取消后可以先保存当前修订。`} confirmLabel="放弃草稿并载入" destructive onCancel={() => setPendingTemplate(null)} onConfirm={() => loadTemplate(pendingTemplate)} /> : null}
-    <header className="qjs-toolbar">
-      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} aria-hidden="true" /><span><strong>私密工作区</strong><small>源码、提示词和凭证不进入公开跑分结果</small></span><em className={dirty ? 'is-dirty' : validation?.valid ? 'is-valid' : ''}>{dirty ? '未保存' : validation?.valid ? '结构有效' : '校验中'}</em></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>.qstrategy 私密策略与 AI 工作流</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
-      <form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
+    <header className="qjs-toolbar guided-toolbar">
+      {embedded ? <div className="qjs-embedded-context"><Fingerprint size={14} aria-hidden="true" /><span><strong>私密工作区</strong><small>提示词和凭证不进入公开结果</small></span><em className={dirty ? 'is-dirty' : validation?.valid ? 'is-valid' : ''}>{validationError ? '检查失败' : dirty ? '未保存' : validation?.valid ? '结构有效' : '校验中'}</em></div> : <><div className="qjs-studio-title"><Workflow size={16} /><span><strong>STRATEGY STUDIO</strong><small>可视化策略与 AI 积木</small></span></div><nav><button className={tab === 'workflow' ? 'is-active' : ''} onClick={() => goTab('workflow')}><GitBranch size={13} />工作流</button><button className={tab === 'packages' ? 'is-active' : ''} onClick={loadPackages}><FileArchive size={13} />策略包</button><button className={tab === 'proof' ? 'is-active' : ''} onClick={() => goTab('proof')}><Fingerprint size={13} />ZKP 证明</button><button className={tab === 'sdk' ? 'is-active' : ''} onClick={() => goTab('sdk')}><Code2 size={13} />SDK 与格式</button></nav></>}
+      <details className="guided-save-settings" open={tab !== 'workflow' || undefined}><summary><Save size={14} />保存与私密账户设置</summary><form className="qjs-auth" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <input className="qjs-hidden-username" name="username" autoComplete="username" value={agentId} readOnly tabIndex={-1} aria-hidden="true" />
         <div className={`qjs-save-feedback ${saveNotice ? `is-${saveNotice.tone}` : ''}`} aria-live="polite">{saveNotice?.text ?? (agents.length ? '选择策略身份并输入凭证，再保存不可变修订' : '尚未创建策略身份')}</div>
         {agents.length ? <label className="qjs-agent-select"><span>策略身份</span><select name="agent-id" autoComplete="off" value={agentId} onChange={(event) => changeAgent(event.target.value)} aria-label="选择用于归属工作流的策略身份"><option value="">请选择</option>{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><ChevronDown size={12} aria-hidden="true" /></label> : <div className="qjs-agent-empty"><Bot size={14} /><span><strong>无策略身份</strong><small>用于关联私密版本与证明</small></span>{onOpenMarket ? <button type="button" onClick={onOpenMarket}>去创建</button> : null}</div>}
         <label className="qjs-token"><KeyRound size={12} aria-hidden="true" /><input name="developer-token" type="password" autoComplete="current-password" spellCheck={false} value={token} onChange={(event) => { clearPrivateSession(); setToken(event.target.value) }} placeholder="开发者凭证…" aria-label="开发者凭证" /></label>
-        <button className="qjs-save" type="submit" disabled={saving || !agentId || !token}><Save size={13} />{saving ? '保存中…' : dirty ? '保存修订' : '保存版本'}</button>
-      </form>
+        <button className="qjs-save" type="submit" disabled={saving}><Save size={13} />{saving ? '保存中…' : dirty ? '保存修订' : '保存版本'}</button>
+      </form></details>
     </header>
 
-    {tab === 'workflow' ? <div className="qjs-workflow-layout">
-      <section className="qjs-workflow-guide" aria-label="AI 工作流使用顺序">
-        <span><b>1</b><strong>选策略树干</strong><small>先确定数据、信号、风控与执行主线</small></span>
-        <span><b>2</b><strong>配置 AI 职责</strong><small>AI 只能建议、否决或在限额内调整</small></span>
-        <span><b>3</b><strong>绑定身份并保存</strong><small>生成可追溯的私密不可变修订</small></span>
-      </section>
-      <aside className="qjs-library">
-        <section><div className="qjs-side-title"><span>策略树干<em>TEMPLATES</em></span><small>替换当前草稿</small></div>{templates.map((template) => <button aria-label={`载入工作流模板 ${template.name}`} className={`qjs-template ${activeTemplateId === template.id ? 'is-active' : ''}`} disabled={saving} aria-pressed={activeTemplateId === template.id} key={template.id} onClick={() => dirty ? setPendingTemplate(template) : loadTemplate(template)}><span><strong>{template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={12} /> : <Play size={11} />}</button>)}</section>
-        <section><div className="qjs-side-title"><span>AI 职责<em>INSERT ROLE</em></span><small>按安全阶段插入</small></div>{spec?.ai_roles.map((role) => <button className="qjs-role" key={role.id} onClick={() => addAI(role.id)}><Bot size={13} /><span><strong>{role.label}</strong><small>{role.allowed_authority.map((item) => authorityLabels[item]).join(' / ')}</small></span><Plus size={11} /></button>)}</section>
-        <div className="qjs-safety-note"><LockKeyhole size={14} /><span><strong>硬风控不可被 AI 绕过</strong><small>无论模型权限多高，订单都必须经过确定性限额。</small></span></div>
-      </aside>
-
-      <main className="qjs-canvas">
-        <header><div><Field label="工作流 ID" hint="版本内唯一"><input name="workflow-id" autoComplete="off" spellCheck={false} value={workflow.id} onChange={(event) => patchWorkflow({ id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })} /></Field><Field label="工作流名称"><input name="workflow-name" autoComplete="off" value={workflow.name} onChange={(event) => patchWorkflow({ name: event.target.value })} /></Field></div><ValidationPanel validation={validation} /></header>
-        <div className="qjs-flow">
-          <div className="qjs-flow-summary"><span><strong>{ordered.length}</strong> 个节点</span><span><strong>{ordered.filter((node) => node.type === 'ai_guard').length}</strong> 个 AI 职责</span><span><ShieldCheck size={12} /><strong>{ordered.filter((node) => node.type === 'risk_gate').length}</strong> 道硬风控</span><code>数据 → 信号 → 仓位 → 风控 → 执行 → 证明</code></div>
-          {ordered.map((node, index) => <div className="qjs-flow-row" key={node.id}>
-            <button className={`qjs-node type-${node.type} ${selectedId === node.id ? 'is-selected' : ''}`} aria-pressed={selectedId === node.id} onClick={() => { setSelectedId(node.id); setRemoveArmed(false) }}>
-              <i>{node.type === 'ai_guard' ? <Bot size={15} /> : node.type === 'risk_gate' ? <ShieldCheck size={15} /> : node.type === 'strategy' ? <Braces size={15} /> : node.type === 'audit' ? <Fingerprint size={15} /> : <Box size={14} />}</i>
-              <span><em>{typeMeta[node.type]?.tag}</em><strong>{node.label}</strong><small>{typeMeta[node.type]?.hint}<code>#{node.id}</code></small></span>
-              {node.type === 'ai_guard' ? <b>{authorityLabels[node.config.authority as StudioAIAuthority]}</b> : null}
-              {node.type === 'risk_gate' ? <b className="locked"><LockKeyhole size={10} /> FINAL GATE</b> : null}
-              <SlidersHorizontal size={13} />
-            </button>
-            {index < ordered.length - 1 ? <div className="qjs-connector"><i /><ChevronDown size={12} /><code>{workflow.edges.find((edge) => edge.source === node.id)?.condition ?? 'PASS'}</code></div> : null}
-          </div>)}
-        </div>
-        <footer>{validation?.errors.map((error) => <span className="is-error" key={error}><X size={11} />{error}</span>)}{validation?.warnings.map((warning) => <span key={warning}><CircleAlert size={11} />{warning}</span>)}</footer>
-      </main>
-
-      <aside className="qjs-inspector">
-        {selected ? <><header><div><small>{typeMeta[selected.type]?.tag} · #{selected.id}</small><strong>{selected.label}</strong></div>{selected.type === 'ai_guard' ? <div className="qjs-inspector-actions">{removeArmed ? <button className="is-confirm" onClick={removeSelected}>确认删除</button> : null}<button aria-label={removeArmed ? '取消删除 AI 节点' : '删除 AI 节点'} onClick={() => setRemoveArmed((armed) => !armed)} title={removeArmed ? '取消删除' : '删除 AI 节点'}>{removeArmed ? <X size={14} /> : <Trash2 size={14} />}</button></div> : <ShieldCheck size={16} aria-label="受工作流校验保护" />}</header>
-          <section><div className="qjs-inspector-title">基础信息 <em>BASIC</em></div><Field label="节点名称"><input name="node-label" autoComplete="off" value={selected.label} onChange={(event) => patchSelected({ label: event.target.value })} /></Field><Field label="节点 ID" hint="版本内稳定"><input name="node-id" value={selected.id} disabled /></Field></section>
-          {selected.type === 'ai_guard' ? <><section><div className="qjs-inspector-title">AI 责任与权限 <em>RESPONSIBILITY</em></div><Field label="责任"><select name="ai-role" value={selected.config.role as string} onChange={(event) => { const role = event.target.value as StudioAIRole; const allowed = spec?.ai_roles.find((item) => item.id === role)?.allowed_authority ?? ['advisory']; patchSelected({}, { role, authority: allowed[0] }) }}>{spec?.ai_roles.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select></Field><Field label="权限边界"><select name="ai-authority" value={selected.config.authority as string} onChange={(event) => patchSelected({}, { authority: event.target.value })}>{allowedAuthority.map((item) => <option value={item} key={item}>{authorityLabels[item]}</option>)}</select></Field>{selected.config.authority === 'bounded_adjustment' ? <Field label="最大调整" hint="BPS"><input name="max-adjustment-bps" type="number" inputMode="numeric" min="1" max="2000" value={selected.config.max_adjustment_bps as number ?? 100} onChange={(event) => patchSelected({}, { max_adjustment_bps: Number(event.target.value) })} /></Field> : null}</section>
-            <section><div className="qjs-inspector-title">模型契约 <em>MODEL CONTRACT</em></div><Field label="Provider 引用" hint="不存密钥"><input name="provider-reference" autoComplete="off" spellCheck={false} value={selected.config.provider_ref as string} onChange={(event) => patchSelected({}, { provider_ref: event.target.value })} /></Field><Field label="超时" hint="ms"><input name="model-timeout" type="number" inputMode="numeric" min="100" max="60000" value={selected.config.timeout_ms as number} onChange={(event) => patchSelected({}, { timeout_ms: Number(event.target.value) })} /></Field><Field label="失败回退"><select name="on-model-error" value={selected.config.on_error as string} onChange={(event) => patchSelected({}, { on_error: event.target.value })}><option value="deny">拒绝交易（fail closed）</option><option value="use_baseline">使用基准策略输出</option><option value="skip">跳过本建议节点</option></select></Field><Field label="私密指令" hint="加密存储"><textarea name="private-instructions" autoComplete="off" value={selected.config.instructions as string ?? ''} onChange={(event) => patchSelected({}, { instructions: event.target.value })} /></Field></section></> : null}
-          {selected.type === 'strategy' ? <section><div className="qjs-inspector-title">私密制品 <em>PRIVATE ARTIFACT</em></div><Field label="绑定策略包" hint="按 content hash 锁定"><select name="strategy-package" value={workflow.package_id ?? ''} onChange={(event) => patchWorkflow({ package_id: event.target.value || null })}><option value="">尚未绑定</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}</select></Field><button className="qjs-inspector-action" onClick={loadPackages}><FileArchive size={12} />验证凭证并读取策略包</button><small className="qjs-help">运行与审计回执将同时锁定 package content hash 和 workflow graph hash。</small></section> : null}
-          {selected.type === 'risk_gate' ? <section className="qjs-risk-fields"><div className="qjs-inspector-title">确定性限额 <em>HARD LIMITS</em></div>{[
+    {tab === 'workflow' ? <GuidedWorkflow workflow={workflow} selectedId={selectedId} templates={templates} activeTemplateId={activeTemplateId} saving={saving}
+      availableRoles={spec?.ai_roles.map((role) => role.id) ?? []}
+      onTemplate={(template) => dirty ? setPendingTemplate(template) : loadTemplate(template)}
+      onSelect={(node) => { setSelectedId(node.id); setRemoveArmed(false) }} onAddAI={addAI}
+      onName={(name) => patchWorkflow({ name })} onEditRules={onEditRules}
+      validation={validationError ? <div className="guided-validation-error" role="alert"><strong>流程检查失败</strong><p>{validationError}</p><small>请修正配置后重试；修改任意字段会重新检查。</small></div> : <ValidationPanel validation={validation} />}
+      diagnostics={<div className="guided-diagnostics">{validation?.errors.map((error) => <p role="alert" key={error}>{error}</p>)}{validation?.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div>}
+      inspector={      <div className="guided-inspector">
+        {selected ? <><header><div><small>{selected.type === 'ai_guard' ? 'AI 积木 · 编排预览' : '步骤设置'}</small><strong>{selected.label}</strong></div>{selected.type === 'ai_guard' ? <div className="qjs-inspector-actions">{removeArmed ? <button className="is-confirm" onClick={removeSelected}>确认删除</button> : null}<button aria-label={removeArmed ? '取消删除 AI 节点' : '删除 AI 节点'} onClick={() => setRemoveArmed((armed) => !armed)} title={removeArmed ? '取消删除' : '删除 AI 节点'}>{removeArmed ? <X size={14} /> : <Trash2 size={14} />}</button></div> : <ShieldCheck size={16} aria-label="受工作流校验保护" />}</header>
+          <section><div className="qjs-inspector-title">命名这个积木</div><Field label="节点名称"><input name="node-label" autoComplete="off" value={selected.label} onChange={(event) => patchSelected({ label: event.target.value })} /></Field><details className="guided-advanced"><summary>高级设置</summary><Field label="节点 ID"><input name="node-id" value={selected.id} disabled /></Field><Field label="工作流 ID"><input value={workflow.id} onChange={(event) => patchWorkflow({ id: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })} /></Field></details></section>
+          {selected.type === 'ai_guard' ? <><section><div className="qjs-inspector-title">让 AI 做什么</div><Field label="责任"><select name="ai-role" value={selected.config.role as string} onChange={(event) => { const role = event.target.value as StudioAIRole; const allowed = spec?.ai_roles.find((item) => item.id === role)?.allowed_authority ?? ['advisory']; patchSelected({}, { role, authority: allowed[0] }) }}>{spec?.ai_roles.map((role) => <option value={role.id} key={role.id}>{role.label}</option>)}</select></Field><Field label="允许 AI 做到哪一步"><select name="ai-authority" value={selected.config.authority as string} onChange={(event) => patchSelected({}, { authority: event.target.value, ...(event.target.value === 'bounded_adjustment' ? { max_adjustment_bps: selected.config.max_adjustment_bps ?? 100 } : {}) })}>{allowedAuthority.map((item) => <option value={item} key={item}>{authorityLabels[item]}</option>)}</select></Field>{selected.config.authority === 'bounded_adjustment' ? <Field label="最大调整" hint="基点 · 100 = 1%"><input name="max-adjustment-bps" type="number" inputMode="numeric" min="1" max="2000" value={selected.config.max_adjustment_bps as number ?? 100} onChange={(event) => patchSelected({}, { max_adjustment_bps: Number(event.target.value) })} /></Field> : null}</section>
+            <section><div className="qjs-inspector-title">给 AI 的指令</div><Field label="私密指令" hint="加密存储"><textarea name="private-instructions" autoComplete="off" value={selected.config.instructions as string ?? ''} onChange={(event) => patchSelected({}, { instructions: event.target.value })} /></Field><p className="guided-field-help">描述要考虑的信息和判断标准。接入模型后，AI 将按这些指令输出建议。</p><details className="guided-advanced"><summary>模型与异常处理</summary><Field label="Provider 引用" hint="不存密钥"><input name="provider-reference" autoComplete="off" spellCheck={false} value={selected.config.provider_ref as string} onChange={(event) => patchSelected({}, { provider_ref: event.target.value })} /></Field><Field label="超时" hint="ms"><input name="model-timeout" type="number" inputMode="numeric" min="100" max="60000" value={selected.config.timeout_ms as number} onChange={(event) => patchSelected({}, { timeout_ms: Number(event.target.value) })} /></Field><Field label="失败回退"><select name="on-model-error" value={selected.config.on_error as string} onChange={(event) => patchSelected({}, { on_error: event.target.value })}><option value="deny">拒绝交易（fail closed）</option><option value="use_baseline">使用基准策略输出</option><option value="skip">跳过本建议节点</option></select></Field></details></section></> : null}
+          {selected.type === 'strategy' ? <section><div className="qjs-inspector-title">买入与卖出条件</div><p className="guided-field-help">通过指标和条件制定交易规则，不需要编写代码。规则编辑与回测在独立页面完成；当前画布只保存流程编排。</p>{onEditRules ? <button className="guided-primary" onClick={onEditRules}>打开交易规则</button> : null}<details className="guided-advanced"><summary>已有历史档案</summary><Field label="绑定策略包"><select value={workflow.package_id ?? ''} onChange={(event) => patchWorkflow({ package_id: event.target.value || null })}><option value="">尚未绑定</option>{packages.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}</select></Field><button className="qjs-inspector-action" onClick={loadPackages}>读取历史档案</button></details></section> : null}
+          {selected.type === 'market_data' ? <section><div className="qjs-inspector-title">行情口径</div><p className="guided-field-help">当前研究标的：{assetSymbol} · {interval}。标的与周期沿用行情工作区。</p><Field label="价格复权"><select value={selected.config.adjustment as string ?? 'auto'} onChange={(event) => patchSelected({}, { adjustment: event.target.value })}><option value="auto">自动处理</option><option value="none">不复权</option></select></Field></section> : null}
+          {selected.type === 'feature_engine' ? <section><div className="qjs-inspector-title">避免未来数据</div><p className="guided-field-help">判断只能使用当时已经出现的数据。具体指标在交易规则中配置。</p></section> : null}
+          {selected.type === 'position_sizer' ? <section><div className="qjs-inspector-title">资金分配</div><Field label="基础仓位方式"><select value={selected.config.method as string ?? 'volatility_target'} onChange={(event) => patchSelected({}, { method: event.target.value })}><option value="volatility_target">按波动率控制风险</option><option value="equal_weight">等权分配</option><option value="fixed">固定仓位</option></select></Field><p className="guided-field-help">此处配置流程意图；实际规则回测的目标仓位请在交易规则中设置。</p></section> : null}
+          {selected.type === 'risk_gate' ? <section className="qjs-risk-fields"><div className="qjs-inspector-title">交易必须遵守的限额</div>{[
             ['max_gross_exposure', '总暴露'], ['max_single_position', '单标的仓位'], ['max_daily_loss', '日损失'], ['max_drawdown', '回撤停机'], ['max_participation_rate', '成交参与率'],
-          ].map(([key, label]) => <Field label={label} hint="0–1" key={key}><input name={key} type="number" inputMode="decimal" min="0.0001" max="1" step="0.01" value={selected.config[key] as number} onChange={(event) => patchSelected({}, { [key]: Number(event.target.value) })} /></Field>)}</section> : null}
-          {selected.type === 'execution' ? <section><div className="qjs-inspector-title">执行模型 <em>EXECUTION</em></div><Field label="手续费率"><input name="execution-commission" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.commission as number ?? 0} onChange={(event) => patchSelected({}, { commission: Number(event.target.value) })} /></Field><Field label="滑点率"><input name="execution-slippage" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.slippage as number ?? 0} onChange={(event) => patchSelected({}, { slippage: Number(event.target.value) })} /></Field></section> : null}
-          <div className="qjs-node-contract"><Check size={12} /><span><strong>输出将被结构化校验</strong><small>运行时记录输入摘要、决策、回退与耗时。</small></span></div>
+          ].map(([key, label]) => <Field label={label} hint="%" key={key}><input name={key} type="number" inputMode="decimal" min="0.01" max="100" step="1" value={Number(((selected.config[key] as number) * 100).toFixed(4))} onChange={(event) => patchSelected({}, { [key]: Number(event.target.value) / 100 })} /></Field>)}</section> : null}
+          {selected.type === 'execution' ? <section><div className="qjs-inspector-title">计入真实交易成本</div><Field label="手续费率"><input name="execution-commission" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.commission as number ?? 0} onChange={(event) => patchSelected({}, { commission: Number(event.target.value) })} /></Field><Field label="滑点率"><input name="execution-slippage" type="number" inputMode="decimal" min="0" max="0.1" step="0.0001" value={selected.config.slippage as number ?? 0} onChange={(event) => patchSelected({}, { slippage: Number(event.target.value) })} /></Field></section> : null}
+          <div className="qjs-node-contract"><Check size={12} /><span><strong>配置会进行结构校验</strong><small>结构有效不代表策略盈利，也不代表 AI 已运行。</small></span></div>
         </> : null}
-      </aside>
-    </div> : null}
+      </div>} /> : null}
 
     {tab === 'packages' ? <div className="qjs-packages">
-      <header><div><strong>私密策略版本</strong><small>选择策略身份后读取或上传；切换身份会清空凭证和私密结果。</small></div><div className="lab-package-actions"><button disabled={loadingPackages} onClick={loadPackages}>{loadingPackages ? '读取中…' : '读取版本'}</button><button disabled={uploading} onClick={() => fileRef.current?.click()}><UploadCloud size={14} />{uploading ? '上传中…' : '选择 .qstrategy'}</button></div></header>
-      <aside className="qjs-package-boundary"><CircleAlert size={15} /><span><strong>上传策略≠自动生成 ZKP</strong><small>.qstrategy 会被结构校验、加密存储并生成内容哈希；只有符合已登记 zkVM profile 的有界确定性程序才能生成可验证证明。</small></span></aside>
-      <input ref={fileRef} hidden type="file" accept=".qstrategy,.zip" onChange={(event) => event.target.files?.[0] && upload(event.target.files[0])} />
-      <div className={`qjs-dropzone ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); const file = event.dataTransfer.files[0]; if (file) upload(file) }}><FileArchive size={27} /><strong>{uploading ? '正在进行结构、入口与安全校验…' : '拖入 .qstrategy 策略包'}</strong><span>最大 10 MB · 解压最大 50 MB · 禁止凭证、链接与可执行二进制</span></div>
-      <div className="qjs-package-list">{packages.map((item) => <article key={item.id}><span><PackageCheck size={18} /></span><div><strong>{item.name} <em>v{item.version}</em></strong><small>{item.strategy_key} · {item.language} · {item.file_count} files</small></div><code>{item.content_hash.slice(0, 12)}…</code><b><LockKeyhole size={11} /> PRIVATE</b><time>{new Date(item.created_at).toLocaleString('zh-CN')}</time>{item.warnings.length ? <p>{item.warnings.join(' · ')}</p> : null}</article>)}{!packages.length ? <div className="qjs-empty"><FileArchive size={24} />选择策略身份并输入凭证后读取，或上传第一个策略版本。</div> : null}</div>
+      <header><div><strong>历史策略档案</strong><small>仅查看已有档案。新策略请使用策略画布与交易规则创建。</small></div><button disabled={loadingPackages} onClick={loadPackages}>{loadingPackages ? '读取中…' : '读取策略包'}</button></header>
+      <div className="qjs-package-list">{packages.map((item) => <article key={item.id}><span><PackageCheck size={18} /></span><div><strong>{item.name} <em>v{item.version}</em></strong><small>{item.strategy_key} · {item.language} · {item.file_count} files</small></div><code>{item.content_hash.slice(0, 12)}…</code><b><LockKeyhole size={11} /> PRIVATE</b><time>{new Date(item.created_at).toLocaleString('zh-CN')}</time>{item.warnings.length ? <p>{item.warnings.join(' · ')}</p> : null}</article>)}{!packages.length ? <div className="qjs-empty"><FileArchive size={24} />选择 Agent 并输入凭证后读取已有档案。</div> : null}</div>
       <PrivateExecutionPanel key={`${agentId}:${token}`} agentId={agentId} token={token} packages={packages} datasetHash={zkDataset?.market_data_hash} onDataset={prepareDataset} preparing={proofBusy} />
     </div> : null}
 

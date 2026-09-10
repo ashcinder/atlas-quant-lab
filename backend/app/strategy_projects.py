@@ -84,6 +84,7 @@ class StrategyProjectStore:
                 """
                 CREATE TABLE IF NOT EXISTS strategy_projects (
                     id TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL DEFAULT 'local',
                     name TEXT NOT NULL,
                     thesis TEXT NOT NULL,
                     asset_symbol TEXT NOT NULL,
@@ -120,6 +121,18 @@ class StrategyProjectStore:
                 CREATE INDEX IF NOT EXISTS idx_strategy_projects_updated
                     ON strategy_projects(updated_at DESC);
                 """
+            )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(strategy_projects)")
+            }
+            if "owner_id" not in columns:
+                connection.execute(
+                    "ALTER TABLE strategy_projects ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_strategy_projects_owner_updated "
+                "ON strategy_projects(owner_id, updated_at DESC)"
             )
 
             columns = {
@@ -218,6 +231,7 @@ class StrategyProjectStore:
     @classmethod
     def _public(cls, row: sqlite3.Row) -> dict[str, Any]:
         payload = dict(row)
+        payload.pop("owner_id", None)
         payload["workflow_valid"] = bool(payload["workflow_valid"])
         payload["research_robust"] = bool(payload["research_robust"])
         payload["stage"] = cls._stage(payload)
@@ -245,17 +259,20 @@ class StrategyProjectStore:
             raise KeyError(project_id)
         return self._public(row)
 
-    def create(self, request: StrategyProjectCreate, owner_id: str = "local") -> dict[str, Any]:
+    def create(
+        self, request: StrategyProjectCreate, owner_id: str = "local"
+    ) -> dict[str, Any]:
         project_id = f"sp_{uuid4().hex[:18]}"
         now = utc_now().isoformat()
         with self._connect() as connection:
             connection.execute(
                 """INSERT INTO strategy_projects (
-                    id, name, thesis, asset_symbol, asset_class, interval, benchmark,
-                    objective, deployment_mode, created_at, updated_at, owner_id
+                    id, owner_id, name, thesis, asset_symbol, asset_class, interval, benchmark,
+                    objective, deployment_mode, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     project_id,
+                    owner_id,
                     request.name,
                     request.thesis,
                     request.asset_symbol,
@@ -279,7 +296,10 @@ class StrategyProjectStore:
             )
 
     def update(
-        self, project_id: str, request: StrategyProjectUpdate, owner_id: str = "local"
+        self,
+        project_id: str,
+        request: StrategyProjectUpdate,
+        owner_id: str = "local",
     ) -> dict[str, Any]:
         changes = request.model_dump(exclude_none=True, exclude={"expected_revision"})
         if not changes:
@@ -330,19 +350,39 @@ class StrategyProjectStore:
                     ]
                 )
             assignments.extend(["revision = revision + 1", "updated_at = ?"])
-            values.extend([utc_now().isoformat(), project_id])
+            values.extend([utc_now().isoformat(), project_id, owner_id])
             connection.execute(
-                f"UPDATE strategy_projects SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
+                f"UPDATE strategy_projects SET {', '.join(assignments)} "  # noqa: S608
+                "WHERE id = ? AND owner_id = ?",
                 values,
             )
         return self.get(project_id, owner_id)
+
+    @staticmethod
+    def _assert_developer_token(
+        connection: sqlite3.Connection, agent_id: str, developer_token: str | None
+    ) -> None:
+        if not developer_token:
+            raise PermissionError("缺少开发者凭证")
+        agent = connection.execute(
+            "SELECT developer_token_hash, is_demo FROM qj_agents WHERE id = ?",
+            (agent_id,),
+        ).fetchone()
+        if agent is None:
+            raise ProjectGateError("制品所属 Agent 不存在")
+        if agent["is_demo"]:
+            raise PermissionError("演示 Agent 为只读样本")
+        if not secrets.compare_digest(
+            agent["developer_token_hash"], sha256_hex(developer_token)
+        ):
+            raise PermissionError("开发者凭证无效")
 
     def _resolve_artifact(
         self,
         connection: sqlite3.Connection,
         project: sqlite3.Row,
         link: ProjectArtifactLink,
-        developer_token: str | None = None,
+        developer_token: str | None,
     ) -> dict[str, Any]:
         if project["owner_id"] != "local":
             if link.kind in {"strategy", "research"}:
@@ -386,11 +426,13 @@ class StrategyProjectStore:
             }
         if link.kind == "workflow":
             row = connection.execute(
-                "SELECT id, revision, graph_hash, validation_json FROM qj_workflows WHERE id = ?",
+                """SELECT id, agent_id, revision, graph_hash, validation_json
+                   FROM qj_workflows WHERE id = ?""",
                 (link.artifact_id,),
             ).fetchone()
             if row is None:
                 raise ProjectGateError("工作流不存在；请先使用开发者凭证保存工作流")
+            self._assert_developer_token(connection, row["agent_id"], developer_token)
             validation = json.loads(row["validation_json"])
             return {
                 "workflow_id": row["id"],
@@ -401,8 +443,9 @@ class StrategyProjectStore:
             }
         if link.kind == "research":
             row = connection.execute(
-                "SELECT id, request_json, result_json, status FROM research_jobs WHERE id = ?",
-                (link.artifact_id,),
+                """SELECT id, request_json, result_json, status FROM research_jobs
+                   WHERE id = ? AND owner_id = ?""",
+                (link.artifact_id, project["owner_id"]),
             ).fetchone()
             if row is None:
                 raise ProjectGateError("研究任务不存在")
@@ -479,12 +522,13 @@ class StrategyProjectStore:
             }
         if link.kind == "package":
             row = connection.execute(
-                """SELECT id, content_hash, manifest_hash, status
+                """SELECT id, agent_id, content_hash, manifest_hash, status
                    FROM qj_strategy_packages WHERE id = ?""",
                 (link.artifact_id,),
             ).fetchone()
             if row is None or row["status"] != "validated":
                 raise ProjectGateError("策略包不存在或未通过静态校验")
+            self._assert_developer_token(connection, row["agent_id"], developer_token)
             return {
                 "package_id": row["id"],
                 "package_content_hash": row["content_hash"],
@@ -536,15 +580,19 @@ class StrategyProjectStore:
                     ]
                 )
             assignments.extend(["revision = revision + 1", "updated_at = ?"])
-            values.extend([utc_now().isoformat(), project_id])
+            values.extend([utc_now().isoformat(), project_id, owner_id])
             connection.execute(
-                f"UPDATE strategy_projects SET {', '.join(assignments)} WHERE id = ?",  # noqa: S608
+                f"UPDATE strategy_projects SET {', '.join(assignments)} "  # noqa: S608
+                "WHERE id = ? AND owner_id = ?",
                 values,
             )
         return self.get(project_id, owner_id)
 
     def freeze(
-        self, project_id: str, request: ProjectFreezeRequest, owner_id: str = "local"
+        self,
+        project_id: str,
+        request: ProjectFreezeRequest,
+        owner_id: str = "local",
     ) -> dict[str, Any]:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -577,7 +625,8 @@ class StrategyProjectStore:
             commitment = sha256_hex(canonical_json(fingerprint))
             connection.execute(
                 """UPDATE strategy_projects SET version = ?, commitment = ?,
-                   revision = revision + 1, updated_at = ? WHERE id = ?""",
-                (request.version, commitment, utc_now().isoformat(), project_id),
+                   revision = revision + 1, updated_at = ?
+                   WHERE id = ? AND owner_id = ?""",
+                (request.version, commitment, utc_now().isoformat(), project_id, owner_id),
             )
         return self.get(project_id, owner_id)

@@ -1,3 +1,4 @@
+import { chartTheme } from '../theme'
 import { memo, useEffect, useRef } from 'react'
 import { ColorType, createChart, HistogramSeries, LineSeries, type UTCTimestamp } from 'lightweight-charts'
 import { formatNumber, formatPercent } from '../format'
@@ -12,18 +13,27 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     const container = canvasRef.current
     const wrap = wrapRef.current
     if (!container || !wrap || points.length === 0) return
+    const theme = chartTheme()
     const chart = createChart(container, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#111821' },
-        textColor: '#8b98a8',
-        panes: { separatorColor: '#253140', separatorHoverColor: '#39485b', enableResize: true },
+        background: { type: ColorType.Solid, color: theme.background },
+        textColor: theme.text, fontSize: 13,
+        panes: { separatorColor: theme.border, separatorHoverColor: theme.text, enableResize: true },
         attributionLogo: false,
       },
-      grid: { vertLines: { color: 'rgba(37,49,64,.35)' }, horzLines: { color: 'rgba(37,49,64,.45)' } },
-      rightPriceScale: { borderColor: '#253140' },
-      timeScale: { borderColor: '#253140', timeVisible: true },
+      grid: { vertLines: { color: theme.border }, horzLines: { color: theme.border } },
+      rightPriceScale: { borderColor: theme.border },
+      timeScale: { borderColor: theme.border, timeVisible: true },
     })
+    const updateTheme = () => {
+      const next = chartTheme()
+      chart.applyOptions({ layout: { background: { type: ColorType.Solid, color: next.background }, textColor: next.text,
+        panes: { separatorColor: next.border, separatorHoverColor: next.text } },
+        grid: { vertLines: { color: next.border }, horzLines: { color: next.border } },
+        rightPriceScale: { borderColor: next.border }, timeScale: { borderColor: next.border } })
+    }
+    window.addEventListener('atlas-theme-change', updateTheme)
     const equity = chart.addSeries(LineSeries, { color: '#22c7a9', lineWidth: 2, priceLineVisible: false }, 0)
     const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false }, 0)
     const drawdown = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'percent' } }, 1)
@@ -52,6 +62,7 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     return () => {
       resizeObserver.disconnect()
       container.removeEventListener('pointerup', syncCaptions)
+      window.removeEventListener('atlas-theme-change', updateTheme)
       chart.remove()
     }
   }, [points])

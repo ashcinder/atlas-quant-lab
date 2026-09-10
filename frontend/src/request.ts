@@ -41,10 +41,9 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
   if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
   headers.set('Accept', 'application/json')
   try {
-    const response = await fetch(`${API_ROOT}${path}`, { credentials: 'same-origin', ...options, headers, signal: controller.signal })
+    const response = await fetch(`${API_ROOT}${path}`, { credentials: 'include', ...options, headers, signal: controller.signal })
     if (!response.ok) {
-      // A bad developer token must not log out the valid account session.
-      if (response.status === 401 && !headers.has('X-Developer-Token')) window.dispatchEvent(new Event('atlas-session-expired'))
+      if (response.status === 401 && (!headers.has('X-Developer-Token') || response.headers.get('X-Atlas-Session-Required') === '1')) window.dispatchEvent(new Event('atlas-session-expired'))
       const body: unknown = await response.json().catch(() => null)
       throw new ApiError(errorDetail(body) ?? `服务请求失败（HTTP ${response.status}）。请稍后重试或查看系统状态。`, 'http', response.status)
     }

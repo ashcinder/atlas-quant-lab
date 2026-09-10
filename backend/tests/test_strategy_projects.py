@@ -13,6 +13,7 @@ from app.strategy_projects import (
     StrategyProjectUpdate,
 )
 from app.workspace import WorkspaceStore
+from app.quantjudge import sha256_hex
 
 
 def custom_strategy() -> CustomStrategySpec:
@@ -101,30 +102,34 @@ def seed_private_artifacts(path, strategy: CustomStrategySpec) -> None:
             """
             CREATE TABLE IF NOT EXISTS qj_workflows (
                 id TEXT PRIMARY KEY, revision INTEGER NOT NULL, graph_hash TEXT NOT NULL,
-                validation_json TEXT NOT NULL
+                validation_json TEXT NOT NULL, agent_id TEXT NOT NULL DEFAULT 'agent_1'
             );
             CREATE TABLE IF NOT EXISTS qj_strategy_packages (
                 id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, manifest_hash TEXT NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL, agent_id TEXT NOT NULL DEFAULT 'agent_1'
             );
             CREATE TABLE IF NOT EXISTS research_jobs (
                 id TEXT PRIMARY KEY, request_json TEXT NOT NULL, result_json TEXT,
-                status TEXT NOT NULL
+                status TEXT NOT NULL, owner_id TEXT NOT NULL DEFAULT 'local'
+            );
+            CREATE TABLE IF NOT EXISTS qj_agents (
+                id TEXT PRIMARY KEY, developer_token_hash TEXT NOT NULL, is_demo INTEGER NOT NULL
             );
             """
         )
         connection.execute(
-            "INSERT INTO qj_workflows VALUES (?, ?, ?, ?)",
+            "INSERT INTO qj_workflows (id, revision, graph_hash, validation_json) VALUES (?, ?, ?, ?)",
             ("workflow_1", 3, "a" * 64, json.dumps(validation)),
         )
         connection.execute(
-            "INSERT INTO qj_strategy_packages VALUES (?, ?, ?, ?)",
+            "INSERT INTO qj_strategy_packages (id, content_hash, manifest_hash, status) VALUES (?, ?, ?, ?)",
             ("package_1", "b" * 64, "c" * 64, "validated"),
         )
         connection.execute(
-            "INSERT INTO research_jobs VALUES (?, ?, ?, ?)",
+            "INSERT INTO research_jobs (id, request_json, result_json, status) VALUES (?, ?, ?, ?)",
             ("research_1", json.dumps(request), json.dumps(result), "completed"),
         )
+        connection.execute("INSERT INTO qj_agents VALUES (?, ?, ?)", ("agent_1", sha256_hex("test-developer"), 0))
         assert strategy.id
 
 
@@ -164,6 +169,7 @@ def test_project_binds_artifacts_enforces_revision_and_freezes(tmp_path):
         ProjectArtifactLink(
             expected_revision=project["revision"], kind="workflow", artifact_id="workflow_1"
         ),
+        developer_token="test-developer",
     )
     project = store.link_artifact(
         project["id"],

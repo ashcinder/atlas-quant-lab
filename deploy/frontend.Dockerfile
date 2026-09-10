@@ -1,10 +1,9 @@
 FROM node:24.20.0-bookworm-slim AS build
 WORKDIR /app
-RUN npm install --global pnpm@11.19.0
-COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN pnpm build
+RUN npm run build
 
 FROM nginx:1.28.3-alpine
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
