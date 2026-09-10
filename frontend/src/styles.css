@@ -337,7 +337,7 @@ body.is-resizing-layout { user-select: none; }
 :where(.quant-workspace) .qj-proof-rail { display: grid; grid-template-columns: 1fr; }
 :where(.quant-workspace) .qj-proof-rail > i { width: 1px; height: 8px; margin-left: 16px; background: var(--positive-soft); }
 :where(.quant-workspace) .qj-proof-node { min-height: 48px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--bg) 58%, transparent); display: grid; grid-template-columns: 32px minmax(0,1fr) auto; align-items: center; gap: 9px; }
-:where(.quant-workspace) .qj-proof-node > span { width: 30px; height: 30px; border-radius: 6px; background: var(--positive-soft); color: var(--muted); display: grid; place-items: center; }
+:where(.quant-workspace) .qj-proof-node > span { width: 30px; height: 30px; border-radius: 6px; background: var(--positive-soft); color: var(--positive); display: grid; place-items: center; }
 :where(.quant-workspace) .qj-proof-node > div { display: flex; flex-direction: column; gap: 3px; }
 :where(.quant-workspace) .qj-proof-node strong { color: var(--text); font-size: 9px; }
 :where(.quant-workspace) .qj-proof-node small { color: var(--muted); font-size: 7px; }

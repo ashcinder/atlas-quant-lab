@@ -137,6 +137,9 @@ input, select, textarea { color-scheme: inherit; }
 :where(.journal-root) [data-slot='dialog-overlay'] { background: var(--scrim); }
 :where(.journal-root) :is(.page-heading p, .panel-heading p, .stat-label, .stat-card p, .strategy-card p, .muted, .profile small) { color: var(--muted); }
 :where(.journal-root) :is(.sidebar nav button, .topbar, input, select, textarea) { font-size: 13px; }
+:where(.journal-root) :is(.nav-count, .unit-tag) { background: var(--panel-raised); border-color: var(--border-strong); color: var(--text); font-size: 11px; font-weight: 550; line-height: 1.35; }
+:where(.journal-root) :is(.return-tag, .entry-tag, .note-tag) { font-size: 11px; font-weight: 550; line-height: 1.35; }
+:where(.journal-root) :is(.currency-switch button, .segmented button) { font-size: 11px; }
 
 /* A quiet global shell and one primary task per workspace. */
 .atlas-header { gap: 20px; }

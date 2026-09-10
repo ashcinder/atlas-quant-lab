@@ -232,7 +232,7 @@
 }
 :where(.journal-root) .primary-button {
   background: var(--accent) !important;
-  color: var(--muted) !important;
+  color: var(--on-accent) !important;
   padding: 12px 19px !important;
   height: 42px !important;
   border-radius: 8px !important;
