@@ -135,19 +135,6 @@ class StrategyProjectStore:
                 "ON strategy_projects(owner_id, updated_at DESC)"
             )
 
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(strategy_projects)")
-            }
-            if "owner_id" not in columns:
-                connection.execute(
-                    "ALTER TABLE strategy_projects ADD COLUMN "
-                    "owner_id TEXT NOT NULL DEFAULT 'local'"
-                )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_strategy_projects_owner "
-                "ON strategy_projects(owner_id, updated_at DESC)"
-            )
-
     @staticmethod
     def _gate_state(row: sqlite3.Row | dict[str, Any]) -> list[dict[str, Any]]:
         values = dict(row)
@@ -283,7 +270,6 @@ class StrategyProjectStore:
                     request.deployment_mode,
                     now,
                     now,
-                    owner_id,
                 ),
             )
         return self.get(project_id, owner_id)
@@ -404,15 +390,16 @@ class StrategyProjectStore:
                     "SELECT developer_token_hash, is_demo FROM qj_agents WHERE id=?",
                     (owned["agent_id"],),
                 ).fetchone()
-                if (
-                    not developer_token
-                    or not agent
-                    or agent["is_demo"]
-                    or not secrets.compare_digest(
-                        agent["developer_token_hash"], sha256_hex(developer_token)
-                    )
+                if not agent:
+                    raise ProjectGateError("制品所属 Agent 不存在")
+                if not developer_token:
+                    raise PermissionError("绑定私密制品需要该 Agent 的开发者凭证")
+                if agent["is_demo"]:
+                    raise PermissionError("演示 Agent 为只读样本")
+                if not secrets.compare_digest(
+                    agent["developer_token_hash"], sha256_hex(developer_token)
                 ):
-                    raise ProjectGateError("绑定私密制品需要该 Agent 的有效开发者凭证")
+                    raise PermissionError("开发者凭证无效")
         if link.kind == "strategy":
             row = connection.execute(
                 "SELECT id, spec_json FROM custom_strategies WHERE id = ? AND owner_id = ?",

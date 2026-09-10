@@ -195,6 +195,9 @@ export const TradingChart = memo(function TradingChart({
     if (!container) return
     const chart = createChart(container, chartOptions(interval))
     const releaseTheme = bindChartTheme(chart)
+    let updateLineTheme = () => {}
+    const refreshLineTheme = () => updateLineTheme()
+    window.addEventListener('atlas-appearance-change', refreshLineTheme)
     let setMainData: (nextBars: Bar[]) => void
     let setMarkers: (markers: SeriesMarker<Time>[]) => void
 
@@ -349,6 +352,7 @@ export const TradingChart = memo(function TradingChart({
       chart.timeScale().unsubscribeVisibleTimeRangeChange(syncVisibleTime)
       chart.unsubscribeCrosshairMove(syncCrosshairTime)
       bindingRef.current = null
+      window.removeEventListener('atlas-appearance-change', refreshLineTheme)
       releaseTheme()
       chart.remove()
     }

@@ -1,4 +1,4 @@
-"""Exercise retired and supported uploads through the merged login middleware."""
+"""Exercise authenticated strategy and proof uploads through the merged middleware."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -32,20 +32,27 @@ def test_historical_package_created_in_store_remains_downloadable(owner):
     assert downloaded.content == content
 
 
-def test_package_upload_is_authenticated_then_rejected_without_store_write(owner, monkeypatch):
+def test_package_upload_is_authenticated_and_reaches_validated_store(owner, monkeypatch):
     client, agent_id, headers = owner
     endpoint = f"/api/v1/quantjudge/agents/{agent_id}/packages"
     files = {"file": ("merge.qstrategy", package_bytes())}
     writes = []
-    monkeypatch.setattr(main.strategy_studio_store, "upload_package", lambda *args: writes.append(args))
+    monkeypatch.setattr(
+        main.strategy_studio_store,
+        "upload_package",
+        lambda *args: writes.append(args) or {"id": "test-package"},
+    )
 
     with TestClient(main.app) as anonymous:
         assert anonymous.post(endpoint, headers=headers, files=files).status_code == 401
     assert client.post(endpoint, headers={**headers, "Origin": "https://other.example"}, files=files).status_code == 403
     response = client.post(endpoint, headers=headers, files=files)
-    assert response.status_code == 410
-    assert "图形化策略画布" in response.json()["detail"]
-    assert writes == []
+    assert response.status_code == 201
+    assert response.json() == {"id": "test-package"}
+    assert len(writes) == 1
+    assert writes[0][0] == agent_id
+    assert writes[0][1] == "merge.qstrategy"
+    assert writes[0][3] == headers["X-Developer-Token"]
 
 
 def test_uploads_keep_json_boundaries(owner):

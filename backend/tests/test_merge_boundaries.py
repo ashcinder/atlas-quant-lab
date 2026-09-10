@@ -86,7 +86,7 @@ def test_authenticated_multipart_upload_and_private_artifact_binding(accounts):
     ).json()
     link = {"expected_revision": 1, "kind": "package", "artifact_id": package["id"]}
     target = f"/api/v1/strategy-projects/{project['id']}/artifacts"
-    assert second.post(target, json=link).status_code == 422
+    assert second.post(target, json=link).status_code == 401
     assert second.post(target, json=link, headers=headers).status_code == 200
     # JSON-only middleware must not reject valid multipart before the verifier.
     response = first.post(

@@ -61,6 +61,7 @@ from app.strategy_projects import (
     StrategyProjectUpdate,
 )
 from app.strategy_studio import (
+    MAX_ARCHIVE_BYTES,
     StrategyPackageError,
     StrategyStudioStore,
     studio_spec,
@@ -78,9 +79,9 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
-from app.execution_api import execution_router
 from app.strategy_code_api import router as strategy_code_router
 from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
+from app.trading_api import router as trading_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -118,6 +119,7 @@ app.include_router(execution_router(strategy_studio_store, zk_proof_store))
 app.include_router(strategy_code_router)
 app.include_router(cloud_ai_router)
 app.include_router(exchange_account_router)
+app.include_router(trading_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -765,13 +767,24 @@ def list_quant_strategy_packages(
 
 @app.post(
     "/api/v1/quantjudge/agents/{agent_id}/packages",
-    status_code=status.HTTP_410_GONE,
+    status_code=status.HTTP_201_CREATED,
 )
-def upload_quant_strategy_package(agent_id: str):
-    raise HTTPException(
-        status_code=status.HTTP_410_GONE,
-        detail="策略代码上传已停用，请使用图形化策略画布创建和配置策略。",
-    )
+async def upload_quant_strategy_package(
+    agent_id: str,
+    file: UploadFile = File(...),
+    developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
+):
+    content = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        return strategy_studio_store.upload_package(
+            agent_id, file.filename or "strategy.qstrategy", content, developer_token
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Agent 不存在") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except StrategyPackageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/quantjudge/agents/{agent_id}/packages/{package_id}/download")

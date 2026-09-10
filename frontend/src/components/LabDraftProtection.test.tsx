@@ -219,7 +219,7 @@ describe('workflow drafts and private sessions', () => {
 
   it('clears credentials, loaded packages, and package bindings when changing Agent', async () => {
     const { rerender, onError } = await openStudio('packages')
-    fireEvent.click(screen.getByRole('button', { name: '读取版本' }))
+    fireEvent.click(screen.getByRole('button', { name: '读取策略包' }))
     await screen.findByText('A 私密策略包')
     rerender(<QuantStrategyStudio embedded activeTab="workflow" onError={onError} />)
     fireEvent.change(screen.getByRole('combobox', { name: /绑定策略包/ }), { target: { value: privatePackage.id } })
@@ -233,13 +233,13 @@ describe('workflow drafts and private sessions', () => {
     const request = deferred<StrategyPackageRecord[]>()
     vi.mocked(api.listStrategyPackages).mockReturnValue(request.promise)
     await openStudio('packages')
-    fireEvent.click(screen.getByRole('button', { name: '读取版本' }))
+    fireEvent.click(screen.getByRole('button', { name: '读取策略包' }))
     const agentSelect = screen.getByRole('combobox', { name: '选择用于归属工作流的策略身份' })
     fireEvent.change(agentSelect, { target: { value: 'agent-b' } })
     fireEvent.change(agentSelect, { target: { value: 'agent-a' } })
     await act(async () => request.resolve([privatePackage]))
     expect(screen.queryByText('A 私密策略包')).toBeNull()
-    expect((screen.getByRole('button', { name: '读取版本' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: '读取策略包' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('ignores a late workflow save from the previous Agent', async () => {

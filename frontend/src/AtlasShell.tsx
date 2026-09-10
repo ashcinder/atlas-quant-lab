@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
-import { useTheme, type ThemePreference } from './theme'
 
 const QuantWorkspace = lazy(() => import('./App'))
 const TradingWorkspace = lazy(() => import('./components/TradingWorkspace'))
@@ -12,6 +11,7 @@ const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? '
 
 export default function AtlasShell() {
   const switcher = useRef<HTMLDetailsElement>(null)
+  const sessionRequest = useRef(0)
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => { if (switcher.current && !switcher.current.contains(event.target as Node)) switcher.current.open = false }
     const closeEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && switcher.current?.open) { switcher.current.open = false; switcher.current.querySelector('summary')?.focus() } }
@@ -23,6 +23,13 @@ export default function AtlasShell() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [workspace, setWorkspace] = useState(workspaceFromHash)
+  const [quantHref, setQuantHref] = useState(() =>
+    workspaceFromHash() === 'quant' ? window.location.hash || '#single' : '#single',
+  )
+  const [visited, setVisited] = useState<Record<'quant' | 'trading' | 'journal', boolean>>(() => {
+    const initial = workspaceFromHash()
+    return { quant: initial === 'quant', trading: initial === 'trading', journal: initial === 'journal' }
+  })
   useEffect(() => { if (workspace === 'journal') document.title = '资产账本 · Atlas' }, [workspace])
   async function refreshSession() {
     const requestId = ++sessionRequest.current
@@ -47,8 +54,9 @@ export default function AtlasShell() {
     }
     const hash = () => {
       const next = workspaceFromHash()
+      if (next === 'quant') setQuantHref(window.location.hash || '#single')
       setWorkspace(next)
-      setVisited((current) => ({ ...current, [next]: true }))
+      setVisited((current) => current[next] ? current : { ...current, [next]: true })
     }
     window.addEventListener('atlas-session-expired', expire)
     window.addEventListener('hashchange', hash)
@@ -96,17 +104,18 @@ export default function AtlasShell() {
       <details ref={switcher} className="workspace-switcher"><summary><Wallet size={17} /><span>切换工作区</span><ChevronUp size={14} /></summary>
       <button className="workspace-switcher-close" onClick={() => { if (switcher.current) switcher.current.open = false }} aria-label="收起工作区切换"><X size={16} />收起</button>
       <nav className="atlas-workspaces" aria-label="主导航">
-        <a href="#single" aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
+        <a href={quantHref} aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
         <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />交易账户</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产账本</a>
       </nav>
-      <label className="atlas-theme"><span>主题</span><select aria-label="显示主题" value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
       </details>
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>
-      {workspace === 'trading' ? <TradingWorkspace /> : workspace === 'quant' ? <div className="quant-workspace"><QuantWorkspace /></div> : <div className="journal-root"><JournalWorkspace /><div id="journal-portals" /></div>}
+      {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant'}><QuantWorkspace /></div> : null}
+      {visited.trading ? <div hidden={workspace !== 'trading'}><TradingWorkspace /></div> : null}
+      {visited.journal ? <div className="journal-root" hidden={workspace !== 'journal'}><JournalWorkspace /><div id="journal-portals" /></div> : null}
     </Suspense>
   </div>
 }

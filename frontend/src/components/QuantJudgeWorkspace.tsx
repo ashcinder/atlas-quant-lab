@@ -6,7 +6,6 @@ import {
   Sparkles, UserRoundCheck, X, Zap,
 } from 'lucide-react'
 import { api } from '../api'
-import { userStorageKey } from '../storage'
 import type {
   QuantAgent, QuantCategory, QuantChainStatus, QuantJudgeOverview, QuantReport,
   QuantSubscription, QuantVerification,

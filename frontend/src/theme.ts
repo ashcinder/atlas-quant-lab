@@ -5,7 +5,7 @@ const storageKey = 'atlas:theme'
 
 export function readTheme(): ThemePreference {
   try {
-    const saved = localStorage.getItem(storageKey)
+    const saved = window.localStorage.getItem(storageKey)
     return saved === 'light' || saved === 'dark' ? saved : 'system'
   } catch { return 'system' }
 }
@@ -25,7 +25,7 @@ export function useTheme() {
     const update = () => applyTheme(theme, media.matches)
     update()
     media.addEventListener('change', update)
-    try { localStorage.setItem(storageKey, theme) } catch { /* Theme still works without storage. */ }
+    try { window.localStorage.setItem(storageKey, theme) } catch { /* Theme still works without storage. */ }
     return () => media.removeEventListener('change', update)
   }, [theme])
   useEffect(() => {

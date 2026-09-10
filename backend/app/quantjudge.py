@@ -880,7 +880,7 @@ class QuantJudgeStore:
                 (
                     subscription_id, owner_id, agent_id, request.investor_alias, request.billing_cycle,
                     amount, agent["price_currency"], status, payment_mode, request.payment_reference,
-                    started.isoformat(), expires.isoformat(), started.isoformat(), owner_id,
+                    started.isoformat(), expires.isoformat(), started.isoformat(),
                 ),
             )
         return self.get_subscription(subscription_id, owner_id)

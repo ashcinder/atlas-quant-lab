@@ -4,8 +4,19 @@ import { applyTheme, readTheme, useTheme, type ThemePreference } from './theme'
 
 let systemDark = false
 let listeners: Set<() => void>
+let values: Map<string, string>
 beforeEach(() => {
-  localStorage.clear()
+  values = new Map()
+  const storage: Storage = {
+    get length() { return values.size },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => { values.delete(key) },
+    setItem: (key, value) => { values.set(key, String(value)) },
+  }
+  Object.defineProperty(window, 'localStorage', { configurable: true, value: storage })
+  vi.stubGlobal('localStorage', storage)
   systemDark = false
   listeners = new Set()
   vi.stubGlobal('matchMedia', () => ({ get matches() { return systemDark },
@@ -36,18 +47,18 @@ it('follows system changes but preserves an explicit preference', () => {
   fireEvent.change(screen.getByLabelText('主题'), { target: { value: 'light' } })
   act(() => listeners.forEach((fn) => fn()))
   expect(document.documentElement.dataset.theme).toBe('light')
-  expect(localStorage.getItem('atlas:theme')).toBe('light')
+  expect(window.localStorage.getItem('atlas:theme')).toBe('light')
 })
 it('uses a safe default if storage is unavailable or invalid', () => {
-  localStorage.setItem('atlas:theme', 'invalid')
+  window.localStorage.setItem('atlas:theme', 'invalid')
   expect(readTheme()).toBe('system')
-  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
+  vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => { throw new Error('blocked') })
   expect(readTheme()).toBe('system')
 })
 it('removes its system listener on unmount and syncs another tab', () => {
   const { unmount } = render(<Control />)
   act(() => {
-    localStorage.setItem('atlas:theme', 'dark')
+    window.localStorage.setItem('atlas:theme', 'dark')
     window.dispatchEvent(new StorageEvent('storage', { key: 'atlas:theme' }))
   })
   expect(document.documentElement.dataset.theme).toBe('dark')
