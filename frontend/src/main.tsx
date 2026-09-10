@@ -6,6 +6,7 @@ import './workspace.css'
 import './operations.css'
 import './journal/styles/journal.css'
 import './shell.css'
+import './theme.css'
 import './terminal-density.css'
 import { applyAppearance } from './components/AppearanceSettings'
 

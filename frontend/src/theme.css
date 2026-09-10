@@ -48,7 +48,9 @@
   --shadow-raised: 0 16px 42px var(--shadow-color);
 }
 
-[data-theme='light'] {
+[data-theme='light'],
+[data-theme='white'],
+[data-theme='mist'] {
   color-scheme: light;
   --bg: #f4f7fb;
   --panel: #ffffff;
