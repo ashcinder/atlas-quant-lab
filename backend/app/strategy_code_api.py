@@ -4,11 +4,12 @@ import json
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.ai_runtime import LocalAIGuard
 from app.sandbox import RunnerUnavailable
+from app.cloud_ai import get_config, complete as cloud_complete
 
 MAX_PROMPT_CHARS = 4_000
 MAX_CODE_CHARS = 60_000
@@ -176,7 +177,13 @@ router = APIRouter(prefix="/api/v1/strategy-code", tags=["strategy-code"])
 
 
 @router.get("/capabilities")
-def capabilities():
+def capabilities(http_request: Request):
+    config = get_config(http_request)
+    if config:
+        return {"configured": True, "provider": config.provider, "model": config.model,
+                "language": "python", "languages": SUPPORTED_LANGUAGES,
+                "supports": ["generate", "edit", "explain"], "max_prompt_chars": MAX_PROMPT_CHARS,
+                "max_code_chars": MAX_CODE_CHARS, "code_execution": False}
     try:
         assistant = LocalCodeAssistant()
     except RunnerUnavailable:
@@ -205,7 +212,17 @@ def capabilities():
 
 
 @router.post("/assist", response_model=CodeAssistResponse)
-def assist(request: CodeAssistRequest):
+def assist(request: CodeAssistRequest, http_request: Request):
+    config = get_config(http_request)
+    if config:
+        content = cloud_complete(config, [
+            {"role": "system", "content": system_prompt_for(request.language) + "\nJSON schema: " + json.dumps(CodeAssistResponse.model_json_schema())},
+            {"role": "user", "content": json.dumps(request.model_dump(), ensure_ascii=False)},
+        ])
+        try:
+            return CodeAssistResponse.model_validate_json(content)
+        except ValidationError:
+            raise HTTPException(502, "模型返回格式无效") from None
     try:
         assistant = LocalCodeAssistant()
     except RunnerUnavailable as exc:

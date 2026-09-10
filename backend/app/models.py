@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.backtest.pipeline import ExecutionPipeline
 
 Interval = Literal["15m", "1h", "4h", "1d", "1wk"]
 Adjustment = Literal["auto", "raw", "forward", "backward"]
@@ -122,6 +123,7 @@ class BacktestRequest(BaseModel):
     stop_loss: float | None = Field(default=None, gt=0, lt=1)
     take_profit: float | None = Field(default=None, gt=0)
     persist: bool = True
+    execution_pipeline: ExecutionPipeline | None = None
 
     @field_validator("start", "end")
     @classmethod
@@ -355,6 +357,7 @@ class WalkForwardConfig(BaseModel):
 
 class ResearchRequest(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
+    execution_pipeline: ExecutionPipeline | None = None
 
     symbol: str
     asset_class: str
@@ -374,6 +377,8 @@ class ResearchRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_budget(self) -> "ResearchRequest":
+        if self.execution_pipeline and any(stage.enabled for stage in self.execution_pipeline.ai_stages):
+            raise ValueError("AI 审核目前用于单次回测；批量研究请关闭 AI，避免重复模型调用与不可复现的选参")
         total = 0
         for experiment in self.experiments:
             combinations = 1

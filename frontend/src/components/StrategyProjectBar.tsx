@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Check, ChevronDown, CircleAlert, FileCheck2, Fingerprint, FlaskConical,
-  FolderKanban, GitBranch, LockKeyhole, Pencil, Plus, ShieldCheck, X,
+  Check, ChevronDown, CircleAlert, FolderKanban, LockKeyhole, Pencil, Plus,
+  ShieldCheck, X,
 } from 'lucide-react'
 import type { Asset, Interval, StrategyProject, StrategyProjectCreate } from '../types'
 import type { StrategyLabTab } from './StrategyLabWorkspace'
@@ -116,20 +116,14 @@ export function StrategyProjectBar({
     <section className="strategy-project-bar">
       <div className="project-switcher">
         <FolderKanban size={14} aria-hidden="true" />
-        <span><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
+        <span><small>项目</small><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
         <button aria-label="新建策略项目" title="新建策略项目" onClick={() => openEditor('create')}><Plus size={12} /></button>
         {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={() => openEditor('edit')}><Pencil size={12} /></button> : null}
       </div>
       {project ? <>
-        <div className="project-thesis"><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><strong>{project.thesis}</strong><small>{project.asset_symbol} · {project.interval} · 对标 {project.benchmark} · 目标 {objectiveLabel[project.objective]}</small></div>
-        <div className="project-artifacts" aria-label="项目制品状态">
-          <span className={project.strategy_hash ? 'is-ready' : ''}><FileCheck2 size={12} /><small>策略</small></span>
-          <span className={project.workflow_valid ? 'is-ready' : ''}><GitBranch size={12} /><small>工作流</small></span>
-          <span className={project.research_robust ? 'is-ready' : ''}><FlaskConical size={12} /><small>验证</small></span>
-          <span className={project.commitment ? 'is-ready' : ''}><Fingerprint size={12} /><small>版本</small></span>
-        </div>
-        <button className="project-gate-button" onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong><small>{(project.next_gate ? `待完成：${project.next_gate.label}` : null) ?? '可发布'}</small></span><ChevronDown size={11} /></button>
-      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>尚未保存为项目</strong></span><button onClick={() => openEditor('create')}>创建策略项目</button></div>}
+        <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
+        <button className="project-gate-button" aria-label={`${passed}/${project.gates.length} 门禁，${project.next_gate ? `待完成：${project.next_gate.label}` : '可发布'}`} title={project.next_gate ? `待完成：${project.next_gate.label}` : '发布门禁已完成'} onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong></span><ChevronDown size={11} /></button>
+      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>未创建项目</strong></span><button aria-label="创建策略项目" onClick={() => openEditor('create')}>创建项目</button></div>}
     </section>
 
     {gateOpen && project ? <aside className="project-gate-popover">

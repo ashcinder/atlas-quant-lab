@@ -790,8 +790,8 @@ body.is-resizing-layout { user-select: none; }
 :where(.quant-workspace) .template-row button:first-child { display: flex; flex-direction: column; gap: 3px; }
 :where(.quant-workspace) .template-row button:hover { background: var(--panel); }
 :where(.quant-workspace) .template-row strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-:where(.quant-workspace) .template-row small { color: var(--muted); font: 7px var(--mono); }
-:where(.quant-workspace) .builder-canvas { min-width: 0; min-height: 0; overflow-y: auto; display: grid; grid-template-rows: 58px 1fr 45px; }
+:where(.quant-workspace) .template-row small { color: #647285; font: 7px var(--mono); }
+:where(.quant-workspace) .builder-canvas { min-width: 0; min-height: 0; overflow-y: auto; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
 :where(.quant-workspace) .builder-canvas > header { padding: 8px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: end; justify-content: space-between; }
 :where(.quant-workspace) .builder-canvas > header > div { display: flex; gap: 8px; }
 :where(.quant-workspace) .builder-canvas > header label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 7px; }
@@ -1365,7 +1365,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 :where(.quant-workspace) .template-row button { padding: 9px; }
 :where(.quant-workspace) .template-row strong { font-size: 10px; }
 :where(.quant-workspace) .template-row small { font-size: 8px; }
-:where(.quant-workspace) .builder-canvas { grid-template-rows: 66px 1fr 50px; }
+:where(.quant-workspace) .builder-canvas { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 :where(.quant-workspace) .builder-canvas > header label { font-size: 8px; }
 :where(.quant-workspace) .logic-block { border-radius: var(--radius-md); overflow: hidden; }
 :where(.quant-workspace) .logic-block > header > span { font-size: 10px; }

@@ -93,6 +93,7 @@ def _backtest_request(
     request: ResearchRequest, experiment: ResearchExperiment, params: dict[str, Any]
 ) -> BacktestRequest:
     return BacktestRequest(
+        execution_pipeline=request.execution_pipeline,
         symbol=request.symbol,
         asset_class=request.asset_class,
         interval=request.interval,

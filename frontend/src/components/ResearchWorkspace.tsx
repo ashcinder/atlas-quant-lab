@@ -4,6 +4,7 @@ import { Beaker, Check, FlaskConical, LoaderCircle, Play, Plus, Save, ShieldChec
 import { api } from '../api'
 import { formatNumber, formatPercent } from '../format'
 import { LabConfirmDialog } from './LabConfirmDialog'
+import type { ExecutionPipeline } from './ExecutionPipelinePanel'
 import type {
   Asset,
   BacktestResult,
@@ -19,6 +20,7 @@ import type {
 } from '../types'
 
 export interface ResearchWorkspaceProps {
+  executionPipeline?: ExecutionPipeline
   asset: Asset | null
   strategies: Strategy[]
   interval: Interval
@@ -291,6 +293,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
     props.onLoading(true)
     try {
       const created = await api.createResearchJob({
+        execution_pipeline: props.executionPipeline,
         symbol: props.asset.symbol, asset_class: props.asset.asset_class,
         interval: props.interval, data_source: props.source, adjustment: 'auto', objective,
         holdout_ratio: holdout,
@@ -363,6 +366,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
     props.onLoading(true)
     try {
       const result = await api.runBacktest({
+        execution_pipeline: props.executionPipeline,
         symbol: props.asset.symbol, asset_class: props.asset.asset_class, interval: props.interval,
         data_source: props.source, strategy_id: buildSpec().id, custom_strategy: buildSpec(), params: {},
         initial_capital: props.initialCapital, commission_rate: props.commission,
@@ -411,19 +415,22 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         {job?.result ? <><ValidationRibbon result={job.result} /><div className="research-summary"><div><small>平均 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.average_oos_sharpe ?? 0))}</strong></div><div><small>最差 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.worst_oos_sharpe ?? 0))}</strong></div><div><small>盈利窗口比例</small><strong>{metricText(Number(job.result.summary.profitable_window_ratio ?? 0), true)}</strong></div></div><div className="research-table-wrap"><table className="research-table"><thead><tr><th>#</th><th>策略 / 胜出参数</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS收益</th><th>OOS回撤</th><th>修正p值</th><th>稳健分</th></tr></thead><tbody>{bestCandidates.map((candidate) => <tr key={`${candidate.strategy_id}-${candidate.rank}`}><td>{candidate.rank}</td><td><strong>{props.strategies.find((item) => item.id === candidate.strategy_id)?.name ?? templates.find((item) => item.id === candidate.strategy_id)?.spec.name ?? candidate.strategy_id}</strong><small>{Object.entries(candidate.params).map(([key, value]) => `${key}=${value}`).join(' · ') || '固定规则版本'}</small>{candidate.warnings.length ? <em title={candidate.warnings.join('\n')}>{candidate.warnings.length}项风险</em> : <em className="pass"><Check size={10} />无硬性警告</em>}</td><td>{metricText(metric(candidate.train_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'total_return'), true)}</td><td>{metricText(metric(candidate.test_metrics, 'max_drawdown'), true)}</td><td>{metricText(candidate.adjusted_p_value)}</td><td><b>{candidate.robustness_score.toFixed(0)}</b></td></tr>)}</tbody></table></div>{heatmapKeys.length >= 2 && heatmapCandidates.length ? <section className="parameter-map"><header><strong>训练集参数地形</strong><small>颜色只表示 IS {objective}，不代表样本外结论</small></header><div className="heat-grid">{heatmapCandidates.map((candidate, index) => { const value = candidate.objective_train ?? heatMin; const intensity = (value - heatMin) / Math.max(heatMax - heatMin, 1e-9); return <div key={index} style={{ '--heat': intensity } as React.CSSProperties}><span>{heatmapKeys.map((key) => `${key} ${candidate.params[key]}`).join(' / ')}</span><strong>{metricText(value)}</strong></div> })}</div></section> : null}</> : <div className="research-empty"><FlaskConical size={28} /><strong>让策略离开样本内</strong><span>选择策略和参数网格，Atlas 会完成留出测试、多重测试修正与 Walk-forward 滚动验证。</span></div>}
       </section>
     </div> : <div className="builder-layout">
-      <aside className="builder-library"><h3>已保存的规则</h3>
+      <aside className="builder-library"><details><summary>已保存的规则</summary>
         {templateLoadError ? <div className="lab-inline-error" role="alert"><strong>无法读取模板库</strong><span>{templateLoadError}</span><button onClick={() => void loadTemplates()}>重试读取</button></div> : null}
         {templates.length ? templates.map((record) => <div className="template-row" key={record.id}>
           <button aria-label={`载入模板 ${record.spec.name}`} disabled={saving} onClick={() => builderDirty ? setPendingTemplate(record) : loadTemplate(record)}><strong>{record.spec.name}</strong><small>{record.id}</small></button>
           <button disabled={saving} aria-label={`删除模板 ${record.spec.name}`} onClick={() => setPendingDelete(record)}><Trash2 size={12} /></button>
         </div>) : !templateLoadError ? <p>保存第一套规则后，可在这里重新载入。草稿只保留在当前页面内存中。</p> : null}
-      </aside>
+      </details></aside>
       <section className="builder-canvas">
-        <div className="builder-status-stack">
+        <div className="builder-status-area">
           <div className={`lab-draft-status ${builderDirty ? 'is-dirty' : ''}`}><strong>{builderDirty ? '规则草稿 · 未保存' : '规则编辑器'}</strong><span>切换实验室步骤会保留草稿；刷新或关闭页面前请保存。</span></div>
-          {builderNotice ? <div className={`lab-draft-status is-${builderNotice.tone}`} role={builderNotice.tone === 'error' ? 'alert' : 'status'}>{builderNotice.text}</div> : null}
+          {builderNotice ? <div className={`lab-builder-feedback is-${builderNotice.tone}`} role={builderNotice.tone === 'error' ? 'alert' : 'status'}>
+            <span>{builderNotice.tone === 'success' ? <Check size={13} /> : builderNotice.tone === 'error' ? <X size={13} /> : <Beaker size={13} />}{builderNotice.text}</span>
+            <button type="button" aria-label="关闭规则编辑器提示" title="关闭提示" onClick={() => setBuilderNotice(null)}><X size={13} /></button>
+          </div> : null}
         </div>
-        <header><div><label><span>策略名称</span><input value={builderName} onChange={(event) => { markBuilderEdited(); setBuilderName(event.target.value) }} /></label><label><span>策略 ID</span><input value={builderId} onChange={(event) => { markBuilderEdited(); setBuilderId(event.target.value) }} /></label></div><label className="target-position"><span>目标仓位</span><span className="target-position-control"><input aria-label="目标仓位百分比" type="number" min={1} max={100} value={Math.round(targetPosition * 100)} onChange={(event) => { markBuilderEdited(); setTargetPosition(Number(event.target.value) / 100) }} /><em>%</em></span></label></header>
+        <header><div><label><span>策略名称</span><input value={builderName} onChange={(event) => { markBuilderEdited(); setBuilderName(event.target.value) }} /></label><label><span>策略 ID</span><input value={builderId} onChange={(event) => { markBuilderEdited(); setBuilderId(event.target.value) }} /></label></div><label className="target-position"><span>目标仓位</span><input type="number" min={1} max={100} value={Math.round(targetPosition * 100)} onChange={(event) => { markBuilderEdited(); setTargetPosition(Number(event.target.value) / 100) }} /><em>%</em></label></header>
         <div className="logic-flow">
           <section className="logic-block entry"><header><span><i />ENTRY 入场条件</span><select aria-label="入场条件组合" value={entryMode} onChange={(event) => { markBuilderEdited(); setEntryMode(event.target.value as 'all' | 'any') }}><option value="all">全部满足 AND</option><option value="any">任一满足 OR</option></select></header>{entryRules.map((row) => <RuleRow key={row.id} row={row} onChange={(next) => updateRule('entry', row.id, next)} onDelete={() => deleteRule('entry', row.id)} />)}<button className="add-rule" onClick={() => addRule('entry')}><Plus size={12} />添加入场条件</button></section>
           <div className="logic-connector"><i /><span>持有</span><i /></div>

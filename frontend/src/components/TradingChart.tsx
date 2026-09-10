@@ -17,6 +17,7 @@ import {
 } from 'lightweight-charts'
 import type { Bar, IndicatorPoint, Interval, Trade } from '../types'
 import { formatNumber } from '../format'
+import { bindChartTheme } from '../chartTheme'
 
 interface Props {
   bars: Bar[]
@@ -193,9 +194,7 @@ export const TradingChart = memo(function TradingChart({
     const container = containerRef.current
     if (!container) return
     const chart = createChart(container, chartOptions(interval))
-    let updateLineTheme = () => {}
-    const updateTheme = () => { chart.applyOptions(chartOptions(interval)); updateLineTheme() }
-    window.addEventListener('atlas-theme-change', updateTheme)
+    const releaseTheme = bindChartTheme(chart)
     let setMainData: (nextBars: Bar[]) => void
     let setMarkers: (markers: SeriesMarker<Time>[]) => void
 
@@ -350,7 +349,7 @@ export const TradingChart = memo(function TradingChart({
       chart.timeScale().unsubscribeVisibleTimeRangeChange(syncVisibleTime)
       chart.unsubscribeCrosshairMove(syncCrosshairTime)
       bindingRef.current = null
-      window.removeEventListener('atlas-theme-change', updateTheme)
+      releaseTheme()
       chart.remove()
     }
   }, [bindingKey, chartType, interval, showMacd, showVolume, visibleIndicators])

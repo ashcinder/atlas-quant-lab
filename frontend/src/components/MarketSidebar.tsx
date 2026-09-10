@@ -36,7 +36,7 @@ export const MarketSidebar = memo(function MarketSidebar({ assets, selectedSymbo
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="代码、名称或类别" />
       </label>
       <div className="asset-list">
-        {results.map((asset) => {
+        {[...new Set(results.map(asset => asset.asset_class))].map(group => <details className="asset-group" key={group} open><summary>{{ crypto: '加密货币', equity: '股票', stock: '股票', etf: 'ETF / 基金', commodity: '大宗商品', forex: '外汇', index: '指数' }[group] ?? group}</summary>{results.filter(asset => asset.asset_class === group).map((asset) => {
           const active = asset.symbol === selectedSymbol
           return (
             <button
@@ -52,7 +52,7 @@ export const MarketSidebar = memo(function MarketSidebar({ assets, selectedSymbo
               <span className="asset-exchange">{asset.exchange}</span>
             </button>
           )
-        })}
+        })}</details>)}
         {results.length === 0 ? <div className="empty-inline">没有匹配标的</div> : null}
       </div>
     </aside>

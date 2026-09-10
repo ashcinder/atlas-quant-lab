@@ -1,5 +1,5 @@
-import { Activity, lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { ChartCandlestick, Wallet, LogOut, LoaderCircle } from 'lucide-react'
+import { lazy, Suspense, useEffect, useState, useRef } from 'react'
+import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
 import { useTheme, type ThemePreference } from './theme'
@@ -11,7 +11,14 @@ type Session = { authenticated: boolean; registrationEnabled: boolean; email: st
 const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
 
 export default function AtlasShell() {
-  const [theme, setTheme] = useTheme()
+  const switcher = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => { if (switcher.current && !switcher.current.contains(event.target as Node)) switcher.current.open = false }
+    const closeEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && switcher.current?.open) { switcher.current.open = false; switcher.current.querySelector('summary')?.focus() } }
+    const closeNavigation = () => { if (switcher.current) switcher.current.open = false }
+    document.addEventListener('pointerdown', closeOutside); document.addEventListener('keydown', closeEscape); window.addEventListener('hashchange', closeNavigation)
+    return () => { document.removeEventListener('pointerdown', closeOutside); document.removeEventListener('keydown', closeEscape); window.removeEventListener('hashchange', closeNavigation) }
+  }, [])
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -86,7 +93,8 @@ export default function AtlasShell() {
   if (!session.authenticated) return <div className="journal-root atlas-auth"><LoginScreen busy={busy} error={error} registrationEnabled={session.registrationEnabled} onAuthenticate={authenticate} /></div>
   return <div className="atlas-shell" key={session.userId ?? session.email}>
     <header className="atlas-header">
-      <a className="atlas-brand" href="#single"><ChartCandlestick size={23} /><strong>Atlas <span>Quant Lab</span></strong></a>
+      <details ref={switcher} className="workspace-switcher"><summary><Wallet size={17} /><span>切换工作区</span><ChevronUp size={14} /></summary>
+      <button className="workspace-switcher-close" onClick={() => { if (switcher.current) switcher.current.open = false }} aria-label="收起工作区切换"><X size={16} />收起</button>
       <nav className="atlas-workspaces" aria-label="主导航">
         <a href="#single" aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
         <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />交易账户</a>
@@ -94,6 +102,7 @@ export default function AtlasShell() {
       </nav>
       <label className="atlas-theme"><span>主题</span><select aria-label="显示主题" value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
       <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
+      </details>
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>

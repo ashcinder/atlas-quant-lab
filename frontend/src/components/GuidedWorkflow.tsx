@@ -44,19 +44,12 @@ export function GuidedWorkflow({ workflow, selectedId, templates, activeTemplate
   }
   const aiCount = workflow.nodes.filter((node) => node.type === 'ai_guard').length
   return <div className="guided-studio">
-    <div className="guided-heading">
-      <div><h1>搭建你的交易逻辑</h1></div>
-      <div className="guided-mode"><Bot size={16} /><span>AI 编排<small>可保存，尚未执行</small></span></div>
-    </div>
-    <div className="guided-start">
-      <label><span>工作流名称</span><input aria-label="工作流名称" value={workflow.name} onChange={(event) => onName(event.target.value)} /></label>
-      <details className="guided-templates"><summary>选择起步模板 <ChevronRight size={14} /></summary><div>{templates.map((template) => <button key={template.id} aria-label={`载入工作流模板 ${template.name}`} aria-pressed={activeTemplateId === template.id} disabled={saving} onClick={() => onTemplate(template)}><span><strong>{template.name === '专业基线树干' ? '基础交易流程' : template.name === 'AI 风险官树干' ? '带 AI 风控的流程' : template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={16} /> : <ArrowRight size={16} />}</button>)}</div></details>
-      {aiCount > 0 && <div className="guided-count">已加入 {aiCount} 个 AI 积木</div>}
-    </div>
-    <nav className="guided-outline" aria-label="交易步骤">{stages.map((stage, index) => <button key={stage.title} onClick={() => canvasRef.current?.querySelectorAll('li')[index]?.scrollIntoView?.({ block: 'start' })}><span>{index + 1}</span>{stage.title}</button>)}</nav>
     <div className="guided-workbench">
       <section ref={canvasRef} className="guided-canvas" aria-label="引导式策略画布">
-        <div className="guided-canvas-caption"><span>交易流程</span><span>点击积木配置 <ChevronRight size={13} /></span></div>
+    <header className="guided-document-header">
+      <div className="guided-document-identity"><label><span>交易流程</span><input aria-label="工作流名称" title="点击修改工作流名称" value={workflow.name} onChange={(event) => onName(event.target.value)} /></label><p>选择下方步骤进行配置{aiCount > 0 ? ` · ${aiCount} 个 AI 积木` : ''}</p></div>
+      <details className="guided-templates"><summary>选择起步模板 <ChevronRight size={14} /></summary><div>{templates.map((template) => <button key={template.id} aria-label={`载入工作流模板 ${template.name}`} aria-pressed={activeTemplateId === template.id} disabled={saving} onClick={() => onTemplate(template)}><span><strong>{template.name === '专业基线树干' ? '基础交易流程' : template.name === 'AI 风险官树干' ? '带 AI 风控的流程' : template.name}</strong><small>{template.description}</small></span>{activeTemplateId === template.id ? <Check size={16} /> : <ArrowRight size={16} />}</button>)}</div></details>
+    </header>
         <ol className="guided-stages">{stages.map((stage, index) => {
           const Icon = stage.icon
           const nodes = workflow.nodes.filter((node) => stage.types.includes(node.type))
