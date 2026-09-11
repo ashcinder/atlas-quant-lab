@@ -1,0 +1,14 @@
+{
+  "kind": "real_market_platform_simulation_not_exchange_fill",
+  "run_id": "run_de9cff7d496c4dafac",
+  "status": "active",
+  "source": "binance",
+  "symbol": "BTC-USDT",
+  "quantity": "0.00000000",
+  "cash": "200.00000000",
+  "equity": "200.00000000",
+  "return_rate": "0.00000000",
+  "fills": [],
+  "execution_not_before": "1789134549.616716",
+  "note": "Initial mid-bar fill was invalidated and archived locally; this replacement waits for a full eligible bar."
+}

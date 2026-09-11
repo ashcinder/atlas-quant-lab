@@ -88,6 +88,7 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     release_id: str
     subscription_id: str | None = None
+    demo_auto: bool = False
     account_id: str | None = None
     market: Market
     environment: Environment = "platform_sim"
@@ -103,6 +104,8 @@ class RunCreate(BaseModel):
 
     @model_validator(mode="after")
     def supported_market_rules(self):
+        if self.demo_auto and self.environment != "exchange_test":
+            raise ValueError("自动执行仅支持交易所测试账户")
         if self.market == "CN" and self.interval not in {"1d", "1wk"}:
             raise ValueError("A 股模拟第一版仅支持日线或周线，以保证 T+1 可卖规则")
         return self
@@ -237,6 +240,8 @@ class StrategyRuntimeStore:
                 ("take_profit", "0"),
                 ("exit_pending", "0"),
                 ("needs_reanchor", "0"),
+                ("demo_auto", "0"),
+                ("execution_not_before", "0"),
             ):
                 if name not in columns:
                     connection.execute(
@@ -465,41 +470,35 @@ class StrategyRuntimeStore:
                         _iso(),
                     ),
                 )
-            if owner == os.getenv("ATLAS_TRADING_OWNER_ID"):
-                for venue in ("BINANCE", "OKX"):
-                    prefix = f"ATLAS_{venue}_"
-                    configured = bool(
-                        os.getenv(prefix + "API_KEY")
-                        and os.getenv(prefix + "API_SECRET")
-                        and (venue != "OKX" or os.getenv(prefix + "PASSPHRASE"))
-                    )
-                    if not configured:
-                        continue
-                    mode = os.getenv(prefix + "MODE", "demo")
-                    environment = "live" if mode == "live" else "exchange_test"
-                    from app.trading import Exchange
+            from app.trading import Exchange
 
-                    fingerprint = Exchange(venue.lower()).fingerprint()
-                    account_id = hashlib.sha256(
-                        f"{owner}:{venue}:{mode}:{fingerprint}".encode()
-                    ).hexdigest()[:18]
-                    connection.execute(
-                        "INSERT OR IGNORE INTO strategy_accounts VALUES (?,?,?,?,?,?,?)",
-                        (
-                            f"exchange_{account_id}",
-                            owner,
-                            f"{venue.title()} {'实盘' if mode == 'live' else '测试'}账户 "
-                            f"· {account_id[:6]}",
-                            "CRYPTO",
-                            environment,
-                            "USDT",
-                            _iso(),
-                        ),
-                    )
-                    connection.execute(
-                        "INSERT OR IGNORE INTO strategy_account_bindings VALUES (?,?)",
-                        (f"exchange_{account_id}", fingerprint),
-                    )
+            for venue in ("BINANCE", "OKX"):
+                exchange = Exchange(venue.lower(), owner=owner)
+                if not exchange.configured:
+                    continue
+                mode = exchange.mode
+                environment = "live" if mode == "live" else "exchange_test"
+                fingerprint = exchange.fingerprint()
+                account_id = hashlib.sha256(
+                    f"{owner}:{venue}:{mode}:{fingerprint}".encode()
+                ).hexdigest()[:18]
+                connection.execute(
+                    "INSERT OR IGNORE INTO strategy_accounts VALUES (?,?,?,?,?,?,?)",
+                    (
+                        f"exchange_{account_id}",
+                        owner,
+                        f"{venue.title()} {'实盘' if mode == 'live' else '测试'}账户 "
+                        f"· {account_id[:6]}",
+                        "CRYPTO",
+                        environment,
+                        "USDT",
+                        _iso(),
+                    ),
+                )
+                connection.execute(
+                    "INSERT OR IGNORE INTO strategy_account_bindings VALUES (?,?)",
+                    (f"exchange_{account_id}", fingerprint),
+                )
 
     def manual_accounts(self, owner: str):
         with self._connect() as connection:
@@ -561,14 +560,22 @@ class StrategyRuntimeStore:
             raise HTTPException(404, "账户不存在")
         if account["environment"] == "platform_sim":
             raise HTTPException(422, "平台模拟账户无需交易所同步")
-        if owner != os.getenv("ATLAS_TRADING_OWNER_ID"):
-            raise HTTPException(403, "当前用户未绑定交易所账户")
         venue = "okx" if account["name"].lower().startswith("okx") else "binance"
-        exchange = Exchange(venue)
+        exchange = Exchange(venue, owner=owner)
         if account["fingerprint"] != exchange.fingerprint():
             raise HTTPException(409, "账户凭据已变化，请切回原账户")
         balances = exchange.account()
-        # Persist raw native units only; unknown differences are not deposits or PnL.
+        prices = {"USDT": Decimal("1")}
+        if any(
+            item["asset"] != "USDT"
+            and _decimal(item["available"]) + _decimal(item["locked"] or "0") != 0
+            for item in balances
+        ):
+            try:
+                prices.update(exchange.spot_prices())
+            except HTTPException:
+                pass  # Preserve quantities; incomplete valuations never become zero.
+        # Save raw units and a timestamped valuation, never infer deposits or PnL.
         clean = []
         for item in balances:
             available = _decimal(item["available"])
@@ -579,6 +586,11 @@ class StrategyRuntimeStore:
                     "available": format(available, "f"),
                     "locked": format(locked, "f"),
                     "total": format(available + locked, "f"),
+                    "value_usdt": format((available + locked) * prices[item["asset"]], "f")
+                    if item["asset"] in prices
+                    else "0"
+                    if available + locked == 0
+                    else None,
                 }
             )
         with self._connect() as connection:
@@ -586,6 +598,33 @@ class StrategyRuntimeStore:
                 "INSERT OR REPLACE INTO strategy_account_snapshots VALUES (?,?,?,?,?,?)",
                 (identifier, owner, json.dumps(clean), "synced", None, _iso()),
             )
+            # Mark all attributed strategy holdings using the same venue snapshot
+            # as the account total, rather than treating fill prices as current prices.
+            for run in connection.execute(
+                "SELECT id,symbol,cash,quantity,initial_cash FROM strategy_runs "
+                "WHERE owner_id=? AND account_id=?",
+                (owner, identifier),
+            ).fetchall():
+                mark = prices.get(run["symbol"].split("-")[0])
+                if mark is None:
+                    continue
+                cash = _decimal(run["cash"])
+                position = _decimal(run["quantity"]) * mark
+                initial = _decimal(run["initial_cash"])
+                connection.execute(
+                    "INSERT OR REPLACE INTO strategy_equity VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        run["id"],
+                        owner,
+                        int(_now().timestamp()),
+                        _text(cash + position),
+                        _text(cash),
+                        _text(position),
+                        _text(mark),
+                        _text((cash + position - initial) / initial),
+                        _iso(),
+                    ),
+                )
         return self.account_assets(owner, identifier)
 
     def account_assets(self, owner: str, identifier: str):
@@ -624,8 +663,21 @@ class StrategyRuntimeStore:
             item["unattributed_quantity"] = format(max(difference, Decimal("0")), "f")
             item["reconciliation_shortfall"] = format(min(difference, Decimal("0")), "f")
             mismatch |= difference < 0
+        complete = bool(snapshot) and all(item.get("value_usdt") is not None for item in rows)
+        known_value = sum(
+            (_decimal(item["value_usdt"]) for item in rows if item.get("value_usdt") is not None),
+            Decimal("0"),
+        )
+        stale = (
+            not snapshot
+            or (_now() - datetime.fromisoformat(snapshot["synced_at"])).total_seconds() > 300
+        )
         return {
             "account_id": identifier,
+            "valuation_complete": complete and not stale,
+            "valuation_stale": stale,
+            "known_value_usdt": format(known_value, "f") if snapshot else None,
+            "total_value_usdt": format(known_value, "f") if complete and not stale else None,
             "manual_account_id": linked["manual_account_id"] if linked else None,
             "name": account["name"],
             "environment": account["environment"],
@@ -749,6 +801,10 @@ class StrategyRuntimeStore:
                     currency,
                     now,
                 ),
+            )
+            connection.execute(
+                "UPDATE strategy_runs SET demo_auto=? WHERE id=?",
+                ("1" if request.demo_auto else "0", identifier),
             )
         return self.get_run(owner, identifier)
 
@@ -915,6 +971,11 @@ class StrategyRuntimeStore:
                     "needs_reanchor=? WHERE id=?",
                     (target, _iso(), "1" if target == "active" else "0", identifier),
                 )
+                if target == "active":
+                    connection.execute(
+                        "UPDATE strategy_runs SET execution_not_before=? WHERE id=?",
+                        (str(_now().timestamp()), identifier),
+                    )
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(409, "同一真实账户和标的已有活动策略") from exc
         return self.get_run(owner, identifier)
@@ -1197,6 +1258,12 @@ class StrategyRuntimeStore:
             if run["market"] == "CN":
                 desired = (desired / 100).to_integral_value(rounding=ROUND_DOWN) * 100
             delta = desired - quantity
+            if run["environment"] == "platform_sim" and times[index] < float(
+                run["execution_not_before"]
+            ):
+                # A bar already open when the user starts/resumes cannot be
+                # filled retrospectively at that bar's opening price.
+                delta = Decimal("0")
             previous = connection.execute(
                 "SELECT id FROM strategy_signals WHERE run_id=? AND bar_time=?",
                 (identifier, run["last_bar_time"]),
@@ -1508,6 +1575,14 @@ def runtime_router(store: StrategyRuntimeStore):
     def releases(request: Request, mine: bool | None = None):
         return store.list_releases(owner(request), mine)
 
+    @router.post("/api/v1/strategy-releases/demo-example", status_code=201)
+    def create_demo_example(request: Request):
+        example = (
+            Path(__file__).resolve().parents[2] / "strategy/examples/exchange-demo/release.json"
+        )
+        body = ReleaseCreate.model_validate_json(example.read_text())
+        return store.create_release(owner(request), body)
+
     @router.post("/api/v1/strategy-releases", status_code=201)
     def create_release(body: ReleaseCreate, request: Request):
         return store.create_release(owner(request), body)
@@ -1558,11 +1633,13 @@ def runtime_router(store: StrategyRuntimeStore):
 
     @router.post("/api/v1/trading/runs/{identifier}/{action}")
     def run_action(identifier: str, action: str, request: Request):
-        return (
+        if action == "tick":
             store.tick(owner(request), identifier)
-            if action == "tick"
-            else store.set_status(owner(request), identifier, action)
-        )
+            from app.demo_execution import execute_demo_signal
+
+            execute_demo_signal(store, owner(request), identifier)
+            return store.get_run(owner(request), identifier, True)
+        return store.set_status(owner(request), identifier, action)
 
     @router.get("/api/v1/ledger/trades")
     def ledger(
@@ -1601,9 +1678,17 @@ class StrategyRuntimeScheduler:
         self.thread: threading.Thread | None = None
 
     def _run_once(self):
-        owner = os.getenv("ATLAS_TRADING_OWNER_ID")
-        if owner:
-            for account in self.store.list_accounts(owner):
+        from app.demo_credentials import owners
+
+        account_owners = set(owners())
+        if os.getenv("ATLAS_TRADING_OWNER_ID"):
+            account_owners.add(os.environ["ATLAS_TRADING_OWNER_ID"])
+        for owner in account_owners:
+            try:
+                accounts = self.store.list_accounts(owner)
+            except Exception:
+                continue
+            for account in accounts:
                 if account["environment"] != "platform_sim":
                     try:
                         self.store.sync_account(owner, account["id"])
@@ -1618,6 +1703,9 @@ class StrategyRuntimeScheduler:
             try:
                 if row["status"] == "active":
                     self.store.tick(row["owner_id"], row["id"])
+                    from app.demo_execution import execute_demo_signal
+
+                    execute_demo_signal(self.store, row["owner_id"], row["id"])
                 else:
                     self.store.mark_position(row["owner_id"], row["id"])
             except Exception:

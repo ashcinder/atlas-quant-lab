@@ -97,3 +97,11 @@ it('opens a run detail with its curve and attributed fills', async () => {
   expect(await screen.findByRole('img', { name: '动量测试 净值曲线，共 2 个快照' })).toBeTruthy()
   expect(screen.getByText('费用 0.5 USD')).toBeTruthy()
 })
+
+it('accepts the default risk input values in the browser validity model', async () => {
+  render(<TradingWorkspace />)
+  await screen.findByText('我的运行策略')
+  const participation = screen.getByLabelText('成交参与率') as HTMLInputElement
+  expect(participation.validity.stepMismatch).toBe(false)
+  expect(participation.checkValidity()).toBe(true)
+})

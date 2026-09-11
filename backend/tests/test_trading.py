@@ -29,6 +29,7 @@ def logged_client():
 @pytest.fixture
 def client(logged_client, monkeypatch, tmp_path):
     monkeypatch.setattr(trading_api, "DB_PATH", tmp_path / "trades.db")
+    monkeypatch.setattr(Exchange, "spot_prices", lambda self: {})
     user = logged_client.get("/api/v1/trading/capabilities").json()["user_id"]
     monkeypatch.setenv("ATLAS_TRADING_OWNER_ID", user)
     monkeypatch.setenv("ATLAS_TRADING_ENABLED", "1")
@@ -53,13 +54,13 @@ def payload(**changes):
     }
 
 
-def linked_suggestion(client, suffix="2", suggested_quantity="0.001"):
+def linked_suggestion(client, suffix="2", suggested_quantity="0.001", venue="binance"):
     user = client.get("/api/v1/trading/capabilities").json()["user_id"]
     store = StrategyRuntimeStore(None, trading_api.DB_PATH)
     account = next(
         item
         for item in store.list_accounts(user)
-        if item["environment"] == "exchange_test" and "Binance" in item["name"]
+        if item["environment"] == "exchange_test" and item["name"].lower().startswith(venue)
     )
     release = store.create_release(
         user,
@@ -169,7 +170,7 @@ def test_strategy_partial_fill_survives_cancellation_and_syncs_to_ledger(client,
     account = next(
         item
         for item in store.list_accounts(user)
-        if item["environment"] == "exchange_test" and "Binance" in item["name"]
+        if item["environment"] == "exchange_test" and item["name"].lower().startswith("binance")
     )
     release = store.create_release(
         user,
@@ -843,3 +844,176 @@ def test_manual_platform_fill_enters_ledger_without_inventing_cost(client, monke
     assert store.get_run(user, run["id"])["quantity"] == "0.00000000"
     assert store.ledger("other", None, None, None, None, None, None, None, 50, 0)["fills"] == []
     assert store.ledger(user, None, None, run["id"], None, None, None, None, 50, 0)["fills"] == []
+
+
+@pytest.mark.parametrize("venue", ["binance", "okx"])
+def test_demo_auto_executes_once_and_books_exchange_fills(client, monkeypatch, venue):
+    from app.demo_execution import execute_demo_signal
+
+    store, user, run, signal_id = linked_suggestion(client, venue=venue)
+    with store._connect() as connection:
+        connection.execute("UPDATE strategy_runs SET demo_auto='1' WHERE id=?", (run["id"],))
+    monkeypatch.setattr(
+        Exchange,
+        "spot_rules",
+        lambda *a: (Decimal(".01"), Decimal(".00001"), Decimal(".00001"), Decimal("1")),
+    )
+    monkeypatch.setattr(Exchange, "ticker", lambda *a: Decimal("10000"))
+    monkeypatch.setattr(Exchange, "validate_order", lambda *a: Decimal("10000"))
+    monkeypatch.setattr(
+        Exchange, "account", lambda *a: [{"asset": "USDT", "available": "1000", "locked": "0"}]
+    )
+    submitted = []
+
+    def place(self, order, client_id):
+        submitted.append(client_id)
+        return {
+            "exchange_order_id": "demo77",
+            "exchange_status": "FILLED",
+            "filled_quantity": "0.001",
+        }
+
+    monkeypatch.setattr(Exchange, "place", place)
+    monkeypatch.setattr(
+        Exchange,
+        "fills",
+        lambda *a: [
+            {
+                "trade_id": "demo-fill",
+                "quantity": ".001",
+                "price": "10000",
+                "fee": ".01",
+                "fee_currency": "USDT",
+                "executed_at": "2026-09-11T00:00:00Z",
+            }
+        ],
+    )
+    execute_demo_signal(store, user, run["id"])
+    result = store.get_run(user, run["id"], True)
+    assert result["status"] == "active", result["latest_error"]
+    assert Decimal(result["quantity"]) == Decimal(".001")
+    assert len(result["fills"]) == 1
+    execute_demo_signal(StrategyRuntimeStore(None, trading_api.DB_PATH), user, run["id"])
+    assert len(submitted) == 1
+    assert len(store.ledger(user, None, None, None, None, None, None, None, 50, 0)["fills"]) == 1
+
+
+def test_demo_auto_rejects_live_mode_without_sending(client, monkeypatch):
+    from app.demo_execution import execute_demo_signal
+
+    store, user, run, _ = linked_suggestion(client)
+    with store._connect() as connection:
+        connection.execute("UPDATE strategy_runs SET demo_auto='1' WHERE id=?", (run["id"],))
+    monkeypatch.setenv("ATLAS_BINANCE_MODE", "live")
+    monkeypatch.setattr(Exchange, "place", lambda *a: pytest.fail("live submission"))
+    execute_demo_signal(store, user, run["id"])
+    assert store.get_run(user, run["id"])["status"] == "error"
+
+
+def test_auto_run_cannot_be_created_for_live():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RunCreate(
+            release_id="test",
+            market="CRYPTO",
+            symbol="BTC-USDT",
+            initial_cash="100",
+            environment="live",
+            demo_auto=True,
+        )
+
+
+def test_demo_unknown_submission_never_retries_after_resume(client, monkeypatch):
+    from app.demo_execution import execute_demo_signal
+
+    store, user, run, _ = linked_suggestion(client)
+    with store._connect() as connection:
+        connection.execute("UPDATE strategy_runs SET demo_auto='1' WHERE id=?", (run["id"],))
+    monkeypatch.setattr(
+        Exchange,
+        "spot_rules",
+        lambda *a: (Decimal(".01"), Decimal(".00001"), Decimal(".00001"), Decimal("1")),
+    )
+    monkeypatch.setattr(Exchange, "ticker", lambda *a: Decimal("10000"))
+    monkeypatch.setattr(Exchange, "validate_order", lambda *a: Decimal("10000"))
+    monkeypatch.setattr(
+        Exchange, "account", lambda *a: [{"asset": "USDT", "available": "1000", "locked": "0"}]
+    )
+    attempts = []
+
+    def timeout(*args):
+        attempts.append(1)
+        raise HTTPException(502, "unknown")
+
+    monkeypatch.setattr(Exchange, "place", timeout)
+    execute_demo_signal(store, user, run["id"])
+    assert store.get_run(user, run["id"])["status"] == "error"
+    store.set_status(user, run["id"], "resume")
+    execute_demo_signal(store, user, run["id"])
+    assert len(attempts) == 1
+
+
+def test_page_demo_configuration_is_verified_encrypted_and_owner_scoped(
+    client, monkeypatch, tmp_path
+):
+    from app import demo_credentials
+
+    monkeypatch.setattr(demo_credentials, "DB_PATH", trading_api.DB_PATH)
+    monkeypatch.setattr(demo_credentials, "KEY_PATH", tmp_path / ".account-key")
+    monkeypatch.delenv("ATLAS_TRADING_OWNER_ID")
+    monkeypatch.setenv("ATLAS_TRADING_ENABLED", "0")
+    seen = []
+
+    def verify(self):
+        seen.append((self.mode, self.base))
+        return []
+
+    monkeypatch.setattr(Exchange, "account", verify)
+    monkeypatch.setattr(Exchange, "place", lambda *a: pytest.fail("setup sent an order"))
+    result = client.put(
+        "/api/v1/trading/demo-accounts/binance",
+        json={"api_key": "unique-demo-key", "secret": "unique-demo-secret", "consent": True},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["mode"] == "demo"
+    assert all(mode == "demo" and host == "https://testnet.binance.vision" for mode, host in seen)
+    assert "unique-demo" not in result.text
+    user = client.get("/api/v1/trading/capabilities").json()["user_id"]
+    assert Exchange("binance", owner=user).can_trade()
+    assert not Exchange("binance", owner="other-user").configured
+    with demo_credentials.database() as connection:
+        blob = connection.execute("SELECT encrypted FROM demo_credentials").fetchone()[0]
+    assert b"unique-demo" not in blob
+    assert demo_credentials.KEY_PATH.stat().st_mode & 0o777 == 0o600
+    assert demo_credentials.load(user, "binance")["secret"] == "unique-demo-secret"
+
+
+def test_rejected_demo_configuration_does_not_save_or_echo_secrets(client, monkeypatch, tmp_path):
+    from app import demo_credentials
+
+    monkeypatch.setattr(demo_credentials, "DB_PATH", trading_api.DB_PATH)
+    monkeypatch.setattr(demo_credentials, "KEY_PATH", tmp_path / ".account-key")
+
+    def reject(*a):
+        raise HTTPException(401, "upstream containing VERY-SECRET")
+
+    monkeypatch.setattr(Exchange, "account", reject)
+    response = client.put(
+        "/api/v1/trading/demo-accounts/okx",
+        json={
+            "api_key": "VERY-SECRET-key",
+            "secret": "VERY-SECRET",
+            "passphrase": "phrase",
+            "consent": True,
+        },
+    )
+    assert response.status_code == 422
+    assert "VERY-SECRET" not in response.text
+    assert demo_credentials.owners() == []
+    invalid = client.put(
+        "/api/v1/trading/demo-accounts/binance",
+        json={"api_key": "VERY-SECRET-key", "secret": "VERY-SECRET", "consent": False},
+    )
+    assert invalid.status_code == 422
+    assert "VERY-SECRET" not in invalid.text

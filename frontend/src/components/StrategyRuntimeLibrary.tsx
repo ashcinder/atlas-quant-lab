@@ -60,6 +60,11 @@ export default function StrategyRuntimeLibrary() {
   }
   return <section className="runtime-library">
     <header><div><em>EXECUTABLE LIBRARY</em><h2>策略从这里进入真实运行链路</h2><p>发布版本一经创建不可修改；订阅免费，并锁定到具体版本。</p></div><button disabled={busy} onClick={() => void act(load)}><RefreshCw size={15} />刷新</button></header>
+    <button disabled={busy} onClick={() => void act(async () => {
+      const example = await request<StrategyRelease>('/strategy-releases/demo-example', { method: 'POST' })
+      await request('/strategy-subscriptions', { method: 'POST', body: JSON.stringify({ release_id: example.id }) })
+      setView('subscriptions')
+    })}>添加并订阅连通性测试策略</button>
     <nav aria-label="可运行策略"><button className={view === 'discover' ? 'is-active' : ''} onClick={() => setView('discover')}><Boxes size={15} />发现策略</button><button className={view === 'mine' ? 'is-active' : ''} onClick={() => setView('mine')}><Rocket size={15} />我的策略</button><button className={view === 'subscriptions' ? 'is-active' : ''} onClick={() => setView('subscriptions')}><Check size={15} />我的订阅</button></nav>
     {error && <p className="runtime-error" role="alert">{error}</p>}
     {view === 'mine' && <form className="runtime-publisher" onSubmit={(event) => { event.preventDefault(); void act(publish) }}>

@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import { prepareAccountImage } from "@/journal/lib/account-image";
 import PortfolioOcrForm from "@/journal/components/portfolio-ocr-form";
+import StrategyAssetsSummary from "@/journal/components/strategy-assets-summary";
 import TradingAssetsPanel from "@/journal/components/trading-assets-panel";
 import { Button } from "@/journal/components/ui/button";
 import {
@@ -286,7 +287,7 @@ export default function InvestmentApp() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   useEffect(() => {
-    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产账本"} · Atlas`;
+    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Atlas`;
   }, [tab]);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);
@@ -764,7 +765,7 @@ export default function InvestmentApp() {
         <div className="brand">
           <ChartCandlestick size={29} />
           <div>
-            Atlas<span>资产账本</span>
+            Atlas<span>资产总览</span>
           </div>
         </div>
         <div className="workspace-label">我的投资空间</div>
@@ -973,10 +974,11 @@ export default function InvestmentApp() {
             </div>
             {tab === "overview" && (
               <>
+                <StrategyAssetsSummary />
                 <div className="stats-grid">
                   <section className="stat-card total-card">
                     <div className="stat-label">
-                      总资产 <Wallet size={16} />
+                      手工记录资产 <Wallet size={16} />
                     </div>
                     <div className="hero-number">
                       {money(totals.value, currency).split(".")[0]}

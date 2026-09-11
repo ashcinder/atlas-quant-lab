@@ -39,7 +39,15 @@ class FakeData:
 
 
 @pytest.fixture
-def runtime(tmp_path):
+def runtime(tmp_path, monkeypatch):
+    from app import strategy_runtime
+    from app.trading import Exchange
+
+    monkeypatch.setattr(Exchange, "spot_prices", lambda self: {})
+    # The fixture replays 2024 bars, so activation also uses a historical clock.
+    monkeypatch.setattr(
+        strategy_runtime, "_now", lambda: pd.Timestamp("2023-12-31", tz="UTC").to_pydatetime()
+    )
     data = FakeData()
     return StrategyRuntimeStore(data, tmp_path / "runtime.db"), data
 
@@ -105,6 +113,33 @@ def test_first_tick_only_anchors_and_next_bar_trades_once(runtime):
     assert float(traded["return_rate"]) > 0
     repeated = store.tick("alice", run["id"])
     assert len(repeated["fills"]) == 1
+
+
+def test_mid_bar_start_never_fills_before_activation(runtime, monkeypatch):
+    from app import strategy_runtime
+
+    store, data = runtime
+    activated = frame(61).index[-1] + pd.Timedelta(hours=12)
+    monkeypatch.setattr(strategy_runtime, "_now", lambda: activated.to_pydatetime())
+    version = release(store)
+    run = store.create_run("alice", RunCreate(
+        release_id=version["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="200"
+    ))
+    store.set_status("alice", run["id"], "start")
+    store.tick("alice", run["id"])
+    data.frame = frame(61)
+    assert store.tick("alice", run["id"])["fills"] == []
+    data.frame = frame(62)
+    fills = store.tick("alice", run["id"])["fills"]
+    assert len(fills) == 1
+    assert pd.Timestamp(fills[0]["executed_at"]) >= activated
+    store.set_status("alice", run["id"], "pause")
+    resumed = frame(63).index[-1] + pd.Timedelta(hours=12)
+    monkeypatch.setattr(strategy_runtime, "_now", lambda: resumed.to_pydatetime())
+    store.set_status("alice", run["id"], "resume")
+    store.tick("alice", run["id"])
+    data.frame = frame(63)
+    assert len(store.tick("alice", run["id"])["fills"]) == 1
 
 
 def test_volume_participation_caps_a_simulated_fill(runtime):
@@ -467,3 +502,37 @@ def test_recovery_skips_offline_trades_and_preserves_holdings(runtime, recovery)
     assert recovered["last_bar_time"] == int(data.frame.index[-1].timestamp())
     assert Decimal(recovered["equity"]) > Decimal(before["equity"])
     assert recovered["curve"][-1]["cash"] == before["cash"]
+
+
+def test_published_example_subscription_execution_and_asset_ledger(runtime):
+    import json
+    from pathlib import Path
+
+    store, data = runtime
+    example = Path(__file__).parents[2] / "strategy/examples/exchange-demo/release.json"
+    version = store.create_release(
+        "author", ReleaseCreate.model_validate(json.loads(example.read_text()))
+    )
+    subscription = store.subscribe("subscriber", version["id"])
+    run = store.create_run(
+        "subscriber",
+        RunCreate(
+            release_id=version["id"],
+            subscription_id=subscription["id"],
+            market="CRYPTO",
+            symbol="BTC-USDT",
+            initial_cash="200",
+            interval="1d",
+        ),
+    )
+    store.set_status("subscriber", run["id"], "start")
+    assert not store.tick("subscriber", run["id"])["fills"]
+    data.frame = frame(61)
+    result = store.tick("subscriber", run["id"])
+    assert len(result["fills"]) == 1
+    assert result["fills"][0]["side"] == "buy"
+    ledger = store.ledger("subscriber", None, None, run["id"], None, None, None, None, 50, 0)
+    assert len(ledger["fills"]) == 1
+    assert len(ledger["positions"]) == 1
+    assert ledger["runs"][0]["quantity"] == result["quantity"]
+    assert store.ledger("outsider", None, None, None, None, None, None, None, 50, 0)["fills"] == []

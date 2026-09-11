@@ -9,10 +9,10 @@ const JournalWorkspace = lazy(() => import('./journal/components/investment-app'
 type Session = { authenticated: boolean; registrationEnabled: boolean; email: string | null; userId?: string }
 const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
 const titleFromHash = () => {
-  if (window.location.hash.startsWith('#/trading')) return '交易账户 · Atlas'
+  if (window.location.hash.startsWith('#/trading')) return '策略交易 · Atlas'
   if (window.location.hash.startsWith('#/journal')) {
     const tab = window.location.hash.split('/')[2]?.split('?')[0] ?? 'overview'
-    return `${({ overview: '资产总览', accounts: '我的账户', records: '投资记录', plans: '定投计划', analysis: '收益分析', trading: '自动交易账本' } as Record<string, string>)[tab] ?? '资产账本'} · Atlas`
+    return `${({ overview: '资产总览', accounts: '我的账户', records: '投资记录', plans: '定投计划', analysis: '收益分析', trading: '自动交易账本' } as Record<string, string>)[tab] ?? '资产总览'} · Atlas`
   }
   const route = window.location.hash.slice(1).split('?')[0]
   return `${({ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' } as Record<string, string>)[route] ?? '行情与回测'} · Atlas`
@@ -116,9 +116,9 @@ export default function AtlasShell() {
       <details ref={switcher} className="workspace-switcher"><summary><Wallet size={17} /><span>切换工作区</span><ChevronUp size={14} /></summary>
       <button className="workspace-switcher-close" onClick={() => { if (switcher.current) switcher.current.open = false }} aria-label="收起工作区切换"><X size={16} />收起</button>
       <nav className="atlas-workspaces" aria-label="主导航">
-        <a href={quantHref} aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略工作台</a>
-        <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />交易账户</a>
-        <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产账本</a>
+        <a href={quantHref} aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略中心</a>
+        <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />策略交易</a>
+        <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产总览</a>
       </nav>
       <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
       </details>
