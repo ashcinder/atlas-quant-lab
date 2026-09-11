@@ -51,6 +51,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 async function openMarket() {
   render(<QuantJudgeWorkspace onError={vi.fn()} onOpenLab={vi.fn()} />)
+  expect(screen.getByRole('button', { name: '可运行策略' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: '策略排行' }))
+  expect((screen.getByLabelText('证据筛选') as HTMLSelectElement).value).toBe('real')
+  fireEvent.change(screen.getByLabelText('证据筛选'), { target: { value: 'all' } })
   await screen.findByRole('button', { name: /Alpha Strategy/ }, { timeout: 5000 })
 }
 

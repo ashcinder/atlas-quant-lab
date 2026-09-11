@@ -42,7 +42,7 @@ export default function LoginScreen({
         <div className="login-copy">
 
           <h1>研究策略，也管理资产。</h1>
-          <p>行情与策略回测、资产账本与定投计划，在同一个工作台。</p>
+          <p>行情与策略回测、资产总览与定投计划，在同一个工作台。</p>
         </div>
         <div className="login-capabilities"><span>行情 · 回测 · 组合研究</span><span>账户 · 资产 · 定投手账</span></div>
       </section>

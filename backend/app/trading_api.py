@@ -22,8 +22,10 @@ def owner(request: Request):
     user = getattr(request.state, "user", None)
     if user is None:
         raise HTTPException(401, "需要登录")
-    if not os.getenv("ATLAS_TRADING_OWNER_ID") or user.id != os.getenv("ATLAS_TRADING_OWNER_ID"):
-        raise HTTPException(403, "交易账户未绑定当前用户，请配置 ATLAS_TRADING_OWNER_ID")
+    from app.demo_credentials import owners
+
+    if user.id != os.getenv("ATLAS_TRADING_OWNER_ID") and user.id not in owners():
+        raise HTTPException(403, "请先在策略交易页面接入自己的模拟交易账户")
     return user.id
 
 
@@ -93,7 +95,7 @@ def view(row):
 
 
 def bound_exchange(row):
-    exchange = Exchange(row["venue"])
+    exchange = Exchange(row["venue"], owner=row["owner"])
     if exchange.fingerprint() != row["fingerprint"]:
         raise HTTPException(409, "交易账户或环境已改变，请切回原账户查询；新订单需重新预览")
     return exchange
@@ -536,12 +538,12 @@ def reconcile_strategy_order(row, result, exchange):
 @router.get("/capabilities")
 def capabilities(request: Request):
     user = request.state.user
-    authorized = bool(os.getenv("ATLAS_TRADING_OWNER_ID")) and (
-        user.id == os.getenv("ATLAS_TRADING_OWNER_ID")
-    )
+    from app.demo_credentials import owners
+
+    authorized = user.id == os.getenv("ATLAS_TRADING_OWNER_ID") or user.id in owners()
     venues = []
     for venue in ("binance", "okx"):
-        exchange = Exchange(venue)
+        exchange = Exchange(venue, owner=user.id)
         venues.append(
             {
                 "venue": venue,
@@ -560,13 +562,13 @@ def capabilities(request: Request):
 
 @router.get("/{venue}/account")
 def account(venue: Venue, user: Owner):
-    exchange = Exchange(venue)
+    exchange = Exchange(venue, owner=user)
     return {"venue": venue, "mode": exchange.mode, "balances": exchange.account()}
 
 
 @router.post("/orders/preview")
 def preview(order: OrderInput, user: Owner):
-    exchange = Exchange(order.venue)
+    exchange = Exchange(order.venue, owner=user)
     trade_gate(exchange)
     amount_gate(order)
     verified = (

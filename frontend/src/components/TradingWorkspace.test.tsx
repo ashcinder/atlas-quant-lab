@@ -295,3 +295,45 @@ it('discards a slow load after the URL has changed', async () => {
   expect(screen.getByText('已配置，待验证')).toBeTruthy()
   expect(screen.queryByText('当前用户未绑定')).toBeNull()
 })
+
+it('accepts default risk values in the browser validity model', async () => {
+  render(<TradingWorkspace />)
+  await screen.findByText('已配置，待验证')
+  fireEvent.click(screen.getAllByRole('button', { name: '新建运行' })[0])
+  const participation = screen.getByLabelText('成交参与率') as HTMLInputElement
+  expect(participation.validity.stepMismatch).toBe(false)
+  expect(participation.checkValidity()).toBe(true)
+})
+
+it('opens demo account setup on demand for the selected exchange', async () => {
+  render(<TradingWorkspace />)
+  await screen.findByText('已配置，待验证')
+  expect(screen.queryByLabelText('模拟 API Key')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '欧易 OKX' }))
+  fireEvent.click(screen.getByRole('button', { name: '接入模拟账户' }))
+  expect((screen.getByLabelText('模拟交易所') as HTMLSelectElement).value).toBe('okx')
+  expect(screen.getByLabelText('模拟 Passphrase')).toBeTruthy()
+})
+
+it('enables automatic execution only for an exchange test run', async () => {
+  vi.mocked(request).mockImplementation(async (path) => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path === '/trading/accounts') return [{ id: 'test-account', name: '加密货币模拟', market: 'CRYPTO', environment: 'exchange_test', currency: 'USDT' }]
+    if (path === '/strategy-releases') return [{ id: 'test-release', name: '测试策略', version: 1, owned: true }]
+    if (path === '/trading/runs') return { id: 'new-run' }
+    return []
+  })
+  render(<TradingWorkspace />)
+  await screen.findByText('已配置，待验证')
+  fireEvent.click(screen.getAllByRole('button', { name: '新建运行' })[0])
+  fireEvent.change(screen.getByLabelText('运行环境'), { target: { value: 'exchange_test' } })
+  fireEvent.click(screen.getByLabelText('自动执行模拟订单（仅测试资金）'))
+  const start = await screen.findByRole('button', { name: '启动测试交易' })
+  await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(start)
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/trading/runs/new-run/start', { method: 'POST' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByRole('button', { name: '策略运行' }).getAttribute('aria-current')).toBe('page')
+  const call = vi.mocked(request).mock.calls.find(([path]) => path === '/trading/runs')
+  expect(JSON.parse(call?.[1]?.body as string)).toMatchObject({ release_id: 'test-release', account_id: 'test-account', market: 'CRYPTO', environment: 'exchange_test', demo_auto: true, symbol: 'BTC-USDT', initial_cash: '10000' })
+})

@@ -37,7 +37,7 @@ class ExchangeRejected(HTTPException):
 
 
 class Exchange:
-    def __init__(self, venue: Venue):
+    def __init__(self, venue: Venue, owner: str | None = None, demo_credentials=None):
         self.venue = venue
         prefix = "ATLAS_" + venue.upper() + "_"
         self.mode = os.getenv(prefix + "MODE", "demo")
@@ -46,8 +46,20 @@ class Exchange:
         self.key = os.getenv(prefix + "API_KEY", "")
         self.secret = os.getenv(prefix + "API_SECRET", "")
         self.passphrase = os.getenv(prefix + "PASSPHRASE", "")
+        if owner is not None and demo_credentials is None:
+            from app.demo_credentials import load
+
+            demo_credentials = load(owner, venue)
+        if demo_credentials is not None:
+            self.mode = "demo"
+            self.key = demo_credentials["api_key"]
+            self.secret = demo_credentials["secret"]
+            self.passphrase = demo_credentials.get("passphrase", "")
+        elif owner is not None and owner != os.getenv("ATLAS_TRADING_OWNER_ID"):
+            self.key = self.secret = self.passphrase = ""
+        self.ui_configured = demo_credentials is not None
         self.configured = bool(self.key and self.secret and (venue != "okx" or self.passphrase))
-        self.enabled = os.getenv("ATLAS_TRADING_ENABLED") == "1"
+        self.enabled = self.ui_configured or os.getenv("ATLAS_TRADING_ENABLED") == "1"
         self.live_enabled = os.getenv("ATLAS_TRADING_LIVE_ENABLED") == "1"
         self.base = (
             ("https://testnet.binance.vision" if self.mode == "demo" else "https://api.binance.com")
@@ -147,6 +159,29 @@ class Exchange:
             for row in rows
         ]
 
+    def spot_prices(self):
+        """One public venue snapshot; unavailable direct USDT pairs stay unknown."""
+        rows = self.call(
+            "GET",
+            "/api/v3/ticker/price" if self.venue == "binance" else "/api/v5/market/tickers",
+            {} if self.venue == "binance" else {"instType": "SPOT"},
+            many=True,
+            public=True,
+        )
+        prices = {"USDT": Decimal("1")}
+        for row in rows:
+            symbol = row.get("symbol", row.get("instId", ""))
+            suffix = "USDT" if self.venue == "binance" else "-USDT"
+            if not symbol.endswith(suffix):
+                continue
+            try:
+                price = Decimal(str(row.get("price", row.get("last"))))
+                if price.is_finite() and price > 0:
+                    prices[symbol[: -len(suffix)]] = price
+            except Exception:
+                continue
+        return prices
+
     def ticker(self, symbol):
         if self.venue == "binance":
             data = self.call(
@@ -176,11 +211,21 @@ class Exchange:
         if abs(order.price - market_price) / market_price > maximum_deviation:
             raise HTTPException(422, "策略订单限价偏离交易所最新价超过允许范围")
 
+        price_step, quantity_step, minimum_quantity, minimum_notional = self.spot_rules(
+            order.symbol
+        )
+        if order.price % price_step or order.quantity % quantity_step:
+            raise HTTPException(422, "订单价格或数量不符合交易所精度规则")
+        if order.quantity < minimum_quantity or order.quantity * order.price < minimum_notional:
+            raise HTTPException(422, "订单低于交易所最小数量或最小金额")
+        return market_price
+
+    def spot_rules(self, symbol):
         if self.venue == "binance":
             data = self.call(
                 "GET",
                 "/api/v3/exchangeInfo",
-                {"symbol": order.symbol.replace("-", "")},
+                {"symbol": symbol.replace("-", "")},
                 public=True,
             )
             symbols = data.get("symbols", [])
@@ -201,7 +246,7 @@ class Exchange:
             instrument = self.call(
                 "GET",
                 "/api/v5/public/instruments",
-                {"instType": "SPOT", "instId": order.symbol},
+                {"instType": "SPOT", "instId": symbol},
                 public=True,
             )
             price_step = Decimal(str(instrument.get("tickSz", "0")))
@@ -210,11 +255,7 @@ class Exchange:
             minimum_notional = Decimal("0")
         if price_step <= 0 or quantity_step <= 0:
             raise HTTPException(502, "交易所交易规则响应不完整")
-        if order.price % price_step or order.quantity % quantity_step:
-            raise HTTPException(422, "订单价格或数量不符合交易所精度规则")
-        if order.quantity < minimum_quantity or order.quantity * order.price < minimum_notional:
-            raise HTTPException(422, "订单低于交易所最小数量或最小金额")
-        return market_price
+        return price_step, quantity_step, minimum_quantity, minimum_notional
 
     def place(self, order: OrderInput, client_id: str):
         if self.venue == "binance":

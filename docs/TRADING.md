@@ -88,3 +88,11 @@ python scripts/brokers/qmt_probe.py
 分页依据：[Binance 账户成交列表](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/account)、[OKX V5 成交历史](https://www.okx.com/docs-v5)。
 
 平台人工订单的成交使用独立 `platform_manual_fills` 表，同样后台同步、按上游ID去重并可从账本返回订单。没有策略归属与完整成本时已实现收益保持空值，显示“成本待补全”，不会修改任一策略的资金或持仓。历史订单列表提供成本不完整状态。
+
+## 2026-09-11 测试账户自动执行
+
+`QuantJudge` 分支新增每个运行实例的 `demo_auto` 选择，仅 `exchange_test` 允许开启。模拟自动订单复用原有预览校验、持久化提交和成交对账；实盘继续逐笔确认。新界面入口为策略中心、策略交易、资产总览。完整操作、测试策略与限制见 [模拟验收说明](QUANTJUDGE_DEMO_ACCEPTANCE.md)。本节取代上文“尚不支持自动策略下单”的测试账户部分，不表示完成真实账户验收。
+
+### 页面填写模拟密钥
+
+现在可在「策略交易 → 账户概览 → 接入模拟账户」直接填写并验证模拟凭据。每位用户分别保存，后端加密持久化，成功后无需重启。上文单一`ATLAS_TRADING_OWNER_ID`限制继续适用于环境变量实盘接入，页面模拟账户不依赖该变量。密钥更换受现有运行与订单约束；本次尚无交易所真实模拟成交验收。

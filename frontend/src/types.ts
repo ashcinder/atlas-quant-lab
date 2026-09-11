@@ -228,6 +228,7 @@ export interface RuntimeFill {
   account_id?: string; order_id?: string; strategy_name?: string; strategy_version?: number
 }
 export interface StrategyRun {
+  demo_auto?: string;
   id: string; release_id: string; subscription_id: string | null; account_id: string
   market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; interval: Interval
   initial_cash: string; cash: string; quantity: string; average_cost: string; realized_pnl: string
@@ -238,6 +239,7 @@ export interface StrategyRun {
   orders?: Array<{ id: string; side: string; requested_quantity: string; filled_quantity: string; status: string; created_at: string }>; fills?: RuntimeFill[]; curve?: Array<{ bar_time: number; equity: string; cash: string; position_value: string; mark_price: string; return_rate: string }>
 }
 export interface TradingAccountAssets {
+  valuation_complete?: boolean; valuation_stale?: boolean; known_value_usdt?: string | null; total_value_usdt?: string | null
   manual_account_id?: string | null; account_id: string; name: string; environment: RuntimeEnvironment
   status: string; synced_at: string | null; message: string
   balances: Array<{ asset: string; available: string; locked: string; total: string; attributed_quantity: string; unattributed_quantity: string; reconciliation_shortfall: string }>

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import StrategyRuntimeLibrary from './StrategyRuntimeLibrary'
+import StrategyRadar from './StrategyRadar'
 import type {
   QuantAgent, QuantCategory, QuantChainStatus, QuantJudgeOverview, QuantReport,
   QuantSubscription, QuantVerification,
@@ -74,7 +75,7 @@ function ProofRail({ report, verification, chain }: { report: QuantReport | null
   return (
     <div className="qj-proof-rail">
       <div className="qj-proof-node is-ok">
-        <span><Fingerprint size={15} /></span><div><strong>策略身份已承诺</strong><small>源码、参数与提示词保持私密</small></div><em>有效</em>
+        <span><Fingerprint size={15} /></span><div><strong>策略身份已承诺</strong><small>公开记录不包含源码；承诺不代表机密执行</small></div><em>有效</em>
       </div>
       <i />
       <div className={`qj-proof-node ${zkVerified || signed ? 'is-ok' : ''}`}>
@@ -121,7 +122,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [category, setCategory] = useState<'' | QuantCategory>('')
   const [reportType, setReportType] = useState('')
   const [query, setQuery] = useState('')
-  const [evidenceFilter, setEvidenceFilter] = useState('all')
+  const [evidenceFilter, setEvidenceFilter] = useState('real')
   const loadRequest = useRef(0)
   const verificationRequest = useRef(0)
   const [verifying, setVerifying] = useState(false)
@@ -131,7 +132,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [subscribeOpen, setSubscribeOpen] = useState(false)
   const [investorAlias, setInvestorAlias] = useState(() => localStorage.getItem(userStorageKey('quantjudge-investor')) ?? '')
   const [subscriptions, setSubscriptions] = useState<QuantSubscription[]>([])
-  const [activeView, setActiveView] = useState<'market' | 'subscriptions' | 'runtime'>('market')
+  const [activeView, setActiveView] = useState<'market' | 'subscriptions' | 'runtime'>('runtime')
   const dialogRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -311,6 +312,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
                 <Metric label="最大回撤" value={pct(metrics?.max_drawdown)} tone="negative" />
                 <Metric label="Sharpe" value={metrics?.sharpe?.toFixed(2) ?? '—'} />
               </div>
+              <StrategyRadar key={selected.id} agent={selected} peers={visibleAgents} />
               <section className="qj-proof-box"><div className="qj-section-title"><span><ShieldCheck size={15} /><span><strong>证据护照</strong><small>{report?.evidence_level === 'zk_verified' ? '零知识执行证明' : '平台签名与业绩复核'}</small></span></span><button disabled={verifying || !report} onClick={verify}>{verifying ? '正在验证…' : verification ? '再次验证' : '验证证据'}</button></div><ProofRail report={report} verification={verification} chain={chain} /></section>
               {verification ? <div className={`qj-verified-note ${verification.calculation_verified ? '' : 'is-error'}`}>{verification.calculation_verified ? <Check size={14} /> : <X size={14} />}<span><strong>{verification.calculation_verified ? (report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? 'zkVM 证明与公开结果均已验证' : '平台回执验算通过') : '展示记录完整性异常'}</strong>{verification.calculation_verified ? `${report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? '固定 image 的 RISC Zero receipt、公开 journal、报告绑定与 Ed25519 平台回执有效。' : '回执哈希、展示记录与 Ed25519 签名有效；该证据等级不是 ZKP。'}${verification.chain.status !== 'confirmed' ? '尚未获得 Supervisor 链上确认。' : '已获得链上确认。'}` : '请勿依赖当前展示数据；回执与数据库公开字段不一致。'}</span></div> : null}
               <details className="qj-ledger"><summary><span><Fingerprint size={14} />公开证明指纹</span><small>3 项可核验记录</small><ChevronRight size={15} /></summary><div className="qj-ledger-body"><div><span>策略承诺</span><code>{shortHash(selected.strategy_commitment)}</code><button title="复制策略承诺" onClick={() => navigator.clipboard.writeText(selected.strategy_commitment)}><Copy size={13} /></button></div><div><span>决策 Merkle 根</span><code>{shortHash(report?.decision_merkle_root)}</code><em>{report?.decision_count ?? 0} 次决策</em></div><div><span>证明回执</span><code>{shortHash(report?.receipt_hash)}</code><em>{report?.attestation_key_id}</em></div></div></details>

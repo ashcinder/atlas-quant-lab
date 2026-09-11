@@ -1,0 +1,15 @@
+{
+  "name": "模拟连通性验证 · 10%持仓",
+  "source_kind": "custom",
+  "strategy_id": "demo_connectivity_v1",
+  "markets": ["CRYPTO"],
+  "description": "真实执行的受控规则：已闭合K线收盘价大于0时目标持仓10%，收盘价小于等于0时退出。仅用于验证订阅、测试订单和对账，不以盈利为目标。",
+  "published": true,
+  "custom_strategy": {
+    "id": "demo_connectivity_v1",
+    "name": "模拟连通性验证 · 10%持仓",
+    "entry": {"kind": "condition", "left": {"field": "close"}, "operator": "gt", "right_value": 0},
+    "exit": {"kind": "condition", "left": {"field": "close"}, "operator": "lte", "right_value": 0},
+    "target_position": 0.1
+  }
+}

@@ -303,3 +303,11 @@ body:has(.trading-workspace) { overflow: auto; }
   .trade-sidebar nav button > span { white-space: nowrap; }
   .trade-sidebar nav button > svg { width: 16px; height: 16px; }
 }
+
+.trade-demo-form { display: block; }
+.trade-demo-form fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.trade-demo-form fieldset > label:has(input[type="checkbox"]), .trade-run-form .trade-demo-auto { grid-column: 1 / -1; display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.trade-demo-form input[type="checkbox"], .trade-run-form .trade-demo-auto input { width: auto; }
+.trade-demo-form fieldset > button { justify-self: start; }
+.trade-modal .trade-setup { padding: 0; border: 0; margin: 0; }
+@media (max-width: 760px) { .trade-demo-form fieldset { grid-template-columns: 1fr; } }

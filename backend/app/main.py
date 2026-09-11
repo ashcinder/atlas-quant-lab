@@ -9,6 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.demo_accounts_api import router as demo_accounts_router
 from app.auth import parse_session
 from app.exchange_accounts import router as exchange_account_router
 from fastapi.exceptions import RequestValidationError
@@ -128,6 +129,7 @@ app.include_router(strategy_code_router)
 app.include_router(cloud_ai_router)
 app.include_router(exchange_account_router)
 app.include_router(trading_router)
+app.include_router(demo_accounts_router(strategy_runtime_store))
 app.include_router(runtime_router(strategy_runtime_store))
 app.add_middleware(
     CORSMiddleware,
