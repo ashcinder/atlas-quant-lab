@@ -163,6 +163,7 @@ async def require_atlas_user(request: Request, call_next):
         request.method != "OPTIONS"
         and request.url.path.startswith("/api/v1/")
         and request.url.path != "/api/v1/health"
+        and not (request.method == "POST" and request.url.path == "/api/v1/private-runner/signals")
     ):
         if not _origin_ok(request):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)

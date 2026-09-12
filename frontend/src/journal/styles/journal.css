@@ -3294,3 +3294,14 @@
 .linked-account-assets small, .linked-account-assets p { color: var(--muted); }
 .linked-account-assets [role="alert"] { color: var(--negative); }
 @media (max-width: 600px) { .linked-account-assets header { flex-direction: column; align-items: stretch; } }
+
+.journal-root .runtime-curves-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); gap:16px; margin:20px 0; }
+.journal-root .runtime-curve-card { padding:18px; background:var(--panel); border:1px solid var(--border); border-radius:12px; min-width:0; }
+.journal-root .runtime-curve-card header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; font-size:12px; }
+.journal-root .runtime-curve-card small { display:block; color:var(--muted); font-size:11px; margin-top:6px; }
+.journal-root .runtime-curve-card svg { width:100%; display:block; margin:12px 0; }
+.journal-root .runtime-curve-card footer { display:flex; justify-content:space-between; color:var(--muted); font-size:10px; gap:8px; font-variant-numeric:tabular-nums; }
+
+/* Keep large exchange inventories from pushing strategy records off screen. */
+.linked-account-assets .linked-ledger-table { max-height:360px; overflow:auto; }
+.linked-account-assets .linked-ledger-table th { position:sticky; top:0; z-index:1; background:var(--panel); }

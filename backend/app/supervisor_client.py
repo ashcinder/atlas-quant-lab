@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -33,6 +34,7 @@ class SupervisorClient:
                 self.rpc_url,
                 json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
                 timeout=self.timeout,
+                trust_env=urlparse(self.rpc_url).hostname not in {"localhost", "127.0.0.1", "::1"},
             )
             response.raise_for_status()
             payload = response.json()

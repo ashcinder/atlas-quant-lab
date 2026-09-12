@@ -1,0 +1,27 @@
+{
+  "id": "run_968e3cd4038146adad",
+  "release_id": "rel_0ac376a930024ddcb5",
+  "strategy_name": "私有本地策略 · 签名买卖验收",
+  "strategy_hash": "8015024a061f9984bfacc31097c07c5f824ce6b3a13a351f6b8f3aafc0789fc1",
+  "initial_cash": "200.00000000",
+  "equity": "199.88001502",
+  "quantity": "0.00000000",
+  "return_rate": "-0.00059992",
+  "execution_evidence": {
+    "level": "developer_signature",
+    "source_uploaded": false,
+    "strategy_execution_proven": false,
+    "exchange_fills_verified": false,
+    "performance_source": "platform_quote_simulation"
+  },
+  "status": "paused",
+  "fills": 4,
+  "sides": [
+    "sell",
+    "buy",
+    "sell",
+    "buy"
+  ],
+  "curve_points": 4,
+  "chain_status": "not_anchored"
+}

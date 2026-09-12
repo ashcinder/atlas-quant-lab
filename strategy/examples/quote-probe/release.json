@@ -1,0 +1,32 @@
+{
+  "name": "10秒买卖联调 · 真实报价",
+  "source_kind": "custom",
+  "strategy_id": "quote_probe_v1",
+  "markets": [
+    "CRYPTO"
+  ],
+  "description": "每10秒获取币安现货买一卖一报价，交替以10%目标仓位买入、清仓。平台模拟撮合，含手续费与滑点；12次执行后暂停，可恢复。仅用于验证运行与对账，不评估盈利。",
+  "published": true,
+  "custom_strategy": {
+    "id": "quote_probe_v1",
+    "name": "10秒买卖联调 · 真实报价",
+    "entry": {
+      "kind": "condition",
+      "left": {
+        "field": "close"
+      },
+      "operator": "gt",
+      "right_value": 0
+    },
+    "exit": {
+      "kind": "condition",
+      "left": {
+        "field": "close"
+      },
+      "operator": "lte",
+      "right_value": 0
+    },
+    "target_position": 0.1
+  },
+  "execution_mode": "quote_probe"
+}

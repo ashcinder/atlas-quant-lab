@@ -204,7 +204,9 @@ export interface CustomStrategyRecord {
 export type RuntimeMarket = 'CRYPTO' | 'US' | 'CN'
 export type RuntimeEnvironment = 'platform_sim' | 'exchange_test' | 'live'
 export interface StrategyRelease {
-  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom'
+  runner_public_key?: string; code_commitment?: string
+  execution_mode?: "candles" | "quote_probe" | "private_runner"
+  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner'
   strategy_id: string; markets: RuntimeMarket[]; description: string; content_hash: string
   params?: Record<string, unknown>; custom_strategy?: CustomStrategySpec | null; owned: boolean; created_at: string
 }
@@ -228,6 +230,7 @@ export interface RuntimeFill {
   account_id?: string; order_id?: string; strategy_name?: string; strategy_version?: number
 }
 export interface StrategyRun {
+  execution_mode?: "candles" | "quote_probe" | "private_runner"
   demo_auto?: string;
   id: string; release_id: string; subscription_id: string | null; account_id: string
   market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; interval: Interval

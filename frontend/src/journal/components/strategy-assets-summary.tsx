@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useState } from 'react'
 import { request, RUNTIME_CHANGED_EVENT } from '../../request'
-import type { TradingLedgerSnapshot } from '../../types'
+import { RuntimeCurveCard } from './runtime-curve-card'
+import type { StrategyRun, TradingLedgerSnapshot } from '../../types'
 
 const environments = { platform_sim: '平台模拟', exchange_test: '交易所测试', live: '实盘' }
 export default function StrategyAssetsSummary() {
   const [data, setData] = useState<TradingLedgerSnapshot | null>(null)
   const [error, setError] = useState('')
+  const [curves, setCurves] = useState<StrategyRun[]>([])
   const load = useCallback(async () => {
-    try { setData(await request<TradingLedgerSnapshot>('/ledger/trades?limit=5')); setError('') }
+    try {
+      const next = await request<TradingLedgerSnapshot>('/ledger/trades?limit=5')
+      setData(next); setError('')
+      const results = await Promise.allSettled(next.runs.slice(0, 6).map(run => request<StrategyRun>(`/trading/runs/${run.id}`)))
+      setCurves(results.flatMap(r => r.status === 'fulfilled' && r.value?.curve?.length ? [r.value] : []))
+    }
     catch { setError('交易资产读取失败，请刷新重试。') }
   }, [])
   useEffect(() => {
     const refresh = () => { if (document.visibilityState === 'visible' && window.location.hash.startsWith('#/journal/overview')) void load() }
     const initial = window.setTimeout(() => void load(), 0)
-    const timer = window.setInterval(refresh, 30_000)
+    const timer = window.setInterval(refresh, 10_000)
     window.addEventListener(RUNTIME_CHANGED_EVENT, refresh)
     document.addEventListener('visibilitychange', refresh)
     return () => { window.clearTimeout(initial); window.clearInterval(timer); window.removeEventListener(RUNTIME_CHANGED_EVENT, refresh); document.removeEventListener('visibilitychange', refresh) }
@@ -39,6 +46,7 @@ export default function StrategyAssetsSummary() {
       const capital = Number(value.equity) - Number(value.profit)
       return <article key={key}><span>{environments[value.environment]} · {value.currency} 策略资金</span><strong>{Number(value.equity).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</strong><small>{value.valuation_complete === false ? '费用或估值待补全，收益率不可计算' : `净收益 ${Number(value.profit).toFixed(2)} · 收益率 ${capital > 0 ? (Number(value.profit) / capital * 100).toFixed(2) + '%' : '—'}`}</small></article>
     })}</div>
+    {curves.length > 0 && <div className="runtime-curves-grid">{curves.map(run => <RuntimeCurveCard key={run.id} run={run} />)}</div>}
     {data && !data.runs.length && <p>尚无策略资产。先在策略中心订阅，再到策略交易启动测试。</p>}
     {data && data.runs.length > 0 && <div className="linked-ledger-table"><table><thead><tr><th>策略／账户</th><th>环境</th><th>资产净值</th><th>收益率</th></tr></thead><tbody>{data.runs.map(run => <tr key={run.id}><td><a href={`#/trading?run=${run.id}`}>{run.strategy_name}</a><small>{run.account_name}</small></td><td>{environments[run.environment]}</td><td>{Number(run.equity).toFixed(2)} {run.currency}</td><td>{run.valuation_complete === false ? '待补全' : `${(Number(run.return_rate) * 100).toFixed(2)}%`}</td></tr>)}</tbody></table></div>}
   </section>

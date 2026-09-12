@@ -311,3 +311,5 @@ body:has(.trading-workspace) { overflow: auto; }
 .trade-demo-form fieldset > button { justify-self: start; }
 .trade-modal .trade-setup { padding: 0; border: 0; margin: 0; }
 @media (max-width: 760px) { .trade-demo-form fieldset { grid-template-columns: 1fr; } }
+
+.trade-probe-note { grid-column: 1 / -1; padding: 16px; background: var(--panel-raised); color: var(--text); border: 1px solid var(--border); border-radius: 9px; line-height: 1.8; font-size: 13px; }

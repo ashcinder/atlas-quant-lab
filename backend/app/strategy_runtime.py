@@ -20,10 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.config import DB_PATH
 from app.data.providers import ProviderError
 from app.models import CustomStrategySpec
+from app.private_runner import PrivateDecision, PrivateRunnerStore
 from app.strategies import generate_target_exposure, get_strategy
 from app.strategies.catalog import validate_params
 from app.strategies.custom import generate_custom_target
 from app.strategies.schedule import contribution_schedule
+from app.strategy_anchor import AnchorConfirm, AnchorPrepare, StrategyAnchorStore
 from app.trade_facts import ensure_manual_fills
 
 Market = Literal["CRYPTO", "US", "CN"]
@@ -56,16 +58,35 @@ def _text(value: Decimal) -> str:
 class ReleaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
-    source_kind: Literal["builtin", "custom"]
+    source_kind: Literal["builtin", "custom", "private_runner"]
     strategy_id: str = Field(min_length=1, max_length=64)
     params: dict[str, Any] = Field(default_factory=dict)
     custom_strategy: CustomStrategySpec | None = None
     markets: list[Market] = Field(min_length=1, max_length=3)
     description: str = Field(default="", max_length=300)
     published: bool = True
+    execution_mode: Literal["candles", "quote_probe", "private_runner"] = "candles"
+    runner_public_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    code_commitment: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def valid_source(self):
+        if self.source_kind == "private_runner":
+            if (
+                self.execution_mode != "private_runner"
+                or not self.runner_public_key
+                or not self.code_commitment
+                or self.custom_strategy
+                or self.params
+                or self.markets != ["CRYPTO"]
+            ):
+                raise ValueError("私有执行仅登记公钥与代码承诺，不接收规则或参数；市场为CRYPTO")
+        elif (
+            self.execution_mode == "private_runner"
+            or self.runner_public_key
+            or self.code_commitment
+        ):
+            raise ValueError("私有执行元数据只能用于private_runner")
         if (self.source_kind == "custom") != (self.custom_strategy is not None):
             raise ValueError("自定义发布必须包含且只能包含一份规则快照")
         if self.custom_strategy and self.custom_strategy.id != self.strategy_id:
@@ -267,8 +288,12 @@ class StrategyRuntimeStore:
         payload = dict(row)
         payload["markets"] = json.loads(payload["markets"])
         snapshot = json.loads(payload.pop("snapshot"))
+        payload["execution_mode"] = snapshot.get("execution_mode", "candles")
         payload["params"] = snapshot.get("params", {})
         payload["custom_strategy"] = snapshot.get("custom_strategy")
+        if snapshot.get("execution_mode") == "private_runner":
+            payload["runner_public_key"] = snapshot["runner_public_key"]
+            payload["code_commitment"] = snapshot["code_commitment"]
         payload["owned"] = False
         return payload
 
@@ -282,10 +307,22 @@ class StrategyRuntimeStore:
             if strategy.mode != "single":
                 raise HTTPException(422, "第一版仅支持单资产策略")
             custom = None
-        else:
+        elif request.source_kind == "custom":
             params = {}
             custom = request.custom_strategy.model_dump(mode="json")
-        snapshot = {"params": params, "custom_strategy": custom}
+        else:
+            params, custom = {}, None
+        snapshot = {
+            "params": params,
+            "custom_strategy": custom,
+            "execution_mode": request.execution_mode,
+        }
+        if request.source_kind == "private_runner":
+            snapshot = {
+                "execution_mode": "private_runner",
+                "runner_public_key": request.runner_public_key,
+                "code_commitment": request.code_commitment,
+            }
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
         key = f"{request.source_kind}:{request.strategy_id}"
@@ -709,6 +746,15 @@ class StrategyRuntimeStore:
         self._ensure_accounts(owner)
         with self._connect() as connection:
             release = self._release_for(connection, request.release_id)
+            if json.loads(release["snapshot"]).get("execution_mode") in {
+                "quote_probe",
+                "private_runner",
+            } and (
+                request.environment != "platform_sim"
+                or request.market != "CRYPTO"
+                or request.symbol.upper() != "BTC-USDT"
+            ):
+                raise HTTPException(422, "报价联调与私有执行当前仅支持 BTC-USDT 平台模拟账户")
             if request.market not in json.loads(release["markets"]):
                 raise HTTPException(422, "此策略版本不支持所选市场")
             if release["owner_id"] != owner:
@@ -814,7 +860,7 @@ class StrategyRuntimeStore:
             (row["id"],),
         ).fetchone()
         release = connection.execute(
-            "SELECT name,version,content_hash FROM strategy_releases WHERE id=?",
+            "SELECT name,version,content_hash,snapshot FROM strategy_releases WHERE id=?",
             (row["release_id"],),
         ).fetchone()
         account = connection.execute(
@@ -831,6 +877,7 @@ class StrategyRuntimeStore:
             strategy_name=release["name"],
             strategy_version=release["version"],
             strategy_hash=release["content_hash"],
+            execution_mode=json.loads(release["snapshot"]).get("execution_mode", "candles"),
             account_name=account["name"] if account else "",
             currency=account["currency"] if account else None,
             recommendation=dict(recommendation)
@@ -861,6 +908,14 @@ class StrategyRuntimeStore:
             if row is None:
                 raise HTTPException(404, "运行实例不存在")
             result = self._run_view(connection, row)
+            if result["execution_mode"] == "private_runner":
+                result["execution_evidence"] = {
+                    "level": "developer_signature",
+                    "source_uploaded": False,
+                    "strategy_execution_proven": False,
+                    "exchange_fills_verified": False,
+                    "performance_source": "platform_quote_simulation",
+                }
             if detail:
                 result["orders"] = [
                     dict(item)
@@ -1057,6 +1112,11 @@ class StrategyRuntimeStore:
                 "SELECT * FROM strategy_runs WHERE id=? AND owner_id=?", (identifier, owner)
             ).fetchone()
             release = self._release_for(connection, run["release_id"])
+            if json.loads(release["snapshot"]).get("execution_mode") == "private_runner":
+                connection.execute(
+                    "UPDATE strategy_runs SET lease_until=0 WHERE id=?", (identifier,)
+                )
+                return self.get_run(owner, identifier, True)
             schedule_history = (
                 [
                     row[0]
@@ -1068,6 +1128,10 @@ class StrategyRuntimeStore:
                 if release["strategy_id"] == "scheduled_dca"
                 else None
             )
+        if json.loads(release["snapshot"]).get("execution_mode") == "quote_probe":
+            from app.quote_probe import tick_probe
+
+            return tick_probe(self, owner, identifier, release, run)
         asset_class = "crypto" if run["market"] == "CRYPTO" else "equity"
         bundle = self.data_service.fetch(
             run["symbol"], asset_class, run["interval"], None, None, "auto", "auto", True
@@ -1204,14 +1268,32 @@ class StrategyRuntimeStore:
                 ),
             )
 
-    def _process_bar(self, owner, identifier, release, frame, targets, reasons, times, index):
+    def _process_bar(
+        self,
+        owner,
+        identifier,
+        release,
+        frame,
+        targets,
+        reasons,
+        times,
+        index,
+        *,
+        quoted=False,
+        decision_target=None,
+        execution_epoch=None,
+    ):
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             run = connection.execute(
                 "SELECT * FROM strategy_runs WHERE id=? AND owner_id=?", (identifier, owner)
             ).fetchone()
-            if run["status"] != "active" or times[index] <= (run["last_bar_time"] or 0):
-                return
+            if (
+                run["status"] != "active"
+                or times[index] <= (run["last_bar_time"] or 0)
+                or (execution_epoch is not None and run["execution_not_before"] != execution_epoch)
+            ):
+                return False
             cash = _decimal(run["cash"])
             quantity = _decimal(run["quantity"])
             average = _decimal(run["average_cost"])
@@ -1220,7 +1302,10 @@ class StrategyRuntimeStore:
             open_price = _decimal(frame.iloc[index]["open"])
             mark = _decimal(frame.iloc[index]["close"])
             target = min(
-                max(_decimal(run["pending_target"]), Decimal("0")),
+                max(
+                    _decimal(run["pending_target"] if decision_target is None else decision_target),
+                    Decimal("0"),
+                ),
                 _decimal(run["max_position"]),
             )
             commission = _decimal(run["commission_rate"])
@@ -1243,7 +1328,11 @@ class StrategyRuntimeStore:
                     force_exit = True
             equity_open = cash + quantity * open_price
             desired = target * equity_open / open_price if open_price else quantity
-            if release["strategy_id"] == "scheduled_dca" and not force_exit:
+            if (
+                release["source_kind"] == "builtin"
+                and release["strategy_id"] == "scheduled_dca"
+                and not force_exit
+            ):
                 # A due contribution spends a fixed gross amount; price changes and
                 # non-due bars must not rebalance or sell the accumulated holding.
                 amount = _decimal(json.loads(release["snapshot"])["params"]["amount"])
@@ -1264,9 +1353,25 @@ class StrategyRuntimeStore:
                 # A bar already open when the user starts/resumes cannot be
                 # filled retrospectively at that bar's opening price.
                 delta = Decimal("0")
+            if decision_target is not None:
+                connection.execute(
+                    "INSERT INTO strategy_signals "
+                    "(id,owner_id,run_id,bar_time,target,reason,status,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        f"sig_{uuid4().hex[:18]}",
+                        owner,
+                        identifier,
+                        times[index],
+                        str(decision_target),
+                        str(reasons.iloc[index]),
+                        "received",
+                        _iso(),
+                    ),
+                )
             previous = connection.execute(
                 "SELECT id FROM strategy_signals WHERE run_id=? AND bar_time=?",
-                (identifier, run["last_bar_time"]),
+                (identifier, times[index] if decision_target is not None else run["last_bar_time"]),
             ).fetchone()
             signal_id = previous["id"] if previous else f"sig_{uuid4().hex[:18]}"
             if run["environment"] != "platform_sim":
@@ -1285,6 +1390,11 @@ class StrategyRuntimeStore:
                 volume_limit = _decimal(frame.iloc[index]["volume"]) * _decimal(
                     run["max_participation"]
                 )
+                if quoted:
+                    # Probe fills use fresh top-of-book liquidity, not candle volume.
+                    volume_limit = min(
+                        _decimal(frame.iloc[index]["volume"]), Decimal("100") / open_price
+                    )
                 if run["market"] == "CN":
                     volume_limit = (volume_limit / 100).to_integral_value(rounding=ROUND_DOWN) * 100
                 qty = min(qty, volume_limit)
@@ -1428,6 +1538,7 @@ class StrategyRuntimeStore:
                     identifier,
                 ),
             )
+            return True
 
     def ledger(
         self,
@@ -1567,9 +1678,27 @@ class StrategyRuntimeStore:
 
 def runtime_router(store: StrategyRuntimeStore):
     router = APIRouter(tags=["strategy-runtime"])
+    anchors = StrategyAnchorStore(store)
+    private_runner = PrivateRunnerStore(store)
+
+    @router.post("/api/v1/private-runner/signals")
+    def private_signal(body: PrivateDecision):
+        return private_runner.submit(body)
 
     def owner(request: Request):
         return request.state.user.id
+
+    @router.get("/api/v1/strategy-releases/{identifier}/anchor")
+    def anchor_status(identifier: str, request: Request):
+        return anchors.status(owner(request), identifier)
+
+    @router.post("/api/v1/strategy-releases/{identifier}/anchor/prepare")
+    def anchor_prepare(identifier: str, body: AnchorPrepare, request: Request):
+        return anchors.prepare(owner(request), identifier, body.address)
+
+    @router.post("/api/v1/strategy-releases/{identifier}/anchor/confirm")
+    def anchor_confirm(identifier: str, body: AnchorConfirm, request: Request):
+        return anchors.confirm(owner(request), identifier, body.transaction_hash)
 
     @router.get("/api/v1/strategy-releases")
     def releases(request: Request, mine: bool | None = None):
@@ -1582,6 +1711,13 @@ def runtime_router(store: StrategyRuntimeStore):
         )
         body = ReleaseCreate.model_validate_json(example.read_text())
         return store.create_release(owner(request), body)
+
+    @router.post("/api/v1/strategy-releases/quote-probe", status_code=201)
+    def create_quote_probe(request: Request):
+        example = Path(__file__).resolve().parents[2] / "strategy/examples/quote-probe/release.json"
+        return store.create_release(
+            owner(request), ReleaseCreate.model_validate_json(example.read_text())
+        )
 
     @router.post("/api/v1/strategy-releases", status_code=201)
     def create_release(body: ReleaseCreate, request: Request):
@@ -1671,7 +1807,7 @@ def runtime_router(store: StrategyRuntimeStore):
 
 
 class StrategyRuntimeScheduler:
-    def __init__(self, store: StrategyRuntimeStore, interval_seconds: int = 60):
+    def __init__(self, store: StrategyRuntimeStore, interval_seconds: int = 10):
         self.store = store
         self.interval_seconds = interval_seconds
         self.stop_event = threading.Event()

@@ -530,6 +530,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .runtime-library { padding: 28px; display: grid; gap: 22px; }
+.runtime-anchor { padding: 14px; border: 1px solid var(--border); border-radius: 8px; min-width: 0; }
+.runtime-anchor summary { cursor: pointer; font-weight: 600; }
+.runtime-anchor p { color: var(--muted); line-height: 1.65; font-size: 12px; }
+.runtime-anchor code { display: block; white-space: normal; overflow-wrap: anywhere; font-size: 11px; }
+.runtime-anchor label { display: grid; gap: 6px; margin: 12px 0; font-size: 12px; }
+.runtime-anchor input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--panel); }
+.runtime-anchor button { margin: 4px 6px 4px 0; }
 .runtime-library > header { display: flex; justify-content: space-between; gap: 24px; align-items: start; }
 .runtime-library > header h2 { margin: 4px 0 6px; font-size: 24px; }
 .runtime-library > header em { color: var(--accent); font: 600 11px var(--mono); letter-spacing: .12em; }
@@ -561,3 +568,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .runtime-library > header, .runtime-publisher { display: grid; grid-template-columns: 1fr; }
   .runtime-library > nav { overflow-x: auto; }
 }
+
+.quant-workspace .workspace-navigation [data-tooltip]::after { content: attr(data-tooltip); position: absolute; left: calc(100% + 12px); top: 50%; transform: translateY(-50%); padding: 9px 13px; background: var(--text); color: var(--panel); border-radius: 7px; font-size: 12px; font-weight: 500; white-space: nowrap; pointer-events: none; opacity: 0; visibility: hidden; box-shadow: 0 4px 16px #0002; z-index: 100; }
+.quant-workspace .workspace-navigation [data-tooltip]:is(:hover,:focus-visible)::after { opacity: 1; visibility: visible; }
