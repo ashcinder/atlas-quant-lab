@@ -32,3 +32,6 @@
 **/__pycache__/
 **/*.pyc
 **/.env*
+# Never send compiled local binaries or author packages to image builders.
+deploy/nitro/nsm/target/
+**/*.nitro-package.json

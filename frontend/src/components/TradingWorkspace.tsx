@@ -7,6 +7,7 @@ import DemoAccountSetup from './DemoAccountSetup'
 import './trading.css'
 import './trading-refinement.css'
 import TradingEquityChart from './TradingEquityChart'
+import AtlasWorkspaceBrand from './AtlasWorkspaceBrand'
 
 type Venue = 'binance' | 'okx'
 type Capabilities = { authorized: boolean; user_id: string; venues: { venue: Venue; mode: string; configured: boolean; can_trade: boolean }[] }
@@ -300,6 +301,7 @@ export default function TradingWorkspace() {
     {uncertainOrders.length > 0 && <div className="trade-uncertain" role="alert"><ShieldCheck size={19} /><span><strong>{uncertainOrders.length} 笔订单结果待核实</strong>请先查询状态，不要重复下单。</span><button onClick={() => setView('orders')}>查看委托<ArrowRight size={16} /></button></div>}
     <div className="trade-workbench">
       <aside className="trade-sidebar">
+        <AtlasWorkspaceBrand />
         <nav aria-label="交易账户导航">{([{ id: 'overview', label: '账户概览', Icon: Wallet }, { id: 'strategies', label: '策略运行', Icon: Layers3 }, { id: 'orders', label: '委托记录', Icon: ListOrdered }] as const).map(({ id, label, Icon }) => <button key={id} aria-current={view === id ? 'page' : undefined} onClick={() => setView(id)}><Icon size={18} /><span>{label}</span>{id === 'orders' && uncertainOrders.length > 0 && <small>{uncertainOrders.length}</small>}</button>)}</nav>
         <div className="trade-sidebar-accounts"><h2>交易所账户</h2><div className="trade-venue-switch" role="group" aria-label="选择交易所">{(['binance', 'okx'] as Venue[]).map((item) => {
           const capability = caps?.venues.find((candidate) => candidate.venue === item)

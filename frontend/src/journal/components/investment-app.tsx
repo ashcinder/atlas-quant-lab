@@ -1,4 +1,5 @@
 "use client";
+import AtlasWorkspaceBrand from "../../components/AtlasWorkspaceBrand";
 import LoginScreen from "./LoginScreen";
 import { journalFetch } from "../request";
 import {
@@ -762,18 +763,13 @@ export default function InvestmentApp() {
   return (
     <div className="ledger-shell">
       <aside className={"sidebar" + (mobile ? " mobile-open" : "")}>
-        <div className="brand">
-          <ChartCandlestick size={29} />
-          <div>
-            Atlas<span>资产总览</span>
-          </div>
-        </div>
-        <div className="workspace-label">我的投资空间</div>
-        <nav>
+        <AtlasWorkspaceBrand />
+        <nav aria-label="资产总览导航">
           {navigation.map((n) => (
             <button
               key={n.id}
               onClick={() => navigate(n.id)}
+              aria-current={tab === n.id ? "page" : undefined}
               className={tab === n.id ? "active" : ""}
             >
               <n.icon size={18} />
