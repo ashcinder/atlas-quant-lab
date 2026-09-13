@@ -1,0 +1,21 @@
+{
+  "network": "isolated_local_evm",
+  "chainId": 31337,
+  "supervisor": false,
+  "proofSource": "upstream_official_test_vector",
+  "imageId": "0x11d264ed8dfdee222b820f0278e4d7f55d4b69a5472253a471c102265a91ea1a",
+  "journalDigest": "0x3b8839d29d6fc9286b8f95f9c676ff10c1add3c8bfe3b8d6153be90020ed91be",
+  "verifier": "0x7FC18001e1679918E1C99b046B4068071F86574a",
+  "registry": "0x1b991408C41A0327694081455076b5F6fa9bD1eB",
+  "transactionHash": "0x0db6ad7409e6cec019d29b1a543b7a64326ba51fe6d0a74222709935fb97b0e6",
+  "blockNumber": 3,
+  "gasUsed": "280030",
+  "registryRuntimeCodeHash": "0xa3c5d8969fbcc6e8c83538a26569b743a4174c100c51c4bb104c309af5fa17d9",
+  "cryptographicVerificationOnEVM": true,
+  "rejected": [
+    "corrupted_seal",
+    "wrong_journal",
+    "wrong_image",
+    "duplicate_journal"
+  ]
+}

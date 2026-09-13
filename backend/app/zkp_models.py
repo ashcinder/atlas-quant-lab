@@ -16,7 +16,9 @@ class ZkMetricSet(BaseModel):
     annualized_return_ppm: int = Field(ge=-1_000_000, le=100_000_000)
     max_drawdown_ppm: int = Field(ge=-1_000_000, le=0)
     annualized_volatility_ppm: int = Field(ge=0, le=100_000_000)
-    sharpe_milli: int = Field(ge=-100_000, le=100_000)
+    # Guest emits signed i64. Short, low-volatility periods can legitimately
+    # annualize beyond ±100; acceptance must not truncate a proved statistic.
+    sharpe_milli: int = Field(ge=-(2**63), le=2**63 - 1)
     win_rate_ppm: int = Field(ge=0, le=1_000_000)
     benchmark_return_ppm: int = Field(ge=-1_000_000, le=100_000_000)
     observation_count: int = Field(ge=2, le=20_000)

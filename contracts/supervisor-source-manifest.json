@@ -1,0 +1,26 @@
+{
+  "supervisor/eth_rpc.go": {
+    "original": "6cdf6991cc23ba22473e6565daf5d20395fc9267c302cc1857626c9d9934bbcf",
+    "isolated": "c025b6152763056c63bc01f9feb1e5aa066bf3b6d45ef72bdd69707836509688"
+  },
+  "supervisor/httpfacade.go": {
+    "original": "74ba2274de5e86621f0d6791fefc8be0c9701d8c6fd5ab6bca06550772c28a02",
+    "isolated": "fb11a1900fb63f83175b2385cab7d7179f1bd8db852f2afab7aaed69023e289b"
+  },
+  "supervisor/supervisor.go": {
+    "original": "48072b11cf5b52e8cf7e175c19795df1bb747ced0f200df6bd9fa31adec01663",
+    "isolated": "63afd1c19230fd3ddd9032cdc4e49b9105ca4345540586d9ce3ce74c0f2bf639"
+  },
+  "build/build.go": {
+    "original": "a11677ac120a9ebecf2a07643c2dd2b02625949e37224504cf944aa23bfd7017",
+    "isolated": "2d0bd67fdd5eea5dd68b13b269cda361174326eb2b54578b3f5564e6ebe8dc2e"
+  },
+  "params/global_config.go": {
+    "original": "5b8c77227a409e66f0dbcdf3103b4b899d3b8f1846db88b6e6290164b774a3c5",
+    "isolated": "0b4822e34a11185920839389c5aca415ad35eeeee1376f88e15e0022f65ff2a1"
+  },
+  "vm/contracts.go": {
+    "original": "7473e1f7d42533b65533f5b793b5ca65e250abb4bfd989961706493cc899ded9",
+    "isolated": "3b3df405bc89bdf95bf7aa7dbcc5e7846041b922babd21adbdb248e3a70c9458"
+  }
+}

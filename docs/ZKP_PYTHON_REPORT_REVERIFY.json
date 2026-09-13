@@ -1,0 +1,53 @@
+{
+  "report_id": "qjr_a3d3bf9b1500434cb4",
+  "receipt_hash": "da534370148a34b5d70ce52534b5ca81e96e7bfa3be5aada0bdc71eb1ebb4286",
+  "receipt_hash_valid": true,
+  "attestation_signature_valid": true,
+  "record_integrity_valid": true,
+  "public_curve_integrity_valid": true,
+  "calculation_verified": true,
+  "decision_merkle_root": "330610663b1d8939635fccd6c6647467e555836d659eea4bb81ae0ef2b70f8c7",
+  "strategy_commitment": "a2d465c845b91e426df6925f75a1448b3f649b1c4b304e891c81eee0301e997a",
+  "external_proof": {
+    "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+    "proof_hash": "0a492ab91ef1890b8ee862068326ada89b323230b63b80f2f75f7431eb9efedb",
+    "proof_id": "qzp_52729385dbd7465586",
+    "proof_profile": "atlas_program_backtest_risc0_v2",
+    "proof_type": "zk_stark",
+    "public_inputs_hash": "a41b013b5ff481a686964a79fc2107e99d1d0fb33dd80302eddd1253b4002734",
+    "receipt_kind": "risc0-receipt",
+    "verifier": "risc0-zkvm",
+    "verifier_version": "0.1.0"
+  },
+  "external_proof_verified": true,
+  "verification_claims": {
+    "bounded_program_backtest": true,
+    "arbitrary_python_execution": false,
+    "ai_inference": false,
+    "exchange_data_origin": false,
+    "live_account_returns": false,
+    "confidential_hosting": false,
+    "onchain_zk_verification": false,
+    "anchor_confirmed_by_rpc": false
+  },
+  "zk_proof_id": "qzp_52729385dbd7465586",
+  "evidence_level": "zk_verified",
+  "proof_file_integrity_valid": true,
+  "proof_cryptographic_valid": true,
+  "chain": {
+    "status": "not_anchored",
+    "transaction_hash": null,
+    "block_number": null
+  },
+  "proof_scope": [
+    "ZKP 报告由登记的固定 zkVM 程序执行并验证 receipt；传统报告仍由平台重算",
+    "策略源码、Agent 参数、提示词与原始决策未公开且未持久化",
+    "决策 Merkle 根可证明后续披露的决策属于当时提交集合",
+    "只有 chain.status=confirmed 时才表示回执哈希已在 Supervisor 链确认"
+  ],
+  "limitations": [
+    "只有 evidence_level=zk_verified 且 external_proof_verified=true 才是零知识证明报告",
+    "当前 ZKP profile 覆盖确定性 SMA 和有界整数程序回测；任意 Python、外部 AI 与实盘成交不在证明范围",
+    "Supervisor 当前锚定证明/公开输入/回执/nullifier 哈希，不在链上重新执行 zkVM verifier"
+  ]
+}

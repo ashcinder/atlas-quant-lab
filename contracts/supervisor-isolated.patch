@@ -1,0 +1,75 @@
+--- a/supervisor/eth_rpc.go
++++ b/supervisor/eth_rpc.go
+@@ -123,7 +123,7 @@
+ 		case "eth_sendRawTransaction":
+ 			aaa, e3 := d.eth_sendRawTransaction(request)
+ 			if e3 != nil {
+-				response.Error = aaa
++				response.Error = map[string]interface{}{"code": -32000, "message": e3.Error()}
+ 			} else {
+ 				response.Result = aaa
+ 			}
+@@ -131,7 +131,7 @@
+ 		c.JSON(http.StatusOK, response)
+ 		return
+ 	})
+-	err := http.ListenAndServe(":42515", r)
++	err := http.ListenAndServe(":42516", r)
+ 	if err != nil {
+ 		log.Println(err)
+ 	}
+--- a/supervisor/httpfacade.go
++++ b/supervisor/httpfacade.go
+@@ -987,7 +987,7 @@
+ 	router.GET("get_oldAccount", getOldAccount)
+ 	router.POST("transferToNewAccount", transferToNewAccount)
+ 
+-	err := http.ListenAndServe(":56741", r)
++	err := http.ListenAndServe(":56742", r)
+ 	if err != nil {
+ 		fmt.Println(err)
+ 	}
+--- a/supervisor/supervisor.go
++++ b/supervisor/supervisor.go
+@@ -311,7 +311,7 @@
+ 	}
+ }
+ func (d *Supervisor) TcpListen2() {
+-	ln, err := net.Listen("tcp", "0.0.0.0:56743")
++	ln, err := net.Listen("tcp", "0.0.0.0:56744")
+ 	if err != nil {
+ 		log.Panic(err)
+ 	}
+--- a/build/build.go
++++ b/build/build.go
+@@ -37,7 +37,7 @@
+ 	// Read the contents of ipTable.json
+ 	ipMap := readIpTable("./ipTable.json")
+ 	params.IPmap_nodeTable = ipMap
+-	params.SupervisorAddr = "127.0.0.1:38800"
++	params.SupervisorAddr = "127.0.0.1:38801"
+ 
+ 	// check the correctness of params
+ 	//if len(ipMap)-1 < int(snm) {
+--- a/params/global_config.go
++++ b/params/global_config.go
+@@ -38,7 +38,7 @@
+ 	LogWrite_path      = ExpDataRootDir + "/log"       // Log output path
+ 	DatabaseWrite_path = ExpDataRootDir + "/database/" // database write path
+ 
+-	SupervisorAddr = "127.0.0.1:38800"        // Supervisor ip address
++	SupervisorAddr = "127.0.0.1:38801"        // Supervisor ip address
+ 	DatasetFile    = `./selectedTxs_300K.csv` // The raw BlockTransaction data path
+ 
+ 	ReconfigTimeGap = 50 // The time gap between epochs. This variable is only used in CLPA / CLPA_Broker now.
+--- a/vm/contracts.go
++++ b/vm/contracts.go
+@@ -159,7 +159,7 @@
+ }
+ 
+ func activePrecompiledContracts(rules params.Rules) PrecompiledContracts {
+-	return PrecompiledContractsHomestead
++	return PrecompiledContractsByzantium
+ 	//switch {
+ 	//case rules.IsVerkle:
+ 	//	return PrecompiledContractsVerkle

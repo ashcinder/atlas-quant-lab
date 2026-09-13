@@ -1,0 +1,64 @@
+{
+  "chainId": 1051,
+  "rpc": "http://127.0.0.1:42516",
+  "deployer": "0xCF84c0dD3FDc25A74b58fa1328C3717Ef51c1e18",
+  "contracts": {
+    "RiscZeroGroth16Verifier": {
+      "address": "0xc375c2a1925377ef55149bb7a3c54e35ecd2d5bd",
+      "transactionHash": "0xb2961b12849811ddca4e2889d6b597fd710ad2127ad1c04f67fd4cd861e1590b",
+      "blockNumber": "0x1",
+      "runtimeCodeHash": "0x54a6f2c934377e6f203114d00e83997ebd4f0a6ffb1ebad5558bdfdad0233246"
+    },
+    "AtlasReceiptRegistry": {
+      "address": "0x7069968d85263366c69e7a61390f1b40ac59c160",
+      "transactionHash": "0x655c70d88122962b21ffa85ec061f57ebf42e476b6c13cade7d30723e773bd2d",
+      "blockNumber": "0x2",
+      "runtimeCodeHash": "0xf9a629410467c638625f4aaa0ebc1fecb2dcf552699b49bfc9ff5f05b7daa392"
+    }
+  },
+  "strategyProofVerified": true,
+  "acceptance": {
+    "network": "isolated_supervisor",
+    "chainId": 1051,
+    "rpc": "http://127.0.0.1:42516",
+    "imageId": "0x02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+    "journalDigest": "0x4874ba0ceb897358ec0a6c426abaae6d7ee200784220a49cee4659d65a232116",
+    "verifier": "0xc375c2a1925377ef55149bb7a3c54e35ecd2d5bd",
+    "registry": "0x7069968d85263366c69e7a61390f1b40ac59c160",
+    "transactionHash": "0xf0625b5427646e4c67418796797c04cb0915fa4aaf4f4417f2767a01b1d8e11e",
+    "blockNumber": "0x6",
+    "gasUsed": "0xbbfa0",
+    "cryptographicVerificationOnSupervisor": true,
+    "proofSource": "atlas_private_program_receipt",
+    "reportId": "qjr_a3d3bf9b1500434cb4",
+    "scope": "bounded_program_backtest",
+    "liveProfitProved": false,
+    "AIExecutionProved": false,
+    "checks": [
+      {
+        "name": "corrupted_seal",
+        "rpcCode": -32000,
+        "result": "execution reverted",
+        "transactionHash": null
+      },
+      {
+        "name": "wrong_journal",
+        "rpcCode": -32000,
+        "result": "execution reverted",
+        "transactionHash": null
+      },
+      {
+        "name": "wrong_image",
+        "rpcCode": -32000,
+        "result": "execution reverted",
+        "transactionHash": null
+      },
+      {
+        "name": "duplicate_journal",
+        "rpcCode": -32000,
+        "result": "execution reverted",
+        "transactionHash": null
+      }
+    ]
+  }
+}

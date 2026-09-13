@@ -160,7 +160,17 @@ def test_verified_receipt_publishes_without_private_witness(tmp_path):
     assert verification["external_proof_verified"] is True
     assert verification["proof_file_integrity_valid"] is True
     assert verification["proof_cryptographic_valid"] is True
+    assert verification['public_curve_integrity_valid'] is True
+    claims = verification['verification_claims']
+    assert claims['bounded_program_backtest'] is True
+    assert not any(value for key, value in claims.items() if key != 'bounded_program_backtest')
     assert "strategy_salt" not in json.dumps(proof)
+
+    with quant._connect() as connection:
+        connection.execute('UPDATE qj_reports SET curve_json = ? WHERE id = ?', ('[]', report['id']))
+    tampered = quant.verify_report(report['id'], refresh_chain=False)
+    assert tampered['public_curve_integrity_valid'] is False
+    assert tampered['verification_claims']['bounded_program_backtest'] is False
 
 
 def test_proof_and_nullifier_cannot_be_replayed(tmp_path):
