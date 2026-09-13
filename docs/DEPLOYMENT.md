@@ -23,6 +23,8 @@ docker compose ps
 
 浏览器访问 `http://127.0.0.1:8080`。可选配置见根目录 `.env.example`；默认无需创建 `.env`。只有前端映射到 `127.0.0.1`，后端不发布端口，浏览器通过同源 `/api` 访问 API。不要把绑定地址改成 `0.0.0.0` 来绕过认证边界。
 
+首次创建本机账号。数据卷同时保存账本数据库和 `.session-secret` 会话密钥；容器重建后保留登录与历史数据。若调整 `ATLAS_HTTP_PORT` 或经 HTTPS 代理访问，请同时核对 `ATLAS_ALLOWED_ORIGINS`；不要无条件信任公网转发头。当前只有 `compose.yaml` 的 api/web 双服务入口，旧 `main` 根 Dockerfile 已被统一替代。
+
 ```bash
 curl --fail http://127.0.0.1:8080/healthz
 curl --fail http://127.0.0.1:8080/api/v1/health

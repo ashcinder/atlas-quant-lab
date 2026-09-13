@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState } from 'react'
 import { AlertTriangle, BarChart3, ChevronDown, ChevronUp, ListOrdered, Maximize2, Minimize2, ShieldAlert } from 'lucide-react'
+import './results-refinement.css'
 import { formatMoney, formatNumber, formatPercent } from '../format'
 import type { ResultsPanelMode } from '../storage'
 import type { BacktestResult, PortfolioResult } from '../types'

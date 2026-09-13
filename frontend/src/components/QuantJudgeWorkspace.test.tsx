@@ -51,17 +51,21 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 async function openMarket() {
   render(<QuantJudgeWorkspace onError={vi.fn()} onOpenLab={vi.fn()} />)
-  await screen.findByRole('button', { name: /Alpha Strategy/ })
+  expect(screen.getByRole('button', { name: '可运行策略' }).getAttribute('aria-pressed')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: '策略排行' }))
+  expect((screen.getByLabelText('证据筛选') as HTMLSelectElement).value).toBe('real')
+  fireEvent.change(screen.getByLabelText('证据筛选'), { target: { value: 'all' } })
+  await screen.findByRole('button', { name: /Alpha Strategy/ }, { timeout: 5000 })
 }
 
 describe('QuantJudge evidence and navigation', () => {
   it('keeps keyboard focus in the publish dialog and restores it on Escape', async () => {
     await openMarket()
-    const trigger = screen.getByRole('button', { name: '发布 Agent' })
+    const trigger = screen.getByRole('button', { name: '创建策略身份' })
     trigger.focus()
     fireEvent.click(trigger)
-    expect(document.activeElement).toBe(screen.getByLabelText('Agent 名称'))
-    const close = screen.getByRole('button', { name: '关闭发布窗口' })
+    expect(document.activeElement).toBe(screen.getByLabelText('策略名称'))
+    const close = screen.getByRole('button', { name: '关闭创建窗口' })
     close.focus()
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
     expect(document.activeElement?.textContent).toBe('取消')

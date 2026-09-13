@@ -1,4 +1,5 @@
 "use client";
+import AtlasWorkspaceBrand from "../../components/AtlasWorkspaceBrand";
 import LoginScreen from "./LoginScreen";
 import { journalFetch } from "../request";
 import {
@@ -50,6 +51,8 @@ import {
 } from "lucide-react";
 import { prepareAccountImage } from "@/journal/lib/account-image";
 import PortfolioOcrForm from "@/journal/components/portfolio-ocr-form";
+import StrategyAssetsSummary from "@/journal/components/strategy-assets-summary";
+import TradingAssetsPanel from "@/journal/components/trading-assets-panel";
 import { Button } from "@/journal/components/ui/button";
 import {
   Table,
@@ -129,6 +132,7 @@ type Tab =
   | "plans"
   | "journal"
   | "analysis"
+  | "trading"
   | "settings";
 const navigation = [
   { id: "overview", label: "资产总览", icon: LayoutDashboard },
@@ -136,6 +140,7 @@ const navigation = [
   { id: "plans", label: "定投计划", icon: CalendarDays },
   { id: "journal", label: "投资手账", icon: BookOpen },
   { id: "analysis", label: "收益分析", icon: ChartNoAxesCombined },
+  { id: "trading", label: "自动交易账本", icon: ChartCandlestick },
   { id: "settings", label: "偏好设置", icon: Settings },
 ] as const;
 type Modal =
@@ -282,6 +287,9 @@ export default function InvestmentApp() {
   const [passwordAuth, setPasswordAuth] = useState(false);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
+  useEffect(() => {
+    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Atlas`;
+  }, [tab]);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -426,12 +434,12 @@ export default function InvestmentApp() {
   }
   useEffect(() => {
     const task = setTimeout(() => void load(), 0);
-    const hash = window.location.hash.split("/")[2] ?? "overview";
+    const hash = window.location.hash.split("/")[2]?.split("?")[0] ?? "overview";
     queueMicrotask(() => {
       if (navigation.some((n) => n.id === hash)) setTab(hash as Tab);
     });
     const onHashChange = () => {
-      const next = window.location.hash.split("/")[2];
+      const next = window.location.hash.split("/")[2]?.split("?")[0];
       if (navigation.some((item) => item.id === next)) {
         setTab(next as Tab);
         setDetailId(null);
@@ -755,18 +763,13 @@ export default function InvestmentApp() {
   return (
     <div className="ledger-shell">
       <aside className={"sidebar" + (mobile ? " mobile-open" : "")}>
-        <div className="brand">
-          <ChartCandlestick size={29} />
-          <div>
-            Atlas<span>资产账本</span>
-          </div>
-        </div>
-        <div className="workspace-label">我的投资空间</div>
-        <nav>
+        <AtlasWorkspaceBrand />
+        <nav aria-label="资产总览导航">
           {navigation.map((n) => (
             <button
               key={n.id}
               onClick={() => navigate(n.id)}
+              aria-current={tab === n.id ? "page" : undefined}
               className={tab === n.id ? "active" : ""}
             >
               <n.icon size={18} />
@@ -778,7 +781,7 @@ export default function InvestmentApp() {
           ))}
         </nav>
         <div className="sidebar-note">
-          
+
           <p>
             让时间，
             <br />
@@ -873,7 +876,7 @@ export default function InvestmentApp() {
               }
             >
               <div>
-                
+
                 <h1>每一笔投入，都有回响。</h1>
               </div>
             </div>
@@ -894,7 +897,7 @@ export default function InvestmentApp() {
           <div className="page">
             <div className="page-heading">
               <div>
-                
+
                 <h1>
                   {
                     {
@@ -903,6 +906,7 @@ export default function InvestmentApp() {
                       plans: "把坚持，写进日历",
                       journal: "记录每一步投资",
                       analysis: "让收益，有据可循",
+                      trading: "让每笔成交，都能追溯",
                       settings: "你的账本，你来定义",
                     }[tab]
                   }
@@ -916,6 +920,7 @@ export default function InvestmentApp() {
                       plans: "小步投入，让长期计划照常发生。",
                       journal: "留下数字，也留下当时的思考。",
                       analysis: "剔除资金进出，认真看待真实回报。",
+                      trading: "从策略版本，到信号、成交与资产净值。",
                       settings: "管理汇率、交易日历与属于你的数据。",
                     }[tab]
                   }
@@ -938,7 +943,7 @@ export default function InvestmentApp() {
                     </button>
                   </div>
                 )}
-                <Button
+                {tab !== "trading" && <Button
                   className="primary-button"
                   onClick={() =>
                     setModal(
@@ -960,15 +965,16 @@ export default function InvestmentApp() {
                       : tab === "journal" && journalTab === "notes"
                         ? "写手记"
                         : "记一笔"}
-                </Button>
+                </Button>}
               </div>
             </div>
             {tab === "overview" && (
               <>
+                <StrategyAssetsSummary />
                 <div className="stats-grid">
                   <section className="stat-card total-card">
                     <div className="stat-label">
-                      总资产 <Wallet size={16} />
+                      手工记录资产 <Wallet size={16} />
                     </div>
                     <div className="hero-number">
                       {money(totals.value, currency).split(".")[0]}
@@ -2424,6 +2430,7 @@ export default function InvestmentApp() {
                 </div>
               </>
             )}
+            {tab === "trading" && <TradingAssetsPanel />}
             {tab === "settings" && (
               <>
                 <SettingsPanel

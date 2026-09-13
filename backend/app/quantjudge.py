@@ -279,6 +279,10 @@ class QuantJudgeStore:
                 "ON qj_subscriptions(owner_id, created_at DESC)"
             )
 
+            subscription_columns = {row["name"] for row in connection.execute("PRAGMA table_info(qj_subscriptions)")}
+            if "owner_id" not in subscription_columns:
+                connection.execute("ALTER TABLE qj_subscriptions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'local'")
+
     def bind_proof_store(self, proof_store: ZkProofStore) -> None:
         self.proof_store = proof_store
 
@@ -342,6 +346,28 @@ class QuantJudgeStore:
         )
         return round(max(0, min(100, 48 + sharpe * 10 + annualized * 12 - drawdown * 35 + evidence)), 1)
 
+    def _curve_integrity(self, row: sqlite3.Row, payload: dict) -> bool | None:
+        expected = payload.get('public_curve_hash')
+        if not isinstance(expected, str):
+            return None
+        if not row['zk_proof_id']:
+            return hmac.compare_digest(expected, sha256_hex(row['curve_json']))
+        # v2 receipts commit the guest's integer ATLASCURVE1 encoding, not
+        # display JSON. Also bind the stored display values to that statement.
+        with self._connect() as connection:
+            proof = connection.execute('SELECT public_statement_json FROM qj_zk_proofs WHERE id = ?',
+                                       (row['zk_proof_id'],)).fetchone()
+        if proof is None:
+            return False
+        try:
+            statement = ZkPublicStatement.model_validate_json(proof['public_statement_json'])
+            display = canonical_json([point.as_public_point() for point in statement.public_curve])
+            return (hmac.compare_digest(expected, statement.curve_commitment())
+                    and hmac.compare_digest(expected, statement.equity_curve_hash)
+                    and display == row['curve_json'])
+        except (ValueError, TypeError):
+            return False
+
     def _report_public(self, row: sqlite3.Row) -> dict[str, Any]:
         payload = json_object(row["receipt_payload_json"])
         receipt_integrity = all(
@@ -354,12 +380,7 @@ class QuantJudgeStore:
             ]
         )
         curve = json_list(row["curve_json"])
-        expected_curve_hash = payload.get("public_curve_hash")
-        curve_integrity = (
-            hmac.compare_digest(expected_curve_hash, sha256_hex(row["curve_json"]))
-            if isinstance(expected_curve_hash, str)
-            else None
-        )
+        curve_integrity = self._curve_integrity(row, payload)
         metrics = payload.get("metrics", {}) if receipt_integrity else {}
         external = payload.get("external_proof") if receipt_integrity else None
         zk_verified = bool(row["zk_proof_id"]) and row["evidence_level"] == "zk_verified"
@@ -684,12 +705,7 @@ class QuantJudgeStore:
                 payload.get("previous_receipt_hash") == row["previous_receipt_hash"],
             ]
         )
-        expected_curve_hash = payload.get("public_curve_hash")
-        curve_integrity_valid = (
-            hmac.compare_digest(expected_curve_hash, sha256_hex(row["curve_json"]))
-            if isinstance(expected_curve_hash, str)
-            else None
-        )
+        curve_integrity_valid = self._curve_integrity(row, payload)
         chain_result: dict[str, Any] = {
             "status": row["chain_status"],
             "transaction_hash": row["chain_tx_hash"],
@@ -786,6 +802,20 @@ class QuantJudgeStore:
             "strategy_commitment": payload.get("strategy_commitment", ""),
             "external_proof": external,
             "external_proof_verified": external_verified,
+            # Keep computation, provenance and hosting separate. A receipt or
+            # hash anchor cannot silently upgrade these independent claims.
+            "verification_claims": {
+                "bounded_program_backtest": bool(external_verified and hash_valid
+                    and signature_valid and record_integrity_valid and curve_integrity_valid),
+                "arbitrary_python_execution": False,
+                "ai_inference": False,
+                "exchange_data_origin": False,
+                "live_account_returns": False,
+                "confidential_hosting": False,
+                "onchain_zk_verification": False,
+                "anchor_confirmed_by_rpc": chain_result.get("status") == "confirmed"
+                    and chain_result.get("payload_matches") is True,
+            },
             "zk_proof_id": row["zk_proof_id"],
             "evidence_level": row["evidence_level"],
             "proof_file_integrity_valid": proof_file_valid if row["zk_proof_id"] else None,
@@ -802,7 +832,7 @@ class QuantJudgeStore:
             "limitations": [
                 "只有 evidence_level=zk_verified 且 external_proof_verified=true "
                 "才是零知识证明报告",
-                "当前 ZKP profile 仅覆盖确定性 SMA 回测；任意 Python、外部 AI "
+                "当前 ZKP profile 覆盖确定性 SMA 和有界整数程序回测；任意 Python、外部 AI "
                 "与实盘成交不在证明范围",
                 "Supervisor 当前锚定证明/公开输入/回执/nullifier 哈希，"
                 "不在链上重新执行 zkVM verifier",

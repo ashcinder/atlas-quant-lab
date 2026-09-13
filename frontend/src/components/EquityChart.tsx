@@ -1,7 +1,9 @@
+import { chartTheme } from '../theme'
 import { memo, useEffect, useRef } from 'react'
-import { ColorType, createChart, HistogramSeries, LineSeries, type UTCTimestamp } from 'lightweight-charts'
+import { ColorType, createChart, AreaSeries, LineSeries, type UTCTimestamp } from 'lightweight-charts'
 import { formatNumber, formatPercent } from '../format'
 import type { EquityPoint } from '../types'
+import { bindChartTheme } from '../chartTheme'
 
 export const EquityChart = memo(function EquityChart({ points }: { points: EquityPoint[] }) {
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -12,26 +14,30 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     const container = canvasRef.current
     const wrap = wrapRef.current
     if (!container || !wrap || points.length === 0) return
+    const theme = chartTheme()
     const chart = createChart(container, {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: '#111821' },
-        textColor: '#8b98a8',
-        panes: { separatorColor: '#253140', separatorHoverColor: '#39485b', enableResize: true },
+        background: { type: ColorType.Solid, color: theme.background },
+        textColor: theme.text, fontSize: 11,
+        panes: { separatorColor: theme.border, separatorHoverColor: theme.text, enableResize: true },
         attributionLogo: false,
       },
-      grid: { vertLines: { color: 'rgba(37,49,64,.35)' }, horzLines: { color: 'rgba(37,49,64,.45)' } },
-      rightPriceScale: { borderColor: '#253140' },
-      timeScale: { borderColor: '#253140', timeVisible: true },
+      grid: { vertLines: { visible: false }, horzLines: { color: theme.border } },
+      rightPriceScale: { borderColor: theme.border },
+      timeScale: { borderColor: theme.border, timeVisible: true },
     })
-    const equity = chart.addSeries(LineSeries, { color: '#22c7a9', lineWidth: 2, priceLineVisible: false }, 0)
-    const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false }, 0)
-    const drawdown = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'percent' } }, 1)
+    const releaseTheme = bindChartTheme(chart)
+    const equity = chart.addSeries(AreaSeries, { lineColor: theme.accent, topColor: 'rgba(8,126,120,.16)', bottomColor: 'rgba(8,126,120,.01)', lineWidth: 2, priceLineVisible: false, lastValueVisible: false }, 0)
+    const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, 0)
+    const drawdown = chart.addSeries(AreaSeries, { lineColor: '#d95d73', topColor: 'rgba(217,93,115,.04)', bottomColor: 'rgba(217,93,115,.22)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'percent' } }, 1)
     equity.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.equity })))
     benchmark.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.benchmark })))
-    drawdown.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.drawdown * 100, color: 'rgba(255,90,103,.55)' })))
+    drawdown.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.drawdown * 100 })))
+    equity.priceScale().applyOptions({ scaleMargins: { top: .24, bottom: .08 } })
+    drawdown.priceScale().applyOptions({ scaleMargins: { top: .3, bottom: .06 } })
     const panes = chart.panes()
-    panes[0]?.setStretchFactor(2)
+    panes[0]?.setStretchFactor(3)
     panes[1]?.setStretchFactor(1)
     const syncCaptions = () => {
       const wrapTop = wrap.getBoundingClientRect().top
@@ -52,6 +58,7 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     return () => {
       resizeObserver.disconnect()
       container.removeEventListener('pointerup', syncCaptions)
+      releaseTheme()
       chart.remove()
     }
   }, [points])

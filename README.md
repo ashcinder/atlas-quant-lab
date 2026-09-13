@@ -8,6 +8,8 @@ Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人�
 
 > 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。
 
+> `QuantJudge` 分支新增测试账户自动执行、真实规则测试样例与账户估值；操作和未完成项见 [模拟交易验收说明](docs/QUANTJUDGE_DEMO_ACCEPTANCE.md)。
+
 ## 核心能力
 
 - 多资产：加密货币、A/H 股、美股、ETF、指数、外汇和商品。
@@ -93,7 +95,7 @@ npm run dev
 
 ```
 
-访问 `http://localhost:5173`，首次使用点击“创建账号”。前端通过 Vite 代理访问同源 `/api/*`，后端运行于 `8000` 端口。
+建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。依赖安装后也可在仓库根目录运行 `bash scripts/dev.sh` 同时启动两个服务。
 
 安装完成后，也可在项目根目录运行 `./scripts/dev.sh` 同时启动前后端。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
 
@@ -101,7 +103,7 @@ npm run dev
 
 ```bash
 cd backend && .venv/bin/pytest
-cd frontend && npm test && npm run build
+cd frontend && pnpm test && pnpm build
 ```
 
 页面中的 K 线使用标的原始报价币种。顶部“组合基准币种”仅用于多资产组合回测的历史汇率换算。`演示数据` 必须手动选择，适合离线体验与测试，不代表真实市场。

@@ -6,6 +6,12 @@ import './workspace.css'
 import './operations.css'
 import './journal/styles/journal.css'
 import './shell.css'
+import './theme.css'
+import './terminal-density.css'
+import './workspace-unified.css'
+import { applyAppearance } from './components/AppearanceSettings'
+
+applyAppearance()
 
 // The app is normally run through Vite on a personal workstation. Rendering
 // once avoids React's development-only double data fetch while preserving the

@@ -1,3 +1,4 @@
+import { chartTheme } from '../theme'
 import { userStorageKey } from '../storage'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Eye, EyeOff, Pause, Play, RotateCcw, StepForward, X } from 'lucide-react'
@@ -16,6 +17,7 @@ import {
 } from 'lightweight-charts'
 import type { Bar, IndicatorPoint, Interval, Trade } from '../types'
 import { formatNumber } from '../format'
+import { bindChartTheme } from '../chartTheme'
 
 interface Props {
   bars: Bar[]
@@ -66,22 +68,23 @@ function axisTime(time: Time, tickMarkType: TickMarkType, interval: Interval) {
 }
 
 function chartOptions(interval: Interval) {
+  const theme = chartTheme()
   return {
     autoSize: true,
     layout: {
-    background: { type: ColorType.Solid, color: '#0b0f14' },
-    textColor: '#8b98a8',
+    background: { type: ColorType.Solid, color: theme.background },
+    textColor: theme.text, fontSize: 13,
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    panes: { separatorColor: '#253140', separatorHoverColor: '#39485b', enableResize: true },
+    panes: { separatorColor: theme.border, separatorHoverColor: theme.text, enableResize: true },
     attributionLogo: false,
     },
     grid: {
-      vertLines: { color: 'rgba(37, 49, 64, 0.42)' },
-      horzLines: { color: 'rgba(37, 49, 64, 0.52)' },
+      vertLines: { color: theme.border },
+      horzLines: { color: theme.border },
     },
-    rightPriceScale: { borderColor: '#253140', minimumWidth: 104, ticksVisible: true },
+    rightPriceScale: { borderColor: theme.border, minimumWidth: 104, ticksVisible: true },
     timeScale: {
-      borderColor: '#314052', borderVisible: true, ticksVisible: true, minimumHeight: 32,
+      borderColor: theme.border, borderVisible: true, ticksVisible: true, minimumHeight: 32,
       visible: true, timeVisible: true, secondsVisible: false, rightOffset: 8,
       tickMarkFormatter: (time: Time, type: TickMarkType) => axisTime(time, type, interval),
     },
@@ -191,6 +194,10 @@ export const TradingChart = memo(function TradingChart({
     const container = containerRef.current
     if (!container) return
     const chart = createChart(container, chartOptions(interval))
+    const releaseTheme = bindChartTheme(chart)
+    let updateLineTheme = () => {}
+    const refreshLineTheme = () => updateLineTheme()
+    window.addEventListener('atlas-appearance-change', refreshLineTheme)
     let setMainData: (nextBars: Bar[]) => void
     let setMarkers: (markers: SeriesMarker<Time>[]) => void
 
@@ -206,8 +213,9 @@ export const TradingChart = memo(function TradingChart({
       })))
       setMarkers = (markers) => markerPlugin.setMarkers(markers)
     } else {
-      const series = chart.addSeries(LineSeries, { color: '#e6edf5', lineWidth: 2, priceLineVisible: true }, 0)
+      const series = chart.addSeries(LineSeries, { color: chartTheme().foreground, lineWidth: 2, priceLineVisible: true }, 0)
       const markerPlugin = createSeriesMarkers(series, [], { autoScale: true })
+      updateLineTheme = () => series.applyOptions({ color: chartTheme().foreground })
       setMainData = (nextBars) => series.setData(nextBars.map((bar) => ({
         time: bar.time as UTCTimestamp, value: bar.close,
       })))
@@ -344,6 +352,8 @@ export const TradingChart = memo(function TradingChart({
       chart.timeScale().unsubscribeVisibleTimeRangeChange(syncVisibleTime)
       chart.unsubscribeCrosshairMove(syncCrosshairTime)
       bindingRef.current = null
+      window.removeEventListener('atlas-appearance-change', refreshLineTheme)
+      releaseTheme()
       chart.remove()
     }
   }, [bindingKey, chartType, interval, showMacd, showVolume, visibleIndicators])

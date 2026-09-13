@@ -6,20 +6,24 @@ from datetime import UTC
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.demo_accounts_api import router as demo_accounts_router
 from app.auth import parse_session
+from app.exchange_accounts import router as exchange_account_router
+from fastapi.exceptions import RequestValidationError
 from app.backtest import run_backtest, run_portfolio_backtest
 from app.catalog import search_assets
 from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, STATIC_DIR
 from app.data import MarketDataService
 from app.data.providers import ProviderError
+from app.execution_api import execution_router
 from app.fundamentals import FundamentalsService
 from app.indicators import calculate_indicators, serialize_indicators
+from app.journal.router import _origin_ok
 from app.journal.router import router as journal_router
 from app.journal.router import store as journal_store
-from app.journal.router import _origin_ok
 from app.journal.scheduler import JournalScheduler
 from app.models import (
     AlertNotification,
@@ -76,7 +80,10 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
-from app.execution_api import execution_router
+from app.strategy_code_api import router as strategy_code_router
+from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
+from app.trading_api import ManualTradeSyncScheduler, router as trading_router
+from app.strategy_runtime import StrategyRuntimeScheduler, StrategyRuntimeStore, runtime_router
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -90,13 +97,20 @@ zk_proof_store = ZkProofStore()
 quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
 strategy_project_store = StrategyProjectStore()
+strategy_runtime_store = StrategyRuntimeStore(data_service)
+strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
+manual_trade_sync_scheduler = ManualTradeSyncScheduler()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     alert_monitor.start()
     journal_scheduler.start()
+    strategy_runtime_scheduler.start()
+    manual_trade_sync_scheduler.start()
     yield
+    manual_trade_sync_scheduler.stop()
+    strategy_runtime_scheduler.stop()
     alert_monitor.stop()
     journal_scheduler.stop()
     research_service.shutdown()
@@ -111,6 +125,12 @@ app = FastAPI(
 )
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(execution_router(strategy_studio_store, zk_proof_store))
+app.include_router(strategy_code_router)
+app.include_router(cloud_ai_router)
+app.include_router(exchange_account_router)
+app.include_router(trading_router)
+app.include_router(demo_accounts_router(strategy_runtime_store))
+app.include_router(runtime_router(strategy_runtime_store))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -126,6 +146,12 @@ async def invalid_json(_request, _error):
     return JSONResponse({"error": "请求 JSON 格式无效"}, status_code=400)
 
 
+@app.exception_handler(RequestValidationError)
+async def invalid_request_fields(_request, error):
+    # Pydantic errors contain raw input by default, including submitted keys.
+    return JSONResponse({"detail": [{"loc": list(item["loc"]), "msg": item["msg"], "type": item["type"]} for item in error.errors()]}, status_code=422)
+
+
 @app.exception_handler(ValueError)
 async def invalid_value(_request, error):
     return JSONResponse({"error": str(error)}, status_code=400)
@@ -137,6 +163,7 @@ async def require_atlas_user(request: Request, call_next):
         request.method != "OPTIONS"
         and request.url.path.startswith("/api/v1/")
         and request.url.path != "/api/v1/health"
+        and not (request.method == "POST" and request.url.path == "/api/v1/private-runner/signals")
     ):
         if not _origin_ok(request):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)
@@ -144,11 +171,18 @@ async def require_atlas_user(request: Request, call_next):
         if user is None:
             return JSONResponse({"error": "需要登录"}, status_code=401, headers={"X-Atlas-Session-Required": "1"})
         request.state.user = user
-    if request.url.path.startswith('/api/') and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+    retired_package_upload = request.method == 'POST' and re.fullmatch(
+        r'/api/v1/quantjudge/agents/[^/]+/packages', request.url.path
+    ) is not None
+    if (
+        request.url.path.startswith('/api/')
+        and request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}
+        and not retired_package_upload
+    ):
         if not _origin_ok(request):
             return JSONResponse({"error": "来源不被允许"}, status_code=403)
         multipart_upload = request.method == 'POST' and re.fullmatch(
-            r'/api/v1/quantjudge/agents/[^/]+/(packages|zk-proofs)', request.url.path
+            r'/api/v1/quantjudge/agents/[^/]+/zk-proofs', request.url.path
         ) is not None
         content_type = request.headers.get('content-type', '').split(';')[0].strip()
         body_limit = MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000
@@ -161,10 +195,10 @@ async def require_atlas_user(request: Request, call_next):
             return JSONResponse({"error": "请使用 application/json"}, status_code=415)
         request._body = bytes(body)
     response = await call_next(request)
-    if request.url.path.startswith('/api/'):
-        response.headers['Cache-Control'] = 'no-store'
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Referrer-Policy'] = 'same-origin'
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
     return response
 
 
@@ -244,7 +278,8 @@ def create_backtest(request: BacktestRequest, http_request: Request):
             request.adjustment,
             request.data_source,
         )
-        result = run_backtest(request, bundle)
+        cloud_config = cloud_ai_config(http_request) if request.execution_pipeline and any(stage.enabled for stage in request.execution_pipeline.ai_stages) else None
+        result = run_backtest(request, bundle, supplied_ai_guard=CloudGuard(cloud_config) if cloud_config else None)
     except (ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.persist:
@@ -563,8 +598,7 @@ def create_zkp_market_dataset(
             "dataset": dataset,
             "download_url": f"/api/v1/quantjudge/zkp/market-datasets/{record['market_data_hash']}",
             "limitation": (
-                "市场数据根由平台从公开数据源获取并登记；"
-                "当前数据源未提供可独立验证的签名。"
+                "市场数据根由平台从公开数据源获取并登记；当前数据源未提供可独立验证的签名。"
             ),
         }
     except ProviderError as exc:
@@ -601,9 +635,7 @@ async def upload_zk_proof(
 ):
     receipt = await file.read(MAX_RECEIPT_BYTES + 1)
     try:
-        return zk_proof_store.register_receipt(
-            agent_id, proof_profile, receipt, developer_token
-        )
+        return zk_proof_store.register_receipt(agent_id, proof_profile, receipt, developer_token)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
     except PermissionError as exc:
@@ -648,9 +680,7 @@ def publish_zkp_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.publish_zk_report(
-            agent_id, request.proof_id, developer_token
-        )
+        return quantjudge_store.publish_zk_report(agent_id, request.proof_id, developer_token)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 或 ZKP 证明不存在") from exc
     except PermissionError as exc:
@@ -674,7 +704,9 @@ def anchor_quant_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.submit_anchor(report_id, request.signed_raw_transaction, developer_token)
+        return quantjudge_store.submit_anchor(
+            report_id, request.signed_raw_transaction, developer_token
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="证明回执不存在") from exc
     except PermissionError as exc:
@@ -690,7 +722,9 @@ def attach_quant_report_transaction(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.attach_transaction(report_id, request.transaction_hash, developer_token)
+        return quantjudge_store.attach_transaction(
+            report_id, request.transaction_hash, developer_token
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="证明回执不存在") from exc
     except PermissionError as exc:

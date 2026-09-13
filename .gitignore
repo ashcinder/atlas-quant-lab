@@ -21,3 +21,5 @@ coverage/
 .artifacts/
 output/playwright/
 atlas-backup-*/
+deploy/nitro/nsm/target/
+*.nitro-package.json

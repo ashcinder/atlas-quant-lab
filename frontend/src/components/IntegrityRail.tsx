@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, Clock3, Database, FlaskConical, ReceiptText } from 'lucide-react'
 
 interface Props {
+  compact?: boolean
   dataSource?: string
   tradeCount?: number
   hasResult: boolean
@@ -16,7 +17,7 @@ function formatBarTime(time?: number) {
   }).format(new Date(time * 1000))}`
 }
 
-export function IntegrityRail({ dataSource, tradeCount = 0, hasResult, warningCount = 0, isStale = false, lastBarTime }: Props) {
+export function IntegrityRail({ compact = false, dataSource, tradeCount = 0, hasResult, warningCount = 0, isStale = false, lastBarTime }: Props) {
   const isDemo = dataSource?.startsWith('demo') ?? false
   const sourceLabel = isDemo
     ? '演示数据（非真实行情）'
@@ -32,12 +33,14 @@ export function IntegrityRail({ dataSource, tradeCount = 0, hasResult, warningCo
     { icon: Clock3, label: formatBarTime(lastBarTime), state: lastBarTime ? (isStale ? 'warn' : 'ok') : 'idle' },
     { icon: FlaskConical, label: hasResult ? `${tradeCount} 笔成交` : '等待回测', state: hasResult && tradeCount < 30 ? 'warn' : hasResult ? 'ok' : 'idle' },
   ]
+  const visibleItems = compact ? items.slice(2, 4) : items
   return (
-    <div className="integrity-rail">
-      <span className="rail-title">回测可信度</span>
-      {items.map(({ icon: Icon, label, state }) => (
+    <div className={`integrity-rail ${compact ? 'is-compact' : ''}`}>
+      <span className="rail-title">{compact ? '研究数据' : '回测可信度'}</span>
+      {visibleItems.map(({ icon: Icon, label, state }) => (
         <span className={`rail-item ${state}`} key={label}><Icon size={13} />{label}</span>
       ))}
+      <details className="rail-rules"><summary>成交规则</summary><div>{items.slice(0, 2).map(({ label }) => <p key={label}>{label}</p>)}</div></details>
       {warningCount > 0 ? <span className="rail-item warn"><AlertTriangle size={13} />{warningCount} 项提示</span> : null}
     </div>
   )

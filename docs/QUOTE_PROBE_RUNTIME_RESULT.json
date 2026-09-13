@@ -1,0 +1,20 @@
+{
+  "id": "run_8e000bb0fd174fa780",
+  "strategy_name": "10秒买卖联调 · 真实报价",
+  "strategy_hash": "c945b19492a62de1e0f8ca5de4238315ee5d557fd089495df55d246d28cff364",
+  "environment": "platform_sim",
+  "status": "paused",
+  "initial_cash": "200.00000000",
+  "equity": "199.39868142",
+  "cash": "199.39868142",
+  "quantity": "0.00000000",
+  "execution_mode": "quote_probe",
+  "latest_signal": "本轮12次报价联调完成，已暂停；可查看成交与曲线，恢复后开始新一轮",
+  "verified_at": "2026-09-12T08:30:51.456620+00:00",
+  "fill_count": 20,
+  "buy_count": 10,
+  "sell_count": 10,
+  "curve_points": 23,
+  "return_pct": -0.3006592899999938,
+  "quote_source": "Binance public BTCUSDT bookTicker; platform paper matching, not exchange fills"
+}

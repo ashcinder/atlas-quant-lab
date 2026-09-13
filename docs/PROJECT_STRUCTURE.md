@@ -89,3 +89,9 @@ strategy/
 - `backend/app/execution*.py`、`sandbox.py`、`ai_runtime.py`、`tee.py`：请求模型、受控执行、隔离适配、本地 AI 与 Nitro 验证；不等于已部署真实 TEE。
 - `deploy/runner.Dockerfile`、`runner_smoke.py`、`zk_program_smoke.py`：运行镜像和使用临时数据的真实隔离 / 证明集成验收。
 - `docs/EXECUTION_TRUST.md`：各路径能力、数据保管、部署要求与尚未完成的边界。
+# 投资账本整合后的补充目录
+
+- `backend/app/auth.py`：账号认证与签名会话；`backend/app/journal/`：账本算法、数据库、API 和定投调度。
+- `frontend/src/AtlasShell.tsx`：登录与两个工作区的统一外壳；`frontend/src/journal/`：迁入的账本界面、领域计算和 OCR。
+- `frontend/tests/`：账本算法的 Node 回归；`backend/tests/journal_fixtures/`：跨语言对照样本，仅测试使用，不会导入个人账本。
+- `scripts/dev.sh`：依赖安装后同时启动开发前后端；`docs/MAIN_MERGE.md`：当前启动和技术栈说明。

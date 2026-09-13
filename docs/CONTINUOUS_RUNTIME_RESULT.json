@@ -1,0 +1,32 @@
+{
+  "id": "run_968e3cd4038146adad",
+  "release_id": "rel_0ac376a930024ddcb5",
+  "status": "active",
+  "environment": "platform_sim",
+  "cash": "179.05764111",
+  "quantity": "0.00025719",
+  "initial_cash": "200.00000000",
+  "fills": [
+    {
+      "side": "buy",
+      "count": 18
+    },
+    {
+      "side": "sell",
+      "count": 17
+    }
+  ],
+  "equity": {
+    "equity": "198.95553639",
+    "return_rate": "-0.00522232",
+    "bar_time": 1789221583
+  },
+  "observed_at": "2026-09-12T13:59:56.494483+00:00",
+  "supervisor": {
+    "connected": true,
+    "rpc_url": "http://127.0.0.1:42515",
+    "chain_id": 1051,
+    "block_number": 140465,
+    "error": null
+  }
+}

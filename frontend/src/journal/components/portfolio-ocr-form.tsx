@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import workerPath from 'tesseract.js/dist/worker.min.js?url';
+import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
 import {
   CheckCircle2,
   ImageUp,
@@ -225,6 +227,8 @@ export default function PortfolioOcrForm({
       setStatus("正在加载本地识别引擎");
       const { createWorker, PSM } = await import("tesseract.js");
       worker = await createWorker("eng", 1, {
+        // Version-locked executable code is served by Atlas, not a remote CDN.
+        workerPath, corePath, workerBlobURL: false,
         logger: (message) => {
           if (typeof message.progress === "number")
             setProgress(message.progress);

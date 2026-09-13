@@ -1,0 +1,15 @@
+[Unit]
+Description=Atlas confidential strategy (one package, no automatic trade retry)
+After=docker.service nitro-enclaves-allocator.service network-online.target
+Requires=docker.service nitro-enclaves-allocator.service
+[Service]
+Type=simple
+WorkingDirectory=/opt/atlas
+EnvironmentFile=/etc/atlas-enclave.env
+ExecStart=/opt/atlas/deploy/nitro/deploy.sh run
+Restart=no
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+[Install]
+WantedBy=multi-user.target

@@ -322,9 +322,7 @@ class StrategyProjectStore:
             )
             assignments = [f"{key} = ?" for key in changes]
             values: list[Any] = list(changes.values())
-            assignments.extend(
-                ["version = NULL", "commitment = NULL", "quant_report_id = NULL"]
-            )
+            assignments.extend(["version = NULL", "commitment = NULL", "quant_report_id = NULL"])
             if research_invalidated:
                 assignments.extend(
                     [
@@ -372,6 +370,36 @@ class StrategyProjectStore:
         link: ProjectArtifactLink,
         developer_token: str | None,
     ) -> dict[str, Any]:
+        if project["owner_id"] != "local":
+            if link.kind in {"strategy", "research"}:
+                table = "custom_strategies" if link.kind == "strategy" else "research_jobs"
+                owned = connection.execute(
+                    f"SELECT 1 FROM {table} WHERE id=? AND owner_id=?",
+                    (link.artifact_id, project["owner_id"]),
+                ).fetchone()
+                if not owned:
+                    raise ProjectGateError("制品不存在或不属于当前账户")
+            elif link.kind in {"package", "workflow"}:
+                table = "qj_strategy_packages" if link.kind == "package" else "qj_workflows"
+                owned = connection.execute(
+                    f"SELECT agent_id FROM {table} WHERE id=?", (link.artifact_id,)
+                ).fetchone()
+                if not owned:
+                    raise ProjectGateError("私密制品不存在")
+                agent = connection.execute(
+                    "SELECT developer_token_hash, is_demo FROM qj_agents WHERE id=?",
+                    (owned["agent_id"],),
+                ).fetchone()
+                if not agent:
+                    raise ProjectGateError("制品所属 Agent 不存在")
+                if not developer_token:
+                    raise PermissionError("绑定私密制品需要该 Agent 的开发者凭证")
+                if agent["is_demo"]:
+                    raise PermissionError("演示 Agent 为只读样本")
+                if not secrets.compare_digest(
+                    agent["developer_token_hash"], sha256_hex(developer_token)
+                ):
+                    raise PermissionError("开发者凭证无效")
         if link.kind == "strategy":
             row = connection.execute(
                 "SELECT id, spec_json FROM custom_strategies WHERE id = ? AND owner_id = ?",
@@ -427,9 +455,7 @@ class StrategyProjectStore:
                 raise ProjectGateError("研究任务必须包含手续费、滑点或买卖价差")
             strategy_id = project["custom_strategy_id"]
             if not strategy_id:
-                raise ProjectGateError(
-                    "私密策略包必须先由隔离 Runner 生成内容哈希绑定的研究回执"
-                )
+                raise ProjectGateError("私密策略包必须先由隔离 Runner 生成内容哈希绑定的研究回执")
             matching_experiment = next(
                 (
                     experiment
@@ -441,9 +467,7 @@ class StrategyProjectStore:
             )
             if matching_experiment is None:
                 raise ProjectGateError("研究任务未包含当前项目绑定的策略版本")
-            experiment_hash = sha256_hex(
-                canonical_json(matching_experiment["custom_strategy"])
-            )
+            experiment_hash = sha256_hex(canonical_json(matching_experiment["custom_strategy"]))
             if experiment_hash != project["strategy_hash"]:
                 raise ProjectGateError("研究任务使用的策略内容哈希与当前项目不一致")
             candidates = [

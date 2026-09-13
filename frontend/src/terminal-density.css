@@ -1,0 +1,116 @@
+/* Shared terminal density: one toolbar, working surface, bottom status. */
+:root { --header-height: 0px; }
+.atlas-header { position: fixed; inset: auto auto 0 0; width: 184px; height: 54px; padding: 8px; background: #121c2a; border: 0; z-index: 60; }
+.workspace-switcher { width: 100%; position: relative; }
+.workspace-switcher > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.workspace-switcher[open] { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; position: absolute; bottom: 8px; left: 8px; width: 260px; padding: 8px; box-shadow: 0 8px 30px #0006; }
+.workspace-switcher .atlas-workspaces { flex-direction: column; }
+.workspace-switcher .atlas-workspaces a { padding: 12px; border: 0; border-radius: 6px; }
+.workspace-switcher .atlas-session { flex-wrap: wrap; padding: 12px; gap: 10px; }
+.workspace-switcher-close { display: flex; align-items: center; gap: 5px; margin: 0 8px 6px auto; padding: 6px 9px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--panel-raised); cursor: pointer; }
+[data-theme=white], [data-theme=mist] { --bg:#f5f7fa; --panel:#ffffff; --panel-raised:#eaf0f8; --border:#cbd5e1; --border-soft:#e1e7ef; --text:#1c2a3e; --muted:#54657a; --positive:#087b65; --negative:#c32b46; color-scheme:light; }
+[data-theme=mist] { --bg:#edf4fa; --panel:#f6faff; --panel-raised:#dceaf5; }
+[data-theme=forest] { --bg:#101b19; --panel:#152522; --panel-raised:#223a33; --border:#39564a; --border-soft:#2a4338; }
+[data-theme=white] .quant-workspace, [data-theme=mist] .quant-workspace { --bg:#f5f7fa; --panel:#fff; --border:#cbd5e1; --border-soft:#e1e7ef; --text:#1c2a3e; --muted:#54657a; --positive:#087b65; --negative:#c32b46; }
+html:is([data-theme=white],[data-theme=mist],[data-theme=forest]) .quant-workspace :is(.app-shell,.topbar,.workspace-navigation,.strategy-panel,.portfolio-builder,.qj-workspace,.qj-agent-row,.qj-commandbar,.qj-tabs,.qj-filters,.lab-command-bar,.strategy-lab-header,.integrity-rail,.market-sidebar,.results-panel,.result-tabs,.builder-canvas,.builder-library,.logic-block,.form-section,.strategy-description,.qjs-inspector,.qj-detail,.qj-global-rail,.settings-popover,.execution-pipeline-panel,.pipeline-stages article,.code-studio,.code-assistant,.code-editor-panel,.template-mode,.analysis-tabs) { background:var(--panel); color:var(--text); border-color:var(--border-soft); }
+html:is([data-theme=white],[data-theme=mist]) :is(input,select,textarea) { color-scheme:light; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(input,select,textarea,.select-shell,.input-suffix) { background:var(--bg); color:var(--text); border-color:var(--border); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.asset-copy strong,.workspace-brand strong,.strategy-panel strong,.field-row,.qj-agent-name strong,.qj-detail strong,.metrics-grid strong,.workspace-title h2,.builder-canvas label,.pipeline-stages strong,.template-strategy-workspace label) { color:var(--text); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.asset-copy small,.strategy-description p,.rail-item,.workspace-brand small,.navigation-bottom a,.qj-agent-name small,.qj-title small) { color:var(--muted); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.asset-row.is-active,.qj-agent-row.is-selected,.segmented button.is-active,.workspace-navigation nav button[aria-current],.lab-module-switch button.is-active,.result-tabs button.is-active) { background:var(--panel-raised); color:var(--accent); border-color:var(--border); }
+html:is([data-theme=white],[data-theme=mist],[data-theme=forest]) :is(.atlas-header,.workspace-switcher[open],.journal-root .sidebar) { background:var(--panel); color:var(--text); }
+html:is([data-theme=white],[data-theme=mist]) .workspace-monogram > span { background:var(--panel); }
+.quant-workspace .app-shell, .quant-workspace .mode-research.app-shell { grid-template-rows: 46px minmax(0,1fr) 24px; height: 100dvh; }
+.quant-workspace .topbar { height: 46px; min-height: 46px; gap: 8px; padding: 0 12px; }
+.quant-workspace .symbol-block { width: auto; flex: 0 1 260px; min-width: 120px; gap: 8px; }
+.quant-workspace .symbol-block strong { font-size: 15px; }
+.quant-workspace .symbol-block em { margin-left: 0; }
+.quant-workspace .topbar .toolbar-spacer { flex: 1; }
+.quant-workspace .workspace-content { grid-row: 2; }
+.quant-workspace .integrity-rail, .quant-workspace .qj-global-rail { grid-row: 3; height: 24px; min-height: 24px; padding: 0 12px; gap: 16px; border-top: 1px solid var(--border-soft); border-bottom: 0; font-size: 10px; overflow-x: auto; }
+.quant-workspace .rail-item { font-size: 10px; white-space: nowrap; }
+.quant-workspace .workspace-navigation { padding-bottom: 60px; }
+.quant-workspace .workspace-brand { height: 66px; }
+.quant-workspace .navigation-caption { margin: 8px 12px; }
+.quant-workspace .workspace-navigation nav button { min-height: 52px; padding: 9px 12px; }
+.quant-workspace .workspace-edition { display: none; }
+.quant-workspace .navigation-bottom { padding-top: 12px; }
+.quant-workspace .lab-module-switch { flex: 0 0 260px; width: 260px; }
+.quant-workspace .lab-module-switch button { white-space: nowrap; flex: 1 0 auto; padding: 6px 9px; gap: 6px; }
+.quant-workspace .lab-module-switch button svg { flex-shrink: 0; }
+.quant-workspace .market-sidebar .sidebar-heading { height: 36px; }
+.quant-workspace .market-sidebar .search-field { margin: 6px 8px; height: 30px; }
+.quant-workspace .asset-list { height: calc(100% - 78px); }
+.quant-workspace .asset-row { min-height: 40px; height: 40px; padding: 5px 8px; gap: 8px; border-bottom-color: transparent; border-radius: 4px; }
+.quant-workspace .asset-row .asset-icon { width: 24px; height: 24px; flex-basis: 24px; }
+.quant-workspace .asset-copy strong { font-size: 11px; }
+.quant-workspace .asset-copy small { font-size: 10px; margin-top: 2px; }
+.quant-workspace .asset-group > summary { cursor: pointer; padding: 8px; color: var(--muted); font-size: 10px; }
+.quant-workspace .strategy-panel .form-section, .quant-workspace .portfolio-parameters .form-section { padding: 14px; margin: 8px; border: 1px solid var(--border-soft); border-radius: 10px; background: #131d2b; }
+.quant-workspace .strategy-select-wrap, .quant-workspace .strategy-description { padding: 12px 14px; }
+.quant-workspace .strategy-description { border: 0; }
+.quant-workspace .strategy-description p { margin: 8px 0; font-size: 12px; line-height: 1.5; }
+.quant-workspace .strategy-panel :is(input,select), .quant-workspace .portfolio-parameters :is(input,select) { border-radius: 7px; min-height: 32px; }
+.quant-workspace .analysis-tabs { min-height: 38px; }
+.quant-workspace .analysis-tabs button { white-space: nowrap; font-size: 11px; padding: 8px; }
+.quant-workspace .result-tabs { min-height: 38px; height: 38px; padding: 3px 6px; gap: 4px; background: #131d2b; }
+.quant-workspace .result-tabs > button { height: 32px; min-height: 32px; padding: 5px 10px; border: 0; border-radius: 6px; font-size: 11px; }
+.quant-workspace .result-tabs > button.is-active { background: #263850; box-shadow: none; }
+.quant-workspace .metrics-grid > div { padding: 14px; border-color: var(--border-soft); }
+.quant-workspace .metrics-grid strong { font-size: 19px; }
+.quant-workspace .portfolio-builder { padding: 16px; }
+.quant-workspace .portfolio-builder .workspace-title { padding: 0; margin: 0 0 14px; border: 0; }
+.quant-workspace .workspace-title :is(small,p,svg) { display: none; }
+.quant-workspace .workspace-title h2 { font-size: 16px; margin: 0; }
+.quant-workspace .portfolio-controls { margin: 0 0 16px; padding: 0; gap: 12px; }
+.quant-workspace .portfolio-strategy-control > div { display: none; }
+.quant-workspace .allocation-header { margin: 8px 0; padding: 0; }
+.quant-workspace .qj-workspace { grid-template-rows: auto 38px minmax(0,1fr); }
+.quant-workspace .qj-commandbar { padding: 10px 16px; gap: 16px; min-height: 56px; flex-wrap: nowrap; }
+.quant-workspace .qj-title { display: none; }
+.quant-workspace .qj-kpis { margin-left: 0; }
+.quant-workspace .qj-kpis > span { padding: 0 14px; }
+.quant-workspace .qj-kpis strong { font-size: 17px; }
+.quant-workspace .qj-filters { padding: 8px 12px; min-height: 48px; }
+.quant-workspace .qj-agent-row { min-height: 76px; padding: 10px 14px; }
+.quant-workspace .qj-table-head { height: 32px; }
+.quant-workspace .qj-market { grid-template-rows: auto 32px minmax(0,1fr); }
+.quant-workspace .qj-agent-name { row-gap: 3px; }
+.quant-workspace .qj-tabs nav button { padding: 8px 12px; }
+body:has(.navigation-is-collapsed) .atlas-header { width: 76px; }
+body:has(.navigation-is-collapsed) .workspace-switcher:not([open]) summary span { display: none; }
+.journal-root .sidebar { padding-bottom: 64px; }
+@media(max-width: 900px) { .quant-workspace .symbol-block span { display: none; } .quant-workspace .qj-commandbar { flex-wrap: wrap; } .quant-workspace .lab-module-switch { flex-basis: 100%; width: 100%; } }
+@media(prefers-reduced-motion: reduce) { .workspace-switcher * { transition: none; } }
+.quant-workspace .settings-popover { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 64px); overflow-y: auto; padding: 18px; border-radius: 12px; box-shadow: 0 16px 48px #0008; }
+.quant-workspace .settings-popover section { padding: 12px 0; border-bottom: 1px solid var(--border-soft); }
+.quant-workspace .settings-popover h3 { margin: 4px 0 10px; padding: 0; font-size: 13px; }
+.quant-workspace .settings-popover p { margin: 8px 0; font-size: 11px; line-height: 1.6; }
+.quant-workspace .settings-popover label { margin: 10px 0; display: grid; grid-template-columns: 90px minmax(0,1fr); align-items: center; gap: 8px; }
+.quant-workspace .settings-popover input:not([type=checkbox]), .quant-workspace .settings-popover select { width: 100%; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); padding: 8px; }
+.quant-workspace .settings-popover .ai-consent { grid-template-columns: 16px minmax(0,1fr); align-items: start; font-size: 11px; line-height: 1.6; }
+.ai-setting-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.ai-setting-actions button { border: 1px solid var(--border); background: var(--panel-raised); color: var(--text); border-radius: 6px; padding: 8px; font-size: 11px; cursor: pointer; }
+.ai-setting-actions button:disabled { opacity: .5; cursor: not-allowed; }
+[data-theme=graphite] { --bg:#111416; --panel:#191d20; --panel-raised:#262c31; --border:#384148; --border-soft:#2a3138; }
+[data-theme=graphite] .quant-workspace :is(.topbar,.workspace-navigation,.strategy-panel,.portfolio-builder,.qj-workspace,.qj-agent-row,.qj-commandbar,.qj-tabs,.qj-filters,.lab-command-bar,.strategy-lab-header,.integrity-rail) { background:var(--panel); }
+[data-theme=graphite] :is(.atlas-header,.workspace-switcher[open]) { background:var(--panel); }
+html:is([data-theme=white],[data-theme=mist]) { color:var(--text); --blue:#315fd3; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.qj-table-head,.qj-search,.qj-category-tabs,.qj-detail-metrics,.qj-proof-box,.qj-proof-node,.qj-subscribe,.qj-ledger,.qj-modal,.qj-modal header,.qj-modal-body,.qj-lab-link,.segmented,.chart-caption,.chart-toolbar,.market-search,.research-settings,.research-results,.lab-project-bar,.qjs-hero,.qjs-stage,.qjs-node,.qjs-settings,.qjs-private-bar) { background:var(--panel); color:var(--text); border-color:var(--border); box-shadow:none; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(strong,b,h1,h2,h3,h4,label,.qj-tabs button,.qj-category-tabs button,.workspace-navigation nav button,.qj-score b,.chart-caption) { color:var(--text); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(small,.qj-detail p,.qj-proof-node em,.qj-metric span,.qj-agent-name small,.symbol-block span,.navigation-collapse) { color:var(--muted); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.qj-category-tabs button.is-active,.qj-detail-tags span,.qj-chain-pill,.qj-section-title button,.workspace-navigation nav button:hover,.symbol-block em) { background:var(--panel-raised); color:var(--text); border-color:var(--border); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.run-button,.qj-primary,.primary-action) { color:#fff; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace .qj-score > i { background:var(--border-soft); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace .qj-score > i::before { background:var(--accent); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace .qj-sparkline path { stroke:var(--positive); }
+[data-theme=mist] .quant-workspace { --bg:#edf3fa; --panel:#f8fbff; --panel-raised:#dfebf8; }
+[data-theme=forest] .quant-workspace { --bg:#101b19; --panel:#152522; --panel-raised:#223a33; --border:#39564a; --border-soft:#2a4338; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.sidebar-heading,.panel-heading,.search-field,.chart-workspace,.chart-legend,.chart-time-axis,.pane-caption,.crosshair-time-label,.equity-caption) { background:var(--panel); color:var(--text); border-color:var(--border-soft); box-shadow:none; }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.field-row > span,.parameter-field > span,.analysis-tabs button,.ohlc-row span,.indicator-toggles button,.chart-time-axis span) { color:var(--muted); }
+html:is([data-theme=white],[data-theme=mist]) .quant-workspace :is(.indicator-toggles button.is-active,.qj-global-rail b,.qj-proof-node > span:first-child) { background:var(--panel-raised); color:var(--text); border-color:var(--border); }
+.settings-popover > details { border-bottom:1px solid var(--border-soft); padding:12px 0; }
+.settings-popover > details > summary { cursor:pointer; font-weight:600; color:var(--text); }
+.settings-popover table { width:100%; font-size:11px; border-collapse:collapse; }
+.settings-popover th,.settings-popover td { padding:6px 3px; text-align:right; border-bottom:1px solid var(--border-soft); overflow-wrap:anywhere; }
+.quant-workspace :is(.run-button,.qj-primary) { background: var(--accent); border-color:var(--accent); }

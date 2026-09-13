@@ -2,14 +2,21 @@ import pytest
 from fastapi.testclient import TestClient
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
+
 from app.main import app
+
 
 @pytest.fixture
 def client():
     client = TestClient(app)
     from app.journal.router import _attempts
+
     _attempts.clear()
-    response = client.post('/api/register', json={'email': f'{uuid4()}@example.test', 'password': 'test-password-123'})
+    response = client.post(
+        "/api/register", json={"email": f"{uuid4()}@example.test", "password": "test-password-123"}
+    )
     assert response.status_code == 201, response.text
     yield client
     client.close()
@@ -87,8 +94,12 @@ def test_invalid_strategy_parameters_return_actionable_validation_error(client):
     response = client.post(
         "/api/v1/backtests",
         json={
-            "symbol": "BTC-USD", "asset_class": "crypto", "data_source": "demo",
-            "strategy_id": "dca", "params": {"every_bars": 0}, "persist": False,
+            "symbol": "BTC-USD",
+            "asset_class": "crypto",
+            "data_source": "demo",
+            "strategy_id": "dca",
+            "params": {"every_bars": 0},
+            "persist": False,
         },
     )
     assert response.status_code == 422

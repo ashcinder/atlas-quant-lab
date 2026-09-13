@@ -1,0 +1,21 @@
+{
+  "network": "isolated_local_evm",
+  "chainId": 31337,
+  "supervisor": false,
+  "proofSource": "atlas_private_program_receipt",
+  "imageId": "0x02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+  "journalDigest": "0x4874ba0ceb897358ec0a6c426abaae6d7ee200784220a49cee4659d65a232116",
+  "verifier": "0x5283975C466d66638dfc100a1301a1650a5C0386",
+  "registry": "0x054DDEa512689Bc8a47929D024678Fd46E4B4b0C",
+  "transactionHash": "0x25225281dd00d49574992ce4cc44e9f6e9bf87e667fedb3c23036f4b3c26f96e",
+  "blockNumber": 6,
+  "gasUsed": "301098",
+  "registryRuntimeCodeHash": "0xa5c36e93ffea894d78ca1339977bc6bcc60386877a64e9deb102bc9b3c9ab980",
+  "cryptographicVerificationOnEVM": true,
+  "rejected": [
+    "corrupted_seal",
+    "wrong_journal",
+    "wrong_image",
+    "duplicate_journal"
+  ]
+}

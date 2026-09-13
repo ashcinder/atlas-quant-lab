@@ -1,0 +1,24 @@
+{
+  "kind": "real_market_backtest_not_exchange_fills",
+  "source": "binance",
+  "bars": 999,
+  "trades": 1,
+  "period_start": "2026-09-01T03:45:00+00:00",
+  "period_end": "2026-09-11T13:15:00+00:00",
+  "backtest_run_id": "bea12cc8-803a-4471-ab17-a8ba8bb3d3ab",
+  "report_id": "qjr_ca06026a2dbc4db9ae",
+  "agent_id": "qja_a700be2d0d074794",
+  "runtime_run_id": "run_de9cff7d496c4dafac",
+  "release_id": "rel_e7192b27b5044bdf98",
+  "metrics": {
+    "annualized_return": -0.01628465,
+    "annualized_volatility": 0.03375631,
+    "benchmark_return": -0.01465448,
+    "live_days": 0,
+    "max_drawdown": -0.00664244,
+    "observation_count": 999,
+    "sharpe": -1.69085724,
+    "total_return": -0.00164052,
+    "win_rate": 0.49298597
+  }
+}

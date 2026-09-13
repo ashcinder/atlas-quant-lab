@@ -1,0 +1,16 @@
+{
+  "report_id": "qjr_a3d3bf9b1500434cb4",
+  "chainId": 1051,
+  "value": "0x0",
+  "data": "0x41544c41535a4b32da534370148a34b5d70ce52534b5ca81e96e7bfa3be5aada0bdc71eb1ebb42860a492ab91ef1890b8ee862068326ada89b323230b63b80f2f75f7431eb9efedba41b013b5ff481a686964a79fc2107e99d1d0fb33dd80302eddd1253b40027343f509c511e09ccfa3e685cafc0f122bc73ad2eedfc23bac57141fe4196bdd4df",
+  "purpose": "commitment_anchor_only",
+  "onchain_zk_verification": false,
+  "wallet_fields_required": [
+    "from",
+    "to",
+    "nonce",
+    "gas",
+    "gasPrice"
+  ],
+  "note": "由钱包补全交易字段并签名；这是未签名锚定内容，不是已上链凭证。"
+}
