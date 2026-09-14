@@ -239,14 +239,13 @@ export const TradingChart = memo(function TradingChart({
     }
     const overlaySetters = new Map<string, (points: IndicatorPoint[]) => void>()
     const addOverlay = (key: string, color: string, width: 1 | 2 = 1) => {
-      if (!visibleIndicators.has(key)) return
       const series = chart.addSeries(LineSeries, {
         color, lineWidth: width, priceLineVisible: false, lastValueVisible: false,
       }, 0)
       overlaySetters.set(key, (points) => series.setData(indicatorData(points)))
     }
-    addOverlay('sma20', '#f3b451', 2)
-    addOverlay('sma50', '#7aa2f7', 2)
+    if (visibleIndicators.has('sma20')) addOverlay('sma20', '#f3b451', 2)
+    if (visibleIndicators.has('sma50')) addOverlay('sma50', '#7aa2f7', 2)
     if (visibleIndicators.has('boll')) {
       addOverlay('boll_upper', '#8b98a8')
       addOverlay('boll_mid', '#64748b')
