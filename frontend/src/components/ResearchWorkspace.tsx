@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import { Beaker, Check, FlaskConical, LoaderCircle, Play, Plus, Save, ShieldCheck, Trash2, X } from 'lucide-react'
 import { api } from '../api'
+import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import { formatNumber, formatPercent } from '../format'
 import { LabConfirmDialog } from './LabConfirmDialog'
 import type { ExecutionPipeline } from './ExecutionPipelinePanel'
@@ -436,7 +437,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
           <div className="logic-connector"><i /><span>持有</span><i /></div>
           <section className="logic-block exit"><header><span><i />EXIT 退出条件</span><select aria-label="退出条件组合" value={exitMode} onChange={(event) => { markBuilderEdited(); setExitMode(event.target.value as 'all' | 'any') }}><option value="all">全部满足 AND</option><option value="any">任一满足 OR</option></select></header>{exitRules.map((row) => <RuleRow key={row.id} row={row} onChange={(next) => updateRule('exit', row.id, next)} onDelete={() => deleteRule('exit', row.id)} />)}<button className="add-rule" onClick={() => addRule('exit')}><Plus size={12} />添加退出条件</button></section>
         </div>
-        <footer><p><ShieldCheck size={13} /><span>条件在收盘确认，下一根开盘执行。回测使用当前草稿，不等于保存规则。</span></p><button onClick={saveBuilder} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}{saving ? '保存中…' : '保存模板'}</button><button className="builder-run" onClick={runBuilder} disabled={!props.asset || builderRunning}><Play size={13} fill="currentColor" />{builderRunning ? '回测中…' : '运行自定义回测'}</button></footer>
+        <footer><p><ShieldCheck size={13} /><span>条件在收盘确认，下一根开盘执行。回测使用当前草稿，不等于保存规则。</span></p><PublishRuntimeStrategy draft={{ name: buildSpec().name, source_kind: 'custom', strategy_id: buildSpec().id, custom_strategy: buildSpec() }} disabled={saving || builderRunning} /><button onClick={saveBuilder} disabled={saving}>{saving ? <LoaderCircle className="spin" size={13} /> : <Save size={13} />}{saving ? '保存中…' : '保存模板'}</button><button className="builder-run" onClick={runBuilder} disabled={!props.asset || builderRunning}><Play size={13} fill="currentColor" />{builderRunning ? '回测中…' : '运行自定义回测'}</button></footer>
       </section>
     </div>}
   </main>

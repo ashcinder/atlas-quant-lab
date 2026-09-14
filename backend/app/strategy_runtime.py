@@ -21,6 +21,7 @@ from app.config import DB_PATH
 from app.data.providers import ProviderError
 from app.models import CustomStrategySpec
 from app.private_runner import PrivateDecision, PrivateRunnerStore
+from app.python_strategy import compile_program, generate_python_targets
 from app.strategies import generate_target_exposure, get_strategy
 from app.strategies.catalog import validate_params
 from app.strategies.custom import generate_custom_target
@@ -58,10 +59,11 @@ def _text(value: Decimal) -> str:
 class ReleaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=80)
-    source_kind: Literal["builtin", "custom", "private_runner"]
+    source_kind: Literal["builtin", "custom", "private_runner", "python"]
     strategy_id: str = Field(min_length=1, max_length=64)
     params: dict[str, Any] = Field(default_factory=dict)
     custom_strategy: CustomStrategySpec | None = None
+    python_source: str | None = Field(default=None, max_length=16_384)
     markets: list[Market] = Field(min_length=1, max_length=3)
     description: str = Field(default="", max_length=300)
     published: bool = True
@@ -71,6 +73,14 @@ class ReleaseCreate(BaseModel):
 
     @model_validator(mode="after")
     def valid_source(self):
+        if self.source_kind == "python":
+            if (
+                not self.python_source or self.params or self.execution_mode != "candles"
+                or self.strategy_id != "python_bounded"
+            ):
+                raise ValueError("Python运行要求python_bounded及受限源码，不接受额外参数")
+        elif self.python_source is not None:
+            raise ValueError("只有Python版本可携带源码")
         if self.source_kind == "private_runner":
             if (
                 self.execution_mode != "private_runner"
@@ -317,6 +327,11 @@ class StrategyRuntimeStore:
             "custom_strategy": custom,
             "execution_mode": request.execution_mode,
         }
+        if request.source_kind == "python":
+            try:
+                snapshot["python_program"] = compile_program(request.python_source)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
         if request.source_kind == "private_runner":
             snapshot = {
                 "execution_mode": "private_runner",
@@ -1037,6 +1052,8 @@ class StrategyRuntimeStore:
 
     def _targets(self, release, frame, initial_cash: Decimal, schedule_history=None):
         snapshot = json.loads(release["snapshot"])
+        if release["source_kind"] == "python":
+            return generate_python_targets(frame, snapshot["python_program"])
         if release["source_kind"] == "custom":
             spec = CustomStrategySpec.model_validate(snapshot["custom_strategy"])
             return generate_custom_target(frame, spec, spec.target_position)

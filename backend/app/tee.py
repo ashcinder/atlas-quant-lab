@@ -61,11 +61,35 @@ class NitroVerifier:
             root, target, bundle = (
                 Path(directory) / name for name in ("root.pem", "leaf.pem", "chain.pem")
             )
+            ca_directory = Path(directory) / "ca"
+            ca_directory.mkdir()
             root.write_bytes(self.root.public_bytes(serialization.Encoding.PEM))
             target.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
             bundle.write_bytes(
                 b"".join(c.public_bytes(serialization.Encoding.PEM) for c in intermediates)
             )
+            help_result = subprocess.run(
+                [openssl, "verify", "-help"],
+                capture_output=True,
+                timeout=5,
+                env={},
+                check=False,
+            )
+            help_options = set(help_result.stdout.split() + help_result.stderr.split())
+            required_options = {
+                b"-CAfile",
+                b"-CApath",
+                b"-untrusted",
+                b"-x509_strict",
+                b"-purpose",
+                b"-verify_depth",
+                b"-attime",
+            }
+            if not required_options <= help_options:
+                raise AttestationError("openssl 缺少严格证书路径验证能力")
+            trust_options = ["-CAfile", str(root), "-CApath", str(ca_directory)]
+            if b"-no-CAstore" in help_options:
+                trust_options.append("-no-CAstore")
             result = subprocess.run(
                 [
                     openssl,
@@ -77,10 +101,7 @@ class NitroVerifier:
                     "5",
                     "-attime",
                     str(now),
-                    "-CAfile",
-                    str(root),
-                    "-no-CApath",
-                    "-no-CAstore",
+                    *trust_options,
                     "-untrusted",
                     str(bundle),
                     str(target),

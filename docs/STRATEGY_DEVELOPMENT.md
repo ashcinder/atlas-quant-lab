@@ -128,3 +128,13 @@ pip install -e strategy/sdk/python
 ```
 
 Implement `BaseStrategy.generate_targets(context)`. `StrategyContext` provides closed historical bars, immutable parameters, a portfolio snapshot, a run ID, and deterministic seed. Return target positions, not broker orders; Atlas owns AI reviews, hard risk, execution modeling and audit commitments. See `strategy/examples/strategies/risk_aware_momentum`.
+
+## 受限 Python 持续运行（2026-09-14）
+
+策略实验室的模板、图形、代码入口现在都可保存当前编辑快照为私有运行版本并免费订阅；后续修改不会改变已有运行。代码入口的“载入持续运行模板”使用 `target_bps(index, close, sma)`，并可用当前标的、费用和风控参数回测，再配置持续运行。
+
+这是已有整数编译器支持的受限语言，不是任意 Python SDK 执行。只允许常量、有限行情访问、整数运算、比较及条件表达式；不允许导入、循环、文件或网络调用。返回0—9500基点目标仓位，仍受实例仓位和成交规则限制。价格以百万分之一计，`close(0)` 表示最新收盘，缺失历史返回0；`index` 是当前输入历史条数，不是持久化交易计数。均线策略应显式设置预热条件。最多256条指令、64层栈、20000根K线，数值绝对值上限10^18；越界失败，不执行任意源码。
+
+回测允许使用已配置的 AI 审查流程，持续运行版本只保存确定性策略；界面明确提示 AI 流程不会自动进入持续运行。真实模型验收需配置提供方。运行版本的服务端指令快照可被服务器管理员读取，因此不承诺对管理员保密。普通运行没有生成 ZKP、zkTLS 或 TEE 证明。
+
+可复现测试定义见 [PDF验收策略](../strategy/examples/pdf-acceptance/README.md)，具体证据和缺口见 [验收报告](PDF_ACCEPTANCE_20260914.md)。

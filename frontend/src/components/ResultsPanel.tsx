@@ -62,6 +62,7 @@ export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls
         </span> : null}
       </div>
       <div className="result-content" role="tabpanel">
+        {!loading && result ? <p className="result-identity">当前结果：{result.strategy.name} · {result.data_source}</p> : null}
         {loading ? <div className="result-loading" role="status" aria-live="polite"><span className="pulse-line" /><span>正在标准化行情、生成信号并逐笔撮合…</span></div> : null}
         {!loading && !result ? <div className="result-empty"><BarChart3 size={18} /><span>运行回测后，这里会显示收益、风险与逐笔交易。</span></div> : null}
         {!loading && result && tab === 'summary' ? (

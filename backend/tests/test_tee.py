@@ -2,6 +2,8 @@
 
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
 
 import cbor2
 import pytest
@@ -85,6 +87,69 @@ def test_valid_synthetic_attestation_is_only_channel_attestation(fixture):
     result = verifier.verify(sign(fields), nonce=b"n" * 32, binding=b"b" * 32)
     assert result["attestation_valid"]
     assert result["performance_verified"] is False
+
+
+@pytest.mark.parametrize(
+    ("help_text", "expects_no_castore"),
+    [
+        (
+            b"-CAfile -CApath -untrusted -x509_strict -purpose -verify_depth -attime "
+            b"-no-CAstore",
+            True,
+        ),
+        (b"-CAfile -CApath -untrusted -x509_strict -purpose -verify_depth -attime", False),
+    ],
+)
+def test_chain_isolates_trust_for_openssl_and_libressl(
+    fixture, monkeypatch, help_text, expects_no_castore
+):
+    verifier, fields, _ = fixture
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[-1] == "-help":
+            return SimpleNamespace(returncode=1, stdout=b"", stderr=help_text)
+        ca_directory = Path(command[command.index("-CApath") + 1])
+        assert ca_directory.is_dir()
+        assert not list(ca_directory.iterdir())
+        return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(tee.subprocess, "run", run)
+    verifier._chain(fields["certificate"], fields["cabundle"], int(time.time()))
+
+    verify_command = calls[1]
+    assert "-CAfile" in verify_command
+    assert "-CApath" in verify_command
+    assert "-no-CApath" not in verify_command
+    assert ("-no-CAstore" in verify_command) is expects_no_castore
+
+
+def test_chain_fails_closed_without_explicit_trust_path_capability(
+    fixture, monkeypatch
+):
+    verifier, fields, _ = fixture
+
+    def run(command, **kwargs):
+        if command[-1] != "-help":
+            pytest.fail("certificate verification must not run with unsafe options")
+        return SimpleNamespace(
+            returncode=1,
+            stdout=b"",
+            stderr=b"-CAfile -untrusted -x509_strict -purpose -verify_depth -attime",
+        )
+
+    monkeypatch.setattr(tee.subprocess, "run", run)
+    with pytest.raises(tee.AttestationError, match="缺少严格证书路径验证能力"):
+        verifier._chain(fields["certificate"], fields["cabundle"], int(time.time()))
+
+
+def test_rejects_certificate_outside_validity_window(fixture):
+    verifier, fields, sign = fixture
+    future = int(time.time()) + 2 * 24 * 60 * 60
+    fields["timestamp"] = future * 1000
+    with pytest.raises(tee.AttestationError, match="证书链、约束或有效期校验失败"):
+        verifier.verify(sign(fields), nonce=b"n" * 32, binding=b"b" * 32, now=future)
 
 
 @pytest.mark.parametrize("mutation", ["nonce", "binding", "expired", "debug", "signature"])

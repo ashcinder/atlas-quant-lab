@@ -42,7 +42,7 @@ html:is([data-theme=white],[data-theme=mist]) .workspace-monogram > span { backg
 .quant-workspace .market-sidebar .search-field { margin: 6px 8px; height: 30px; }
 .quant-workspace .asset-list { height: calc(100% - 78px); }
 .quant-workspace .asset-row { min-height: 40px; height: 40px; padding: 5px 8px; gap: 8px; border-bottom-color: transparent; border-radius: 4px; }
-.quant-workspace .asset-row .asset-icon { width: 24px; height: 24px; flex-basis: 24px; }
+.quant-workspace .asset-row .asset-icon { width: 28px; height: 28px; flex-basis: 28px; }
 .quant-workspace .asset-copy strong { font-size: 11px; }
 .quant-workspace .asset-copy small { font-size: 10px; margin-top: 2px; }
 .quant-workspace .asset-group > summary { cursor: pointer; padding: 8px; color: var(--muted); font-size: 10px; }

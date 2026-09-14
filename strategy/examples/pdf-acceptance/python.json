@@ -1,0 +1,10 @@
+{
+  "name": "PDF验收 · Python持续策略",
+  "source_kind": "python",
+  "strategy_id": "python_bounded",
+  "python_source": "def target_bps(index, close, sma):\n    return 2000 if close(0) > 0 else 0\n",
+  "markets": [
+    "CRYPTO"
+  ],
+  "published": false
+}

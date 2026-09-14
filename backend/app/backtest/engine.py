@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from uuid import uuid4
 from time import monotonic
+from uuid import uuid4
 
 import numpy as np
 import pandas as pd
@@ -18,10 +18,11 @@ from app.models import (
     StrategyDefinition,
     Trade,
 )
+from app.python_strategy import compile_program, generate_python_targets
 from app.strategies import generate_target_exposure, get_strategy
+from app.strategies.catalog import validate_params
 from app.strategies.custom import generate_custom_target
 from app.strategies.schedule import contribution_schedule
-from app.strategies.catalog import validate_params
 
 
 def serialize_bars(frame: pd.DataFrame) -> list[Bar]:
@@ -66,7 +67,11 @@ def run_backtest(
     frame = bundle.frame.copy()
     if len(frame) < 40:
         raise ValueError("至少需要40根K线才能回测")
-    if request.custom_strategy is not None:
+    if request.python_source is not None:
+        strategy = StrategyDefinition(id="python_bounded", name="受限Python策略",
+            category="代码", description="整数Python子集；本次回测不生成ZKP",
+            suitable_for="收盘价格与均线条件", risk_level="高", parameters=[])
+    elif request.custom_strategy is not None:
         strategy = StrategyDefinition(
             id=request.custom_strategy.id,
             name=request.custom_strategy.name,
@@ -82,7 +87,11 @@ def run_backtest(
         raise ValueError("组合策略请使用组合回测接口")
     scheduled_dca = request.strategy_id == "scheduled_dca" and request.custom_strategy is None
     schedule_params = validate_params(request.strategy_id, request.params) if scheduled_dca else {}
-    if scheduled_dca:
+    if request.python_source is not None:
+        target, reasons = generate_python_targets(
+            frame, compile_program(request.python_source), request.max_position
+        )
+    elif scheduled_dca:
         due_dates = contribution_schedule(frame.index, int(schedule_params["every"]), str(schedule_params["unit"]), int(schedule_params["start_delay"]))
         target = pd.Series(0.0, index=frame.index)
         reasons = pd.Series("固定金额定投", index=frame.index)

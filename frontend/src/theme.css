@@ -175,7 +175,7 @@ input, select, textarea { color-scheme: inherit; }
 :where(.quant-workspace) :is(.run-button, .primary-action, .research-run, .code-check, .code-ai-composer button),
 .journal-root .primary-button, .journal-root [data-slot='button'][data-variant='default'] { background: var(--accent); color: var(--on-accent); }
 :where(.quant-workspace) :is(.code-highlight, .code-line-numbers, .code-editor-surface .code-text-layer textarea) { font-size: 14px; line-height: 24px; }
-:where(.quant-workspace) .code-editor-surface .code-text-layer textarea { background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--text); }
+.quant-workspace .code-studio .code-editor-surface .code-text-layer textarea { background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--text); }
 :where(.quant-workspace) .code-highlight { background: transparent; color: var(--text); }
 :where(.quant-workspace) .syntax-keyword { color: var(--code-keyword); }
 :where(.quant-workspace) .syntax-string { color: var(--code-string); }
@@ -204,3 +204,5 @@ input, select, textarea { color-scheme: inherit; }
 :where(.quant-workspace) .rail-rules summary { cursor: pointer; color: var(--muted); }
 :where(.quant-workspace) .rail-rules > div { position: fixed; z-index: 80; margin-top: 10px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--text); }
 :where(.quant-workspace) .rail-rules p { margin: 8px 0; }
+
+@media (forced-colors: active) { .quant-workspace .code-studio .code-editor-surface .code-text-layer textarea { color: CanvasText; -webkit-text-fill-color: CanvasText; } }

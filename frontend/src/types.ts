@@ -206,7 +206,7 @@ export type RuntimeEnvironment = 'platform_sim' | 'exchange_test' | 'live'
 export interface StrategyRelease {
   runner_public_key?: string; code_commitment?: string
   execution_mode?: "candles" | "quote_probe" | "private_runner"
-  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner'
+  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner' | 'python'
   strategy_id: string; markets: RuntimeMarket[]; description: string; content_hash: string
   params?: Record<string, unknown>; custom_strategy?: CustomStrategySpec | null; owned: boolean; created_at: string
 }

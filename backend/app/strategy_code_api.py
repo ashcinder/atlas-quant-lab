@@ -8,8 +8,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.ai_runtime import LocalAIGuard
+from app.cloud_ai import complete as cloud_complete
+from app.cloud_ai import get_config
 from app.sandbox import RunnerUnavailable
-from app.cloud_ai import get_config, complete as cloud_complete
 
 MAX_PROMPT_CHARS = 4_000
 MAX_CODE_CHARS = 60_000
@@ -36,7 +37,15 @@ SUPPORTED_LANGUAGES = list(StrategyLanguage.__args__)
 PYTHON_SYSTEM_PROMPT = """You are the Atlas Python strategy coding assistant.
 Return only JSON matching the requested schema, with a concise explanation and the complete
 resulting Python source. When source is supplied, edit it in place and preserve its public
-interface unless the user explicitly requests a change. For new strategies, use BaseStrategy,
+interface unless the user explicitly requests a change. If source defines
+target_bps(index, close, sma),
+preserve this bounded runtime profile: exactly one function, integer constants, local assignments,
+comparisons, arithmetic and conditional expressions, a final return from 0 to 9500 basis points.
+close(lag) uses integer micro prices, lag 0..500; sma(window) uses window 1..500. index counts
+available closed bars in the current history window. Unavailable history returns zero; guard warmup
+with index. No imports, loops, classes, attributes, annotations or external calls.
+Do not switch such
+source to the SDK interface. For other new strategies, use BaseStrategy,
 StrategyContext, and TargetPosition from atlas_strategy_sdk and define class Strategy.
 Implement generate_targets(self, ctx: StrategyContext). Read only available bars with
 ctx.history(symbol, lookback); each Bar exposes open, high, low, close, volume, and timestamp.

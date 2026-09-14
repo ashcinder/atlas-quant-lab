@@ -80,34 +80,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 :where(.quant-workspace) .asset-row { width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--panel-raised) 58%, transparent); background: transparent; display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: center; gap: 6px; text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 46px; }
 :where(.quant-workspace) .asset-row:hover { background: var(--panel); }
 :where(.quant-workspace) .asset-row.is-active { background: var(--panel-raised); box-shadow: inset 2px 0 var(--accent); }
-:where(.quant-workspace) .asset-icon { width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--surface-selected) 28%, transparent); border-radius: 50%; background: var(--panel-raised); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--surface-selected) 2%, transparent); }
-:where(.quant-workspace) .asset-icon svg { width: 14px; height: 14px; stroke-width: 1.8; }
-:where(.quant-workspace) .asset-row.is-active .asset-icon { border-color: color-mix(in srgb, var(--accent) 62%, transparent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-soft) 8%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--surface-selected) 4%, transparent); }
-:where(.quant-workspace) .asset-glyph { font: 750 10px/1 var(--mono); letter-spacing: -.08em; }
-:where(.quant-workspace) .asset-glyph-large { font-size: 14px; }
-:where(.quant-workspace) .asset-glyph-small { font-size: 7px; letter-spacing: -.06em; }
-:where(.quant-workspace) .asset-icon--bitcoin { background: var(--accent); color: var(--text); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--ethereum { background: var(--surface-selected); color: var(--text); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--solana { background: var(--panel); color: var(--positive); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--apple { background: var(--surface-selected); color: var(--muted); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--microsoft { background: var(--surface-selected); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--nvidia { background: var(--positive-soft); color: var(--blue); border-color: var(--border); }
-:where(.quant-workspace) .asset-icon--spy { background: var(--surface-selected); color: var(--blue); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--qqq { background: var(--blue-soft); color: var(--blue); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--bond { background: var(--panel-raised); color: var(--muted); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--gold { background: var(--accent-soft); color: var(--accent); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--silver { background: var(--surface-selected); color: var(--text); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--oil { background: var(--panel-raised); color: var(--accent); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--forex { background: var(--positive-soft); color: var(--positive); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--china-index, :where(.quant-workspace) .asset-icon--china-etf { background: var(--negative-soft); color: var(--negative); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--moutai { background: var(--negative-soft); color: var(--accent); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--catl { background: var(--blue-soft); color: var(--blue); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--tencent { background: var(--blue-soft); color: var(--text); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--hang-seng { background: var(--negative-soft); color: var(--negative); border-color: var(--border-strong); }
-:where(.quant-workspace) .asset-icon--crypto { background: var(--accent-soft); color: var(--accent); }
-:where(.quant-workspace) .asset-icon--commodity { background: var(--accent-soft); color: var(--accent); }
-:where(.quant-workspace) .asset-icon--fund { background: var(--panel-raised); color: var(--muted); }
-:where(.quant-workspace) .asset-icon--equity { background: var(--panel-raised); color: var(--text); }
+:where(.quant-workspace) .asset-icon { width: 28px; height: 28px; flex-shrink: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--border); border-radius: 50%; background: var(--panel-raised); color: var(--text); }
+:where(.quant-workspace) .asset-icon svg { width: 16px; height: 16px; stroke-width: 1.8; }
+:where(.quant-workspace) .asset-icon--brand { background: #fff; border-color: transparent; }
+:where(.quant-workspace) .asset-icon img { display: block; width: 100%; height: 100%; object-fit: contain; }
+:where(.quant-workspace) .asset-glyph { font: 700 10px/1 var(--sans); letter-spacing: 0; }
+
 :where(.quant-workspace) .asset-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 :where(.quant-workspace) .asset-copy strong { font: 650 10px var(--mono); }
 :where(.quant-workspace) .asset-copy small { color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1640,3 +1618,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+:where(.quant-workspace) .result-identity { margin: 0 0 10px; color: var(--muted); font-size: 12px; }

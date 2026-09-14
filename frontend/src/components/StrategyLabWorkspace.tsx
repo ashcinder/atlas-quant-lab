@@ -177,6 +177,6 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
       </Suspense>
     </section> : null}
   </main></div>
-    {codeVisited ? <div className="lab-module-content" hidden={module !== 'code'} inert={module !== 'code'}><Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}><CodeStrategyWorkspace /></Suspense></div> : null}
+    {codeVisited ? <div className="lab-module-content" hidden={module !== 'code'} inert={module !== 'code'}><Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}><CodeStrategyWorkspace research={{ ...researchProps, executionPipeline: pipeline }} /></Suspense></div> : null}
   </div>
 }

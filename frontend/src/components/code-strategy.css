@@ -122,3 +122,13 @@
 }
 :where(.quant-workspace) .code-language select { max-width: 150px; padding: 7px 24px 7px 8px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel-raised); color: var(--text); font: inherit; cursor: pointer; }
 :where(.quant-workspace) .code-language select:focus-visible { outline: 2px solid var(--border-strong); outline-offset: 3px; }
+
+.code-runtime-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.code-runtime-actions p { flex-basis: 100%; margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted); }
+.runtime-publish-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.runtime-publish-action [role="alert"] { color: var(--negative); font-size: 12px; }
+.runtime-publish-action a { color: var(--blue); text-underline-offset: 3px; }
+:where(.quant-workspace) :is(.code-runtime-actions, .runtime-publish-action) button { min-height: 36px; padding: 8px 12px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--panel-raised); color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+:where(.quant-workspace) :is(.code-runtime-actions, .runtime-publish-action) button:hover:not(:disabled) { background: var(--surface-selected); }
+:where(.quant-workspace) :is(.code-runtime-actions, .runtime-publish-action) button:disabled { opacity: .5; cursor: not-allowed; }
+:where(.quant-workspace) .runtime-publish-action button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }

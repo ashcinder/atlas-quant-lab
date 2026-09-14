@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { api } from '../api'
+import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { ExecutionPipeline } from './ExecutionPipelinePanel'
 
@@ -43,6 +44,8 @@ export function TemplateStrategyWorkspace({ pipeline, storageKey, ...props }: Re
       <button type="button" onClick={save}>保存副本</button><button type="button" onClick={exportStrategy}>导出</button>
       <button type="submit" disabled={busy || !props.asset}>{busy ? '回测中…' : '运行模板回测'}</button>
     </header>
+    <PublishRuntimeStrategy draft={{ name, source_kind: 'builtin', strategy_id: strategy.id, params }} disabled={busy} />
+    <p>运行版本保存当前规则参数；资金、费用和风控在运行页设置，回测 AI 流程不参与持续运行。版本仅自己可见，可在策略库公开。</p>
     {notice ? <p role="status">{notice}</p> : null}<p>{strategy.description}</p>
     <details><summary>我的参数副本（{presets.length}）</summary>{presets.map(item => <button type="button" key={item.name} onClick={() => { setId(item.strategy_id); setName(item.name); setDrafts(current => ({ ...current, [item.strategy_id]: item.params })); setNotice(`已载入“${item.name}”参数，流程设置沿用当前配置。`) }}>{item.name}</button>)}</details>
     <div className="template-parameter-grid">{strategy.parameters.map(p => <label key={p.key}><span>{p.label}</span>

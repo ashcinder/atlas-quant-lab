@@ -1,0 +1,31 @@
+{
+  "name": "PDF验收 · 图形价格条件",
+  "source_kind": "custom",
+  "strategy_id": "pdf_visual",
+  "custom_strategy": {
+    "id": "pdf_visual",
+    "name": "PDF图形策略",
+    "description": "测试网运行验收；价格为正持有，非收益推荐",
+    "entry": {
+      "kind": "condition",
+      "left": {
+        "field": "close"
+      },
+      "operator": "gt",
+      "right_value": 0
+    },
+    "exit": {
+      "kind": "condition",
+      "left": {
+        "field": "close"
+      },
+      "operator": "lt",
+      "right_value": 0
+    },
+    "target_position": 0.2
+  },
+  "markets": [
+    "CRYPTO"
+  ],
+  "published": false
+}

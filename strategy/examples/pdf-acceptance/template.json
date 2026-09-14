@@ -1,0 +1,15 @@
+{
+  "name": "PDF验收 · 模板分期建仓",
+  "source_kind": "builtin",
+  "strategy_id": "dca",
+  "params": {
+    "every_bars": 1,
+    "amount_pct": 0.1,
+    "start_delay": 0,
+    "max_contributions": 2
+  },
+  "markets": [
+    "CRYPTO"
+  ],
+  "published": false
+}

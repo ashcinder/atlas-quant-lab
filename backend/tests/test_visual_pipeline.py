@@ -72,3 +72,34 @@ def test_bulk_research_rejects_enabled_ai():
     with pytest.raises(ValueError, match="批量研究请关闭 AI"):
         ResearchRequest(symbol="BTC-USD", asset_class="crypto", experiments=[{"strategy_id": "sma_cross"}],
                         execution_pipeline={"ai_stages": [{"stage": "risk", "enabled": True}]})
+
+
+@pytest.mark.parametrize("stage", ["market", "entry", "buy_size", "sell_size", "risk", "execution"])
+@pytest.mark.parametrize("authority", ["advisory", "veto", "reduce_only"])
+def test_every_ai_stage_receives_its_permissions_and_review_criteria(stage, authority):
+    calls = []
+
+    class ApprovingProvider:
+        def review(self, evidence, weight, permission, **options):
+            calls.append((evidence, permission, options))
+            return weight, {"status": "inference_completed"}
+
+    bundle = make_bundle()
+    bundle.frame = bundle.frame.iloc[:50]
+    body = BacktestRequest(
+        strategy_id="python_bounded",
+        python_source="def target_bps(index, close, sma):\n return 2000 if index % 2 == 0 else 0",
+        execution_pipeline={"ai_stages": [{"stage": stage, "enabled": True,
+            "authority": authority, "instructions": "检查波动", "timeout_ms": 500}]},
+        persist=False,
+    )
+    result = run_backtest(body, bundle, supplied_ai_guard=ApprovingProvider())
+    assert result.trades and calls
+    assert all(evidence["stage"] == stage and permission == authority
+               and options == {"instructions": "检查波动", "timeout_ms": 500}
+               for evidence, permission, options in calls)
+    if stage in {"entry", "buy_size"}:
+        assert all(evidence["side"] == "buy" for evidence, *_ in calls)
+    if stage == "sell_size":
+        assert all(evidence["side"] == "sell" for evidence, *_ in calls)
+    assert any("不包含 AI 的 ZKP" in message for message in result.warnings)

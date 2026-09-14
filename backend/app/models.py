@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
 from app.backtest.pipeline import ExecutionPipeline
 
 Interval = Literal["15m", "1h", "4h", "1d", "1wk"]
@@ -113,6 +114,7 @@ class BacktestRequest(BaseModel):
     data_source: Literal["auto", "yahoo", "binance", "demo"] = "auto"
     strategy_id: str = "sma_cross"
     custom_strategy: "CustomStrategySpec | None" = None
+    python_source: str | None = Field(default=None, max_length=16_384)
     params: dict[str, Any] = Field(default_factory=dict)
     initial_capital: float = Field(default=100_000, gt=0)
     commission_rate: float = Field(default=0.001, ge=0, le=0.1)
@@ -134,6 +136,12 @@ class BacktestRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_dates(self) -> "BacktestRequest":
+        if self.python_source is not None:
+            if (self.custom_strategy is not None or self.params
+                    or self.strategy_id != "python_bounded"):
+                raise ValueError("受限Python回测不接受其他策略或参数")
+            from app.python_strategy import compile_program
+            compile_program(self.python_source)
         if self.start and self.end and self.start >= self.end:
             raise ValueError("start must be earlier than end")
         return self
