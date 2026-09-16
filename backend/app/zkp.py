@@ -546,12 +546,17 @@ class ZkProofStore:
             ).fetchone()
         if row is None:
             raise KeyError(proof_id)
+        profile = load_profiles(self.profiles_path).get(row["proof_profile"])
+        if not profile or not hmac.compare_digest(profile["image_id"], row["image_id"]):
+            raise ZkProofError("持久化证明的 image ID 与固定登记不一致")
         path = self.receipt_path(proof_id)
-        verified = self.verifier.verify(path, row["image_id"])
+        verified = self.verifier.verify(path, profile["image_id"])
         try:
             statement = ZkPublicStatement.model_validate(verified.journal)
         except ValidationError as exc:
             raise ZkProofError(f"持久化证明 journal 不符合协议: {exc}") from exc
+        if statement.proof_profile != row["proof_profile"] or statement.agent_id != row["agent_id"]:
+            raise ZkProofError("证明身份与登记不一致")
         statement_json = canonical_json(statement.model_dump(mode="json", by_alias=True))
         if not hmac.compare_digest(statement_json, row["public_statement_json"]):
             raise ZkProofError("receipt journal 与登记公开输入不一致")

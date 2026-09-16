@@ -1,13 +1,19 @@
+import { ParameterSweep } from './ParameterSweep'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, BarChart3, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import type { Asset, FundamentalsResponse, Strategy } from '../types'
 import { FundamentalsPanel } from './FundamentalsPanel'
 
 interface Props {
+  sweepContext?: Record<string, unknown>
   asset: Asset | null
   strategies: Strategy[]
   selectedId: string
   values: Record<string, number | string | boolean>
+  start?: string
+  end?: string
+  onStart?: (value: string) => void
+  onEnd?: (value: string) => void
   capital: number
   commission: number
   slippage: number
@@ -58,6 +64,18 @@ export function StrategyPanel(props: Props) {
         <span>回测参数</span>
         <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button>
       </div>
+      <div className="form-section backtest-time-controls">
+        <h3>回测时间</h3>
+        <label className="field-stack">开始时间（本地时区）<input aria-label="回测开始时间" type="datetime-local" value={props.start ?? ''} max={props.end || undefined} onChange={e => props.onStart?.(e.target.value)} /></label>
+        <label className="field-stack">结束时间（本地时区）<input aria-label="回测结束时间" type="datetime-local" value={props.end ?? ''} min={props.start || undefined} onChange={e => props.onEnd?.(e.target.value)} /></label>
+        <div className="backtest-presets">{[30, 90, 180, 365].map(days => <button key={days} onClick={() => {
+          const end = new Date(); const start = new Date(end.getTime() - days * 86400000)
+          const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+          props.onStart?.(local(start)); props.onEnd?.(local(end))
+        }}>{days === 365 ? '1年' : `${days}天`}</button>)}<button onClick={() => { props.onStart?.(''); props.onEnd?.('') }}>默认区间</button></div>
+        <small>留空使用数据源默认区间。K线周期与数据源沿用顶部选择；请求时间转换为 UTC。</small>
+      </div>
+      {selected && props.sweepContext && <ParameterSweep key={selected.id} disabled={!asset} fields={selected.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(props.values[p.key] ?? p.default), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ ...props.sweepContext, strategy_id: selected.id, params: props.values }} onApply={values => Object.entries(values).forEach(([key, value]) => props.onValue(key.replace(/^params\./, ''), value))} />}
       <div className="strategy-select-wrap">
         <label>策略模板</label>
         <div className="select-shell">

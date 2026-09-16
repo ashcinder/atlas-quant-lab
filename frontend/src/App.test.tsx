@@ -8,7 +8,7 @@ vi.mock('./api', () => ({ api: { searchAssets: vi.fn(), getStrategies: vi.fn(), 
 vi.mock('./components/AlertDrawer', () => ({ AlertDrawer: () => null }))
 vi.mock('./components/HistoryDrawer', () => ({ HistoryDrawer: () => null }))
 vi.mock('./components/ResultsPanel', () => ({ ResultsPanel: () => null }))
-vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: () => null }))
+vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ start, end, onStart, onEnd }: { start: string; end: string; onStart: (s: string) => void; onEnd: (s: string) => void }) => <><input aria-label="开始" value={start} onChange={e => onStart(e.target.value)} /><input aria-label="结束" value={end} onChange={e => onEnd(e.target.value)} /></> }))
 vi.mock('./components/TradingChart', () => ({ TradingChart: ({ bars }: { bars: unknown[] }) => <output data-testid="chart-bars">{bars.length}</output> }))
 vi.mock('./components/StrategyLabWorkspace', async () => {
   const { useState } = await import('react')
@@ -75,4 +75,24 @@ describe('workspace continuity and request ownership', () => {
     await act(async () => { resolveBacktest({ run_id: 'old-btc-run', created_at: '2026-01-01', asset: btc, interval: '1d', strategy, data_source: 'binance', source_note: null, bars: market.bars, indicators: {}, trades: [], equity: [], metrics: {}, regime_metrics: {}, warnings: [] }) })
     expect(screen.getByTestId('chart-bars').textContent).toBe('0')
   })
+})
+
+
+it('submits the chosen backtest range as UTC timestamps', async () => {
+  vi.mocked(api.runBacktest).mockReturnValue(new Promise(() => {}))
+  render(<App />)
+  await waitFor(() => expect(screen.getByTestId('chart-bars').textContent).toBe('1'))
+  fireEvent.change(screen.getByLabelText('开始'), { target: { value: '2025-01-01T08:00' } })
+  fireEvent.change(screen.getByLabelText('结束'), { target: { value: '2025-03-01T08:00' } })
+  fireEvent.click(screen.getByRole('button', { name: '运行回测' }))
+  expect(api.runBacktest).toHaveBeenCalledWith(expect.objectContaining({ start: new Date('2025-01-01T08:00').toISOString(), end: new Date('2025-03-01T08:00').toISOString() }))
+})
+it('rejects reversed dates before starting the engine', async () => {
+  render(<App />)
+  await waitFor(() => expect(screen.getByTestId('chart-bars').textContent).toBe('1'))
+  fireEvent.change(screen.getByLabelText('开始'), { target: { value: '2025-03-01T08:00' } })
+  fireEvent.change(screen.getByLabelText('结束'), { target: { value: '2025-01-01T08:00' } })
+  fireEvent.click(screen.getByRole('button', { name: '运行回测' }))
+  expect(api.runBacktest).not.toHaveBeenCalled()
+  expect(screen.getByText('回测开始时间必须早于结束时间')).toBeTruthy()
 })

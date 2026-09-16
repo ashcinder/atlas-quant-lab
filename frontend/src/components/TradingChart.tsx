@@ -1,7 +1,10 @@
+import './quant-controls.css'
+import { indicatorCatalog, calculateChartIndicators, defaultIndicatorSettings, type IndicatorSettings } from '../chartIndicators'
+import { IndicatorPicker } from './IndicatorPicker'
 import { chartTheme } from '../theme'
 import { userStorageKey } from '../storage'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Eye, EyeOff, Pause, Play, RotateCcw, StepForward, X } from 'lucide-react'
+import { SlidersHorizontal, Eye, EyeOff, Pause, Play, RotateCcw, StepForward, X } from 'lucide-react'
 import {
   CandlestickSeries,
   ColorType,
@@ -143,14 +146,40 @@ export const TradingChart = memo(function TradingChart({
   const payloadRef = useRef<ChartPayload>({ bars: [], indicators: {}, trades: [] })
   const lastDatasetRef = useRef<string | null>(null)
   const lastBarCountRef = useRef(0)
-  const [visibleIndicators, setVisibleIndicators] = useState(() => new Set(['sma20', 'sma50']))
+  const [indicatorOpen, setIndicatorOpen] = useState(false)
+  const [indicatorSettings, setIndicatorSettings] = useState<IndicatorSettings>(() => {
+    const defaults = defaultIndicatorSettings()
+    try {
+      const saved = JSON.parse(localStorage.getItem(userStorageKey('atlas:indicators:v1')) || '{}')
+      for (const spec of indicatorCatalog) {
+        const value = saved.settings?.[spec.key]
+        if (value && Number.isInteger(value.period) && value.period >= 0 && value.period <= 500 && /^#[0-9a-f]{6}$/i.test(value.color)) defaults[spec.key] = value
+      }
+    } catch { /* use defaults */ }
+    return defaults
+  })
+  const [visibleIndicators, setVisibleIndicators] = useState(() => {
+    try { const saved = JSON.parse(localStorage.getItem(userStorageKey('atlas:indicators:v1')) || '{}'); if (Array.isArray(saved.selected)) return new Set<string>(saved.selected.filter((key: string) => indicatorCatalog.some(x => x.key === key))) } catch { /* use defaults */ }
+    return new Set(['sma20', 'sma50'])
+  })
+  useEffect(() => { try { localStorage.setItem(userStorageKey('atlas:indicators:v1'), JSON.stringify({ settings: indicatorSettings, selected: [...visibleIndicators] })) } catch { /* storage optional */ } }, [indicatorSettings, visibleIndicators])
+  const [toolbarIndicators, setToolbarIndicators] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(userStorageKey('atlas:indicator-toolbar:v1')) || 'null')
+      if (Array.isArray(saved)) return new Set<string>(saved.filter(key => ['volume', 'macd', ...indicatorCatalog.map(x => x.key)].includes(key)))
+    } catch { /* default shortcuts */ }
+    return new Set(['sma20', 'sma50', 'boll', 'volume', 'macd'])
+  })
+  useEffect(() => { try { localStorage.setItem(userStorageKey('atlas:indicator-toolbar:v1'), JSON.stringify([...toolbarIndicators])) } catch { /* storage optional */ } }, [toolbarIndicators])
+  const toggleToolbarIndicator = (key: string) => setToolbarIndicators(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next })
+  const calculated = useMemo(() => ({ ...indicators, ...calculateChartIndicators(bars, indicatorSettings) }), [bars, indicators, indicatorSettings])
   const [replayMode, setReplayMode] = useState(false)
   const [replayPlaying, setReplayPlaying] = useState(false)
   const [replayIndex, setReplayIndex] = useState(0)
   const [replayAccount, setReplayAccount] = useState<ReplayAccount>({ cash: 100_000, quantity: 0, trades: [] })
   const displayBars = useMemo(() => replayMode ? bars.slice(0, replayIndex + 1) : bars, [bars, replayIndex, replayMode])
   const replayTime = displayBars.at(-1)?.time ?? Number.POSITIVE_INFINITY
-  const displayIndicators = useMemo(() => Object.fromEntries(Object.entries(indicators).map(([key, points]) => [key, replayMode ? points.filter((point) => point.time <= replayTime) : points])), [indicators, replayMode, replayTime])
+  const displayIndicators = useMemo(() => Object.fromEntries(Object.entries(calculated).map(([key, points]) => [key, replayMode ? points.filter((point) => point.time <= replayTime) : points])), [calculated, replayMode, replayTime])
   const displayTrades = useMemo(() => replayMode
     ? [...trades.filter((trade) => trade.time <= replayTime), ...replayAccount.trades]
     : trades, [replayAccount.trades, replayMode, replayTime, trades])
@@ -158,11 +187,10 @@ export const TradingChart = memo(function TradingChart({
   payloadRef.current = { bars: displayBars, indicators: displayIndicators, trades: displayTrades }
   const latest = displayBars.at(-1)
   const change = displayBars.length > 1 && latest ? latest.close / displayBars[displayBars.length - 2].close - 1 : 0
-  const indicatorControls = useMemo(() => [
-    { key: 'sma20', label: 'MA20' },
-    { key: 'sma50', label: 'MA50' },
-    { key: 'boll', label: 'BOLL' },
-  ], [])
+  const indicatorControls = indicatorCatalog.filter(item => toolbarIndicators.has(item.key)).map(item => ({
+    key: item.key,
+    label: item.key.startsWith('sma') ? `MA${indicatorSettings[item.key].period}` : item.key.toUpperCase(),
+  }))
 
   useEffect(() => {
     setReplayMode(false)
@@ -238,24 +266,19 @@ export const TradingChart = memo(function TradingChart({
       })))
     }
     const overlaySetters = new Map<string, (points: IndicatorPoint[]) => void>()
-    const addOverlay = (key: string, color: string, width: 1 | 2 = 1) => {
-      if (!visibleIndicators.has(key)) return
+    const addOverlay = (key: string, color: string, width: 1 | 2 = 1, group = key) => {
+      if (!visibleIndicators.has(group)) return
       const series = chart.addSeries(LineSeries, {
         color, lineWidth: width, priceLineVisible: false, lastValueVisible: false,
       }, 0)
       overlaySetters.set(key, (points) => series.setData(indicatorData(points)))
     }
-    addOverlay('sma20', '#f3b451', 2)
-    addOverlay('sma50', '#7aa2f7', 2)
-    if (visibleIndicators.has('boll')) {
-      addOverlay('boll_upper', '#8b98a8')
-      addOverlay('boll_mid', '#64748b')
-      addOverlay('boll_lower', '#8b98a8')
-    }
+    for (const spec of indicatorCatalog.filter(x => !x.pane && x.key !== 'boll')) addOverlay(spec.key, indicatorSettings[spec.key].color, 2)
+    for (const key of ['boll_upper', 'boll_mid', 'boll_lower']) addOverlay(key, indicatorSettings.boll.color, 1, 'boll')
 
     let setMacd: ((nextIndicators: Record<string, IndicatorPoint[]>) => void) | undefined
     if (showMacd) {
-      macdPane = nextPane
+      macdPane = nextPane++
       const macd = chart.addSeries(LineSeries, { title: 'MACD', color: '#7aa2f7', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, macdPane)
       const signal = chart.addSeries(LineSeries, { title: 'SIGNAL', color: '#f3b451', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, macdPane)
       const histogram = chart.addSeries(HistogramSeries, { title: 'HIST', priceLineVisible: false, lastValueVisible: false }, macdPane)
@@ -268,6 +291,18 @@ export const TradingChart = memo(function TradingChart({
           color: (point.value as number) >= 0 ? 'rgba(34,199,169,.55)' : 'rgba(255,90,103,.55)',
         })))
       }
+    }
+
+    const extraPanes: number[] = []
+    for (const spec of indicatorCatalog.filter(x => x.pane && visibleIndicators.has(x.key))) {
+      const pane = nextPane++
+      extraPanes.push(pane)
+      const keys = spec.key === 'kdj' ? ['kdj', 'kdj_d', 'kdj_j'] : [spec.key]
+      keys.forEach((key, index) => {
+        const series = chart.addSeries(LineSeries, { title: `${key.toUpperCase()}${spec.period ? ` (${indicatorSettings[spec.key].period})` : ''}`, color: index === 0 ? indicatorSettings[spec.key].color : index === 1 ? '#7aa2f7' : '#b68ce0', lineWidth: 1, priceLineVisible: false, lastValueVisible: true }, pane)
+        overlaySetters.set(key, points => series.setData(indicatorData(points)))
+        if (key === 'rsi') for (const price of [30, 70]) series.createPriceLine({ price, color: '#8899aa', lineWidth: 1, lineStyle: 2, axisLabelVisible: true })
+      })
     }
 
     const binding: ChartBinding = {
@@ -294,6 +329,7 @@ export const TradingChart = memo(function TradingChart({
     panes[0]?.setStretchFactor(5)
     if (volumePane >= 0) panes[volumePane]?.setStretchFactor(1.15)
     if (macdPane >= 0) panes[macdPane]?.setStretchFactor(1.55)
+    extraPanes.forEach(pane => panes[pane]?.setStretchFactor(1.55))
 
     const syncPaneCaptions = () => {
       const wrap = canvasWrapRef.current
@@ -356,7 +392,7 @@ export const TradingChart = memo(function TradingChart({
       releaseTheme()
       chart.remove()
     }
-  }, [bindingKey, chartType, interval, showMacd, showVolume, visibleIndicators])
+  }, [bindingKey, chartType, interval, showMacd, showVolume, visibleIndicators, indicatorSettings])
 
   useEffect(() => {
     const fit = displayBars.length > 0 && (lastDatasetRef.current !== bindingKey || lastBarCountRef.current === 0)
@@ -423,7 +459,9 @@ export const TradingChart = memo(function TradingChart({
 
   return (
     <section className="chart-workspace">
+      {indicatorOpen && <IndicatorPicker toolbar={toolbarIndicators} onToolbar={toggleToolbarIndicator} selected={visibleIndicators} settings={indicatorSettings} onToggle={toggleIndicator} onSettings={setIndicatorSettings} onClose={() => setIndicatorOpen(false)} volume={showVolume} macd={showMacd} onVolume={onShowVolume} onMacd={onShowMacd} />}
       <div className="chart-legend">
+        <button className="indicator-picker-trigger" aria-haspopup="dialog" onClick={() => setIndicatorOpen(true)}><SlidersHorizontal size={15} />金融指标<span>{visibleIndicators.size + Number(showVolume) + Number(showMacd)}</span></button>
         <div className="ohlc-row">
           <span>开 <b>{formatNumber(latest?.open)}</b></span>
           <span>高 <b>{formatNumber(latest?.high)}</b></span>
@@ -434,14 +472,14 @@ export const TradingChart = memo(function TradingChart({
         <div className="indicator-toggles">
           <span className="market-freshness" title={`数据源最后可用K线：${marketTime(lastBarTime)}`}>{isStale ? '刷新失败 · ' : ''}{marketTime(lastBarTime)}</span>
           {indicatorControls.map((item) => <button key={item.key} aria-pressed={visibleIndicators.has(item.key)} className={visibleIndicators.has(item.key) ? 'is-active' : ''} onClick={() => toggleIndicator(item.key)}>{item.label}</button>)}
-          <button aria-pressed={showVolume} className={`pane-toggle ${showVolume ? 'is-active' : ''}`} onClick={() => onShowVolume(!showVolume)} title={showVolume ? '隐藏成交量窗格' : '显示成交量窗格'}>{showVolume ? <Eye size={11} /> : <EyeOff size={11} />}VOL</button>
-          <button aria-pressed={showMacd} className={`pane-toggle ${showMacd ? 'is-active' : ''}`} onClick={() => onShowMacd(!showMacd)} title={showMacd ? '隐藏MACD窗格' : '显示MACD窗格'}>{showMacd ? <Eye size={11} /> : <EyeOff size={11} />}MACD</button>
+          {toolbarIndicators.has('volume') && <button aria-pressed={showVolume} className={`pane-toggle ${showVolume ? 'is-active' : ''}`} onClick={() => onShowVolume(!showVolume)} title={showVolume ? '隐藏成交量窗格' : '显示成交量窗格'}>{showVolume ? <Eye size={11} /> : <EyeOff size={11} />}VOL</button>}
+          {toolbarIndicators.has('macd') && <button aria-pressed={showMacd} className={`pane-toggle ${showMacd ? 'is-active' : ''}`} onClick={() => onShowMacd(!showMacd)} title={showMacd ? '隐藏MACD窗格' : '显示MACD窗格'}>{showMacd ? <Eye size={11} /> : <EyeOff size={11} />}MACD</button>}
           {!replayMode ? <button className="replay-launch" onClick={startReplay} title="从历史时点逐根回放"><RotateCcw size={11} />回放</button> : null}
           <span className={`source-pill ${isDemo ? 'demo' : isStale ? 'stale' : ''}`}>{source ?? '等待数据'}</span>
         </div>
       </div>
       {replayMode ? <div className="replay-toolbar"><span className="replay-status"><i />REPLAY <b>{replayIndex + 1}</b><em>/ {bars.length}</em></span><button onClick={() => setReplayPlaying((value) => !value)} title={replayPlaying ? '暂停' : '播放'}>{replayPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}</button><button onClick={stepReplay} title="下一根K线"><StepForward size={13} /></button><span className="replay-clock">{rangeTime(latest?.time ?? 0, interval)}</span><span className="replay-account"><small>模拟权益</small><strong>{formatNumber(replayEquity, 2)}</strong><em>仓位 {formatNumber(replayAccount.quantity, 4)}</em></span><button className="paper-buy" onClick={() => placeReplayOrder('buy')}>买入25%</button><button className="paper-sell" onClick={() => placeReplayOrder('sell')}>全部卖出</button><button className="replay-exit" onClick={() => { setReplayMode(false); setReplayPlaying(false) }} title="返回实时图表"><X size={13} /></button></div> : null}
-      <div className="chart-canvas-wrap" ref={canvasWrapRef}>
+      <div className="chart-canvas-wrap" ref={canvasWrapRef} style={{ minHeight: 280 + (Number(showVolume) + Number(showMacd) + indicatorCatalog.filter(x => x.pane && visibleIndicators.has(x.key)).length) * 95 }}>
         <div className="chart-canvas" ref={containerRef} aria-label="金融K线、成交量与MACD技术指标图" />
         {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button aria-label="隐藏成交量" onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}
         {showMacd ? <div className="pane-caption macd-caption" ref={macdCaptionRef}><button aria-label="隐藏MACD" onClick={() => onShowMacd(false)} title="隐藏MACD"><Eye size={11} /></button><strong>MACD (12, 26, 9)</strong><span className="macd-value">M {formatNumber(latestMacd, 2)}</span><span className="signal-value">S {formatNumber(latestSignal, 2)}</span></div> : null}

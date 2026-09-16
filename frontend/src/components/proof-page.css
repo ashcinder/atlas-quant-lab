@@ -1,0 +1,18 @@
+.proof-page { max-width: 1000px; margin: auto; padding: 32px 24px 90px; color: var(--text); height: 100dvh; overflow-y: auto; }
+.proof-page header,.proof-page section { margin: 22px 0; padding: 22px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+.proof-page h1 { font-size: 28px; }.proof-page h2 { font-size: 19px; }.proof-page p { line-height: 1.7; }
+.proof-page a { color: var(--accent); }.proof-page button { padding: 10px 18px; background: var(--accent); color: white; border: 0; border-radius: 6px; cursor: pointer; }
+.proof-page button:disabled { opacity: .6; }.proof-page pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.proof-page dl>div { margin: 12px 0; }.proof-page dd { margin: 3px 0; overflow-wrap: anywhere; font-family: monospace; }.proof-page dt { color: var(--muted); }
+.proof-stages { display: flex; flex-wrap: wrap; gap: 30px; }.proof-page [role=alert] { color: var(--negative); }
+
+.qj-proof-link { display: inline-flex; padding: 9px 14px; margin: 10px 0; border-radius: 6px; color: var(--accent); border: 1px solid var(--accent); font-weight: 600; }
+
+.market-proof-button { display: inline-flex; white-space: nowrap; padding: 5px 9px; margin: 4px 0; border: 1px solid var(--accent); border-radius: 5px; color: var(--accent); font-size: 12px; font-weight: 600; }
+.proof-page figure { margin: 18px 0; padding: 12px; border: 1px solid var(--border); }.proof-page figure svg { display: block; width: 100%; }.proof-page figcaption { font-size: 12px; color: var(--muted); }
+
+.quant-workspace .qj-agent-name > .market-proof-button { grid-column: 2 / -1; justify-self: start; width: max-content; text-decoration: none; background: var(--accent-soft); }
+.qjs-proof-period { display: flex; flex-wrap: wrap; gap: 14px; padding: 16px; border: 1px solid var(--border); }
+.qjs-proof-period label { display: grid; gap: 8px; flex: 1; min-width: 220px; }
+.qjs-proof-period input { padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); }
+.qjs-proof-period p { flex-basis: 100%; color: var(--muted); margin: 0; }

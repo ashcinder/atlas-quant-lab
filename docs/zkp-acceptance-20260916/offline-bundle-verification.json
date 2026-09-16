@@ -1,0 +1,56 @@
+[
+  {
+    "valid": true,
+    "agent_id": "qja_f60e2819d52d4721",
+    "symbol": "BTC-USD",
+    "period_start": 1754006400,
+    "period_end": 1756684800,
+    "total_return_ppm": -17879,
+    "public_code_verified": true,
+    "market_origin_verified": false,
+    "proof_id": "qzp_6607a29139d149f185",
+    "bundle_bytes": 492452,
+    "rejected": [
+      "journal.json",
+      "market.json",
+      "strategy.py",
+      "expected_return"
+    ]
+  },
+  {
+    "valid": true,
+    "agent_id": "qja_504320628ade48e3",
+    "symbol": "BTC-USD",
+    "period_start": 1754006400,
+    "period_end": 1756684800,
+    "total_return_ppm": -5399,
+    "public_code_verified": true,
+    "market_origin_verified": false,
+    "proof_id": "qzp_97dd7aa34ef54c84ba",
+    "bundle_bytes": 492588,
+    "rejected": [
+      "journal.json",
+      "market.json",
+      "strategy.py",
+      "expected_return"
+    ]
+  },
+  {
+    "valid": true,
+    "agent_id": "qja_3c423f6e38fe444f",
+    "symbol": "ETH-USD",
+    "period_start": 1754006400,
+    "period_end": 1756684800,
+    "total_return_ppm": 17269,
+    "public_code_verified": true,
+    "market_origin_verified": false,
+    "proof_id": "qzp_ab9f0297fbfa48a5a2",
+    "bundle_bytes": 490696,
+    "rejected": [
+      "journal.json",
+      "market.json",
+      "strategy.py",
+      "expected_return"
+    ]
+  }
+]

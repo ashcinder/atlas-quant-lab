@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { PrivateExecutionPanel } from './PrivateExecutionPanel'
 import { GuidedWorkflow } from './GuidedWorkflow'
 import './guided-strategy.css'
+import './proof-page.css'
 import type { ReactNode } from 'react'
 import {
   Braces, Check, ChevronDown, CircleAlert, Code2, Cpu, FileArchive,
@@ -96,7 +97,12 @@ export function QuantStrategyStudio({
   const [saving, setSaving] = useState(false)
   const [zkProfiles, setZkProfiles] = useState<import('../types').ZkProfile[]>([])
   const [proofProfileId, setProofProfileId] = useState('atlas_program_backtest_risc0_v2')
-  const [zkDataset, setZkDataset] = useState<import('../types').ZkMarketDataset | null>(null)
+  const [proofStart, setProofStart] = useState(() => new Date(Date.now() - 32 * 86400000).toISOString().slice(0, 10))
+  const [proofEnd, setProofEnd] = useState(() => new Date().toISOString().slice(0, 10))
+  const [zkDatasetRecord, setZkDataset] = useState<import('../types').ZkMarketDataset | null>(null)
+  const [datasetContext, setDatasetContext] = useState('')
+  const currentDatasetContext = `${assetSymbol}:${assetClass}:${interval}:${proofStart}:${proofEnd}`
+  const zkDataset = datasetContext === currentDatasetContext ? zkDatasetRecord : null
   const [zkProof, setZkProof] = useState<import('../types').ZkProofRecord | null>(null)
   const [publishedProofReport, setPublishedProofReport] = useState<string | null>(null)
   const [proofBusy, setProofBusy] = useState(false)
@@ -272,12 +278,13 @@ export function QuantStrategyStudio({
 
   const prepareDataset = async () => {
     if (proofBusyRef.current) return
+    if (!proofStart || !proofEnd || proofStart >= proofEnd) { onError('请选择有效的证明时间区间'); return }
     const session = privateSession.current
     proofBusyRef.current = true
     setProofBusy(true)
     try {
-      const dataset = await api.createZkMarketDataset(assetSymbol, assetClass, interval as import('../types').Interval)
-      if (session === privateSession.current) { setZkDataset(dataset); setZkProof(null); setPublishedProofReport(null) }
+      const dataset = await api.createZkMarketDataset(assetSymbol, assetClass, interval as import('../types').Interval, `${proofStart}T00:00:00Z`, `${proofEnd}T00:00:00Z`)
+      if (session === privateSession.current) { setZkDataset(dataset); setDatasetContext(currentDatasetContext); setZkProof(null); setPublishedProofReport(null) }
     }
     catch (reason) { if (session === privateSession.current) onError(reason instanceof Error ? reason.message : '可信市场数据集生成失败') }
     finally { if (session === privateSession.current) { proofBusyRef.current = false; setProofBusy(false) } }
@@ -300,7 +307,7 @@ export function QuantStrategyStudio({
   }
 
   const publishProof = async () => {
-    if (!agentId || !token || !zkProof || proofBusyRef.current) return
+    if (!agentId || !token || !zkProof || !zkDataset || proofBusyRef.current) return
     const session = privateSession.current
     proofBusyRef.current = true
     setProofBusy(true)
@@ -358,21 +365,22 @@ export function QuantStrategyStudio({
 
     {tab === 'proof' ? <div className="qjs-proof">
       <header><div><strong>零知识证明发布流水线</strong><small>本地生成 witness 与 receipt；平台只验证公开 journal，不接收策略参数、salt、逐笔决策或完整净值。</small></div><span className={zkProfiles.some((item) => item.verifier_ready) ? 'is-ready' : 'is-blocked'}><ShieldCheck size={13} />{zkProfiles.some((item) => item.verifier_ready) ? '证明验证器就绪' : '验证器尚未构建'}</span></header>
-      <label className="qjs-help">证明协议<select aria-label="证明协议" value={proofProfileId} disabled={proofBusy} onChange={(event) => { setProofProfileId(event.target.value); setZkProof(null); setPublishedProofReport(null) }}>{zkProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.id}</option>)}</select></label>
+      <label className="qjs-help">证明协议<select aria-label="证明协议" value={proofProfileId} disabled={proofBusy} onChange={(event) => { setProofProfileId(event.target.value); setZkProof(null); setPublishedProofReport(null) }}>{zkProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.id}{profile.id.includes("_v1") ? " · 仅历史证明验证" : ""}</option>)}</select></label>
       <section className="qjs-proof-profile">
         {zkProfiles.map((profile) => <article key={profile.id}><div><Fingerprint size={20} /><span><em>REGISTERED IMAGE</em><strong>{profile.id}</strong><code>{profile.image_id}</code></span></div><dl><div><dt>证明系统</dt><dd>{profile.proof_system}</dd></div><div><dt>覆盖范围</dt><dd>{profile.scope}</dd></div><div><dt>Guest</dt><dd>v{profile.guest_version}</dd></div><div><dt>状态</dt><dd>{profile.status}</dd></div></dl><p><ShieldCheck size={12} />证明：{profile.privacy_scope.join('；')}</p><p className="is-warning"><CircleAlert size={12} />不证明：{profile.unsupported.join('、')}</p></article>)}
         {!zkProfiles.length ? <div className="qjs-empty"><CircleAlert size={20} />尚无已激活的 proof profile；运行 strategy/zkvm/scripts/build.sh 后才允许上传。</div> : null}
       </section>
+      <div className="qjs-proof-period"><label>证明开始日期（UTC）<input aria-label="证明开始日期" type="date" value={proofStart} disabled={proofBusy} onInput={event => { setProofStart(event.currentTarget.value); setZkDataset(null); setZkProof(null); setPublishedProofReport(null) }} onChange={event => { setProofStart(event.target.value); setZkDataset(null); setZkProof(null); setPublishedProofReport(null) }} /></label><label>证明结束日期（UTC，不含）<input aria-label="证明结束日期" type="date" value={proofEnd} disabled={proofBusy} onInput={event => { setProofEnd(event.currentTarget.value); setZkDataset(null); setZkProof(null); setPublishedProofReport(null) }} onChange={event => { setProofEnd(event.target.value); setZkDataset(null); setZkProof(null); setPublishedProofReport(null) }} /></label><p>仅纳入区间内已收盘 K 线，证明中的时间以实际首末 K 线为准。建议先用约 32 根 K 线验证流程。</p></div>
       <ol className="qjs-proof-steps">
-        <li className={zkDataset ? 'is-done' : ''}><span>01</span><div><strong>锁定可信市场数据</strong><small>{assetSymbol} · {interval} · 平台公开数据根</small>{zkDataset ? <code>{zkDataset.market_data_hash}</code> : null}</div><button disabled={proofBusy} onClick={prepareDataset}>{zkDataset ? '重新登记' : '生成数据集'}</button></li>
-        <li><span>02</span><div><strong>在开发者设备创建私有 witness</strong><small>参数、salt 与 nullifier nonce 只保留在本地；inspect 输出的 strategy_commitment 用于创建策略身份</small></div><code>atlas-zkvm inspect --profile {proofProfileId} --witness witness.json</code></li>
-        <li><span>03</span><div><strong>本地生成生产证明</strong><small>disable-dev-mode 已强制启用，禁止伪 receipt</small></div><code>strategy/zkvm/target/release/atlas-zkvm prove --profile {proofProfileId} --witness witness.json --receipt proof.r0</code></li>
+        <li className={zkDataset ? 'is-done' : ''}><span>01</span><div><strong>锁定可信市场数据</strong><small>{assetSymbol} · {interval} · 平台公开数据根</small>{zkDataset ? <><code>{zkDataset.market_data_hash}</code><a href={`${(import.meta.env.VITE_API_ROOT ?? '/api/v1').replace(/\/$/, '')}/quantjudge/zkp/market-datasets/${zkDataset.market_data_hash}`} download="market.json">下载 market.json</a></> : null}</div><button disabled={proofBusy} onClick={prepareDataset}>{zkDataset ? '重新登记' : '生成数据集'}</button></li>
+        <li><span>02</span><div><strong>在开发者设备创建私有 witness</strong><small>下载上一步数据保存为 market.json；使用受支持的 target_bps Python 子集。准备工具在作者机器编译和预检；先用输出承诺创建策略身份，然后仅将本地 witness 的 agent_id 改为该身份 ID，保留 salt 和其余输入。</small></div><code>backend/.venv/bin/python scripts/prepare-zk-witness.py --dataset market.json --python-source strategy.py --output witness.private.json</code></li>
+        <li><span>03</span><div><strong>本地生成真实零知识证明</strong><small>disable-dev-mode 已强制启用，禁止伪 receipt</small></div><code>strategy/zkvm/target/release/atlas-zkvm prove --profile {proofProfileId} --witness witness.private.json --receipt proof.r0</code></li>
         <li className={zkProof ? 'is-done' : ''}><span>04</span><div><strong>上传并独立验证 receipt</strong><small>固定 image ID · 45 秒 fail-closed · 最大 16 MB</small>{zkProof ? <code>{zkProof.proof_hash}</code> : null}</div><button disabled={proofBusy || !zkDataset} onClick={() => proofFileRef.current?.click()}>{proofBusy ? '处理中…' : '选择 proof.r0'}</button><input ref={proofFileRef} hidden type="file" accept=".r0,.bin" onChange={(event) => event.target.files?.[0] && uploadProof(event.target.files[0])} /></li>
-        <li className={zkProof ? '' : 'is-locked'}><span>05</span><div><strong>发布 ZKP 跑分回执</strong><small>指标和抽样曲线直接来自已验证 journal；proof/nullifier 只能使用一次</small></div><button disabled={proofBusy || !zkProof} onClick={publishProof}>发布 QuantJudge</button></li>
+        <li className={zkProof ? '' : 'is-locked'}><span>05</span><div><strong>发布 ZKP 跑分回执</strong><small>指标和抽样曲线直接来自已验证 journal；proof/nullifier 只能使用一次</small></div><button disabled={proofBusy || !zkProof || !zkDataset} onClick={publishProof}>发布 QuantJudge</button></li>
         <li><span>06</span><div><strong>外部钱包锚定 Supervisor</strong><small>链上仅保存回执、证明、公开输入和 nullifier 的哈希；Supervisor 源码保持只读</small></div><code>ATLASZK2 · receipt · proof · public-input · nullifier</code></li>
       </ol>
       {publishedProofReport ? <div className="qjs-proof-published"><ShieldCheck size={15} /><span><strong>ZKP 报告已发布</strong><code>{publishedProofReport}</code></span></div> : null}
-      <aside className="qjs-proof-boundary"><LockKeyhole size={16} /><div><strong>当前证明覆盖范围</strong><p>可编程 v2 在固定 zkVM 中执行私密整数指令、历史价格、均线和状态寄存器，并证明下一根开盘成交及成本后的收益。它不是任意 Python / AI 推理证明。SMA v1 保留历史验证；当前重建无法复现旧 image ID，生成新证明请选择 v2。</p>{zkDataset ? <small>{zkDataset.limitation}</small> : null}</div></aside>
+      <a href="#/proof">查看 Proof 验证说明与 GitHub 验证程序</a><aside className="qjs-proof-boundary"><LockKeyhole size={16} /><div><strong>当前证明覆盖范围</strong><p>可编程 v2 在固定 zkVM 中执行私密整数指令、历史价格、均线和状态寄存器，并证明下一根开盘成交及成本后的收益。它不是任意 Python / AI 推理证明。SMA v1 保留历史验证；当前重建无法复现旧 image ID，生成新证明请选择 v2。</p>{zkDataset ? <small>{zkDataset.limitation}</small> : null}</div></aside>
     </div> : null}
 
     {tab === 'sdk' ? <div className="qjs-sdk">

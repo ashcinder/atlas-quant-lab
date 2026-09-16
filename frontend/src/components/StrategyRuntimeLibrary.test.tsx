@@ -9,6 +9,7 @@ const release = { id: 'rel-1', name: '趋势规则', version: 1, source_kind: 'b
 beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(request).mockImplementation(async (path) => {
+    if (path.endsWith('/bkc-offer')) return null
     if (path === '/strategy-releases') return [release]
     if (path === '/strategy-subscriptions') return []
     if (path.startsWith('/strategies')) return []
@@ -21,6 +22,6 @@ afterEach(cleanup)
 it('subscribes to an immutable free release and refreshes the library', async () => {
   render(<StrategyRuntimeLibrary />)
   await screen.findByRole('heading', { name: '趋势规则' })
-  fireEvent.click(screen.getByRole('button', { name: '免费订阅' }))
+  fireEvent.click(await screen.findByRole('button', { name: '免费订阅' }))
   await waitFor(() => expect(request).toHaveBeenCalledWith('/strategy-subscriptions', expect.objectContaining({ method: 'POST', body: JSON.stringify({ release_id: 'rel-1' }) })))
 })

@@ -430,6 +430,18 @@ class StrategyRuntimeStore:
                 "SELECT * FROM strategy_subscriptions WHERE owner_id=? AND release_id=?",
                 (owner, release_id),
             ).fetchone()
+            # Paid version access must be backed by a verified native BKC order.
+            # Existing subscribers keep their version entitlement when an offer is added.
+            if not existing and release["owner_id"] != owner and connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bkc_offers'"
+            ).fetchone():
+                offer = connection.execute("SELECT 1 FROM bkc_offers WHERE release_id=?", (release_id,)).fetchone()
+                paid = connection.execute(
+                    "SELECT 1 FROM bkc_orders WHERE owner_id=? AND kind='subscription' AND resource_id=? AND status='confirmed'",
+                    (owner, release_id),
+                ).fetchone()
+                if offer and not paid:
+                    raise HTTPException(402, "请先完成 BKC 支付并核验链上回执")
             if existing:
                 if existing["status"] != "active":
                     connection.execute(

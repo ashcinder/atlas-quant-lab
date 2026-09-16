@@ -1,0 +1,210 @@
+{
+  "proof_system": "risc0-zkvm",
+  "proof_profile": "atlas_program_backtest_risc0_v2",
+  "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+  "cryptographically_verified": true,
+  "proof_sha256": "29c2bcf7d465c4d2e520973d33781401d8b52f3abb281853076345cc246adc42",
+  "receipt_bytes": 552420,
+  "elapsed_seconds": 217.81,
+  "resumed_existing_receipt": false,
+  "rejected_cases": [
+    "corrupted_receipt",
+    "wrong_image_id"
+  ],
+  "statement": {
+    "schema": "atlas.quantjudge.zk.statement.v1",
+    "proof_profile": "atlas_program_backtest_risc0_v2",
+    "agent_id": "qja_acceptance_20260916",
+    "strategy_commitment": "76736f7d583636afffb97e8fc7ef0d34a905abc5bc14cacb46bbcde2aebffe45",
+    "workflow_commitment": "b20cf36a741d831aa114db85c39ae9c78d9ab144e16c0a26db2a68a31dba5a32",
+    "market_data_hash": "4920e9f1a65a550ca24018a8a492456af764fdf68a4c3516d26c998f5422c05c",
+    "cost_model_hash": "3d225bfd0fd3aaf927774e1d020fa88ec049565460713b1f02325fac74f40e63",
+    "report_type": "backtest",
+    "period_start": 1704067200,
+    "period_end": 1706745600,
+    "initial_equity_micros": 1000000000,
+    "final_equity_micros": 997662555,
+    "decision_count": 32,
+    "decision_merkle_root": "def43ce0782513b298480f9039e0e9dc348edd61fabd3061ed4eeb6423862b28",
+    "equity_curve_hash": "df789b8e27147ec0d3dbbf9c5d244b0a8b9e61254cfc875cdacf6edab8f9f53c",
+    "previous_receipt_hash": null,
+    "nullifier": "ba91751759d39e0e873f90f9e27413887c9552e234f1bee1c46959939929270f",
+    "metrics": {
+      "total_return_ppm": -2337,
+      "annualized_return_ppm": -23130,
+      "max_drawdown_ppm": -8649,
+      "annualized_volatility_ppm": 35194,
+      "sharpe_milli": -766,
+      "win_rate_ppm": 516129,
+      "benchmark_return_ppm": 29703,
+      "observation_count": 32
+    },
+    "public_curve": [
+      {
+        "time": 1704067200,
+        "return_ppm": 0,
+        "benchmark_return_ppm": 0
+      },
+      {
+        "time": 1704153600,
+        "return_ppm": 840,
+        "benchmark_return_ppm": 9900
+      },
+      {
+        "time": 1704240000,
+        "return_ppm": 688,
+        "benchmark_return_ppm": 19801
+      },
+      {
+        "time": 1704326400,
+        "return_ppm": 1510,
+        "benchmark_return_ppm": 29702
+      },
+      {
+        "time": 1704412800,
+        "return_ppm": 1358,
+        "benchmark_return_ppm": 39603
+      },
+      {
+        "time": 1704499200,
+        "return_ppm": 2161,
+        "benchmark_return_ppm": 49504
+      },
+      {
+        "time": 1704585600,
+        "return_ppm": 2010,
+        "benchmark_return_ppm": 59405
+      },
+      {
+        "time": 1704672000,
+        "return_ppm": 2861,
+        "benchmark_return_ppm": 0
+      },
+      {
+        "time": 1704758400,
+        "return_ppm": 2710,
+        "benchmark_return_ppm": 9900
+      },
+      {
+        "time": 1704844800,
+        "return_ppm": 3542,
+        "benchmark_return_ppm": 19801
+      },
+      {
+        "time": 1704931200,
+        "return_ppm": 3391,
+        "benchmark_return_ppm": 29702
+      },
+      {
+        "time": 1705017600,
+        "return_ppm": 4205,
+        "benchmark_return_ppm": 39603
+      },
+      {
+        "time": 1705104000,
+        "return_ppm": 4053,
+        "benchmark_return_ppm": 49504
+      },
+      {
+        "time": 1705190400,
+        "return_ppm": 4849,
+        "benchmark_return_ppm": 59405
+      },
+      {
+        "time": 1705276800,
+        "return_ppm": -1922,
+        "benchmark_return_ppm": 0
+      },
+      {
+        "time": 1705363200,
+        "return_ppm": -1084,
+        "benchmark_return_ppm": 9900
+      },
+      {
+        "time": 1705449600,
+        "return_ppm": -1235,
+        "benchmark_return_ppm": 19801
+      },
+      {
+        "time": 1705536000,
+        "return_ppm": -415,
+        "benchmark_return_ppm": 29702
+      },
+      {
+        "time": 1705622400,
+        "return_ppm": -566,
+        "benchmark_return_ppm": 39603
+      },
+      {
+        "time": 1705708800,
+        "return_ppm": 235,
+        "benchmark_return_ppm": 49504
+      },
+      {
+        "time": 1705795200,
+        "return_ppm": 83,
+        "benchmark_return_ppm": 59405
+      },
+      {
+        "time": 1705881600,
+        "return_ppm": 933,
+        "benchmark_return_ppm": 0
+      },
+      {
+        "time": 1705968000,
+        "return_ppm": 782,
+        "benchmark_return_ppm": 9900
+      },
+      {
+        "time": 1706054400,
+        "return_ppm": 1613,
+        "benchmark_return_ppm": 19801
+      },
+      {
+        "time": 1706140800,
+        "return_ppm": 1461,
+        "benchmark_return_ppm": 29702
+      },
+      {
+        "time": 1706227200,
+        "return_ppm": 2274,
+        "benchmark_return_ppm": 39603
+      },
+      {
+        "time": 1706313600,
+        "return_ppm": 2122,
+        "benchmark_return_ppm": 49504
+      },
+      {
+        "time": 1706400000,
+        "return_ppm": 2917,
+        "benchmark_return_ppm": 59405
+      },
+      {
+        "time": 1706486400,
+        "return_ppm": -3841,
+        "benchmark_return_ppm": 0
+      },
+      {
+        "time": 1706572800,
+        "return_ppm": -3004,
+        "benchmark_return_ppm": 9900
+      },
+      {
+        "time": 1706659200,
+        "return_ppm": -3155,
+        "benchmark_return_ppm": 19801
+      },
+      {
+        "time": 1706745600,
+        "return_ppm": -2337,
+        "benchmark_return_ppm": 29702
+      }
+    ]
+  },
+  "scope": "execution_and_net_backtest_performance_of_private_bounded_program",
+  "confidential_hosting_verified": false,
+  "exchange_fills_verified": false,
+  "market_origin_cryptographically_verified": false,
+  "onchain_verified": false
+}

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+ #!/usr/bin/env bash
 set -euo pipefail
 ATLAS_PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ ! -x "$ATLAS_PROJECT_ROOT/backend/.venv/bin/python" || ! -d "$ATLAS_PROJECT_ROOT/frontend/node_modules" ]]; then
@@ -17,3 +17,4 @@ children+=("$!")
 echo "Atlas: http://127.0.0.1:5173 · 首次使用请创建账号。Ctrl+C 停止。"
 while kill -0 "${children[0]}" 2>/dev/null && kill -0 "${children[1]}" 2>/dev/null; do sleep 1; done
 exit 1
+  

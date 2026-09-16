@@ -1,0 +1,30 @@
+import { expect, it } from 'vitest'
+import { calculateChartIndicators, defaultIndicatorSettings } from './chartIndicators'
+const bars = Array.from({ length: 70 }, (_, i) => ({ time: 1704067200 + i * 3600, open: 100 + i, high: 102 + i, low: 98 + i, close: 100 + i, volume: 10 }))
+it('calculates SMA, Bollinger, Wilder RSI/ATR and OBV with warmup', () => {
+  const values = calculateChartIndicators(bars, defaultIndicatorSettings())
+  expect(values.sma20[18].value).toBeNull()
+  expect(values.sma20[19].value).toBe(109.5)
+  expect(values.boll_upper[19].value).toBeCloseTo(109.5 + 2 * Math.sqrt(33.25))
+  expect(values.rsi[13].value).toBeNull()
+  expect(values.rsi[14].value).toBe(100)
+  expect(values.atr[13].value).toBeCloseTo(4)
+  expect(values.obv[10].value).toBe(100)
+})
+it('has no future dependence and resets VWAP at UTC midnight', () => {
+  const config = defaultIndicatorSettings()
+  const short = calculateChartIndicators(bars.slice(0, 35), config)
+  const full = calculateChartIndicators(bars, config)
+  for (const key of Object.keys(short)) expect(full[key].slice(0, 35)).toEqual(short[key])
+  expect(full.vwap[0].value).toBe(100)
+  expect(full.vwap[1].value).toBe(100.5)
+  expect(full.vwap[24].value).toBe(124)
+})
+it('handles flat markets and empty data without NaN', () => {
+  const flat = bars.map(b => ({ ...b, open:100, high:100, low:100, close:100, volume:0 }))
+  const values = calculateChartIndicators(flat, defaultIndicatorSettings())
+  expect(values.rsi.at(-1)?.value).toBe(50)
+  expect(values.cci.at(-1)?.value).toBe(0)
+  expect(values.vwap.at(-1)?.value).toBeNull()
+  for (const points of Object.values(calculateChartIndicators([], defaultIndicatorSettings()))) expect(points).toEqual([])
+})

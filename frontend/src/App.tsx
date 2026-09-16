@@ -61,6 +61,8 @@ export default function App() {
   const [portfolioStrategies, setPortfolioStrategies] = useState<Strategy[]>([])
   const [strategyId, setStrategyId] = useState('sma_cross')
   const [params, setParams] = useState<Record<string, number | string | boolean>>({ fast: 20, slow: 60 })
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
   const [capital, setCapital] = useState(100_000)
   const [commission, setCommission] = useState(0.001)
   const [slippage, setSlippage] = useState(0.0005)
@@ -285,6 +287,9 @@ export default function App() {
   }
   const runSingle = () => {
     if (!asset || backtestBusyRef.current) return
+    if ((start && !Number.isFinite(Date.parse(start))) || (end && !Number.isFinite(Date.parse(end))) || (start && end && Date.parse(start) >= Date.parse(end))) {
+      setError('回测开始时间必须早于结束时间'); return
+    }
     backtestBusyRef.current = true
     const requestId = ++backtestRequestRef.current
     marketAbortRef.current?.abort()
@@ -295,6 +300,8 @@ export default function App() {
     api.runBacktest({
       symbol: asset.symbol,
       asset_class: asset.asset_class,
+      start: start ? new Date(start).toISOString() : null,
+      end: end ? new Date(end).toISOString() : null,
       interval: preferences.interval,
       data_source: preferences.source,
       strategy_id: strategyId,
@@ -383,7 +390,7 @@ export default function App() {
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>不公开</b>源码与参数（不等于平台不可读）</span><span><b>不公开</b>原始投资决策</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
+      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
       {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? <WorkspaceErrorBoundary>
@@ -398,7 +405,7 @@ export default function App() {
             <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId)))} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
+          <StrategyPanel sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       </WorkspaceErrorBoundary> : null}
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>

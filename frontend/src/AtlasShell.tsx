@@ -3,12 +3,15 @@ import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp } from 'lu
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
 
+const ProofPage = lazy(() => import('./components/ProofPage'))
+const proofRoute = () => window.location.hash.startsWith('#/proof') ? window.location.hash.split('/')[2] ?? '' : null
 const QuantWorkspace = lazy(() => import('./App'))
 const TradingWorkspace = lazy(() => import('./components/TradingWorkspace'))
 const JournalWorkspace = lazy(() => import('./journal/components/investment-app'))
 type Session = { authenticated: boolean; registrationEnabled: boolean; email: string | null; userId?: string }
 const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
 const titleFromHash = () => {
+  if (window.location.hash.startsWith('#/proof')) return 'Proof 验证 · Atlas'
   if (window.location.hash.startsWith('#/trading')) return '策略交易 · Atlas'
   if (window.location.hash.startsWith('#/journal')) {
     const tab = window.location.hash.split('/')[2]?.split('?')[0] ?? 'overview'
@@ -31,6 +34,7 @@ export default function AtlasShell() {
   const [session, setSession] = useState<Session | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [proofId, setProofId] = useState(proofRoute)
   const [workspace, setWorkspace] = useState(workspaceFromHash)
   const [quantHref, setQuantHref] = useState(() =>
     workspaceFromHash() === 'quant' ? window.location.hash || '#single' : '#single',
@@ -42,7 +46,7 @@ export default function AtlasShell() {
   useEffect(() => {
     const timer = window.setTimeout(() => { document.title = titleFromHash() }, 0)
     return () => window.clearTimeout(timer)
-  }, [workspace])
+  }, [workspace, proofId])
   async function refreshSession() {
     const requestId = ++sessionRequest.current
     const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })
@@ -65,6 +69,7 @@ export default function AtlasShell() {
       if (document.visibilityState === 'visible') void refreshSession().catch(() => undefined)
     }
     const hash = () => {
+      setProofId(proofRoute())
       const next = workspaceFromHash()
       if (next === 'quant') setQuantHref(window.location.hash || '#single')
       setWorkspace(next)
@@ -125,7 +130,8 @@ export default function AtlasShell() {
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>
-      {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant'}><QuantWorkspace /></div> : null}
+      {proofId !== null && <ProofPage key={proofId} proofId={proofId} />}
+      {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant' || proofId !== null}><QuantWorkspace /></div> : null}
       {visited.trading ? <div hidden={workspace !== 'trading'}><TradingWorkspace /></div> : null}
       {visited.journal ? <div className="journal-root" hidden={workspace !== 'journal'}><JournalWorkspace /><div id="journal-portals" /></div> : null}
     </Suspense>

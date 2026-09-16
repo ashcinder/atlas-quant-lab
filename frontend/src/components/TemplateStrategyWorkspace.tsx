@@ -1,3 +1,5 @@
+import { ParameterSweep } from './ParameterSweep'
+import { applySweep } from '../parameterSweep'
 import { useRef, useState } from 'react'
 import { api } from '../api'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
@@ -54,6 +56,7 @@ export function TemplateStrategyWorkspace({ pipeline, storageKey, ...props }: Re
         : <input required type="number" min={p.minimum ?? undefined} max={p.maximum ?? undefined} step={p.step ?? (p.kind === 'integer' ? 1 : 'any')} value={Number(params[p.key])} onChange={e => update(p.key, Number(e.target.value))} />}
       {p.help ? <small>{p.help}</small> : null}
     </label>)}</div>
+    <ParameterSweep key={strategy.id} disabled={busy || !props.asset} fields={strategy.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(params[p.key]), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ symbol: props.asset?.symbol, asset_class: props.asset?.asset_class, interval: props.interval, data_source: props.source, strategy_id: strategy.id, params, initial_capital: props.initialCapital, commission_rate: props.commission, slippage_rate: props.slippage, spread_rate: props.spread, max_position: props.maxPosition, max_participation_rate: props.maxParticipation }} onApply={values => { const next = applySweep({ params }, values); setDrafts(current => ({ ...current, [strategy.id]: next.params })); setNotice('已应用搜索参数，可保存副本或运行模板回测。') }} />
     <button type="button" onClick={() => setDrafts(current => ({ ...current, [strategy.id]: {} }))}>恢复当前模板默认参数</button>
   </form>
 }

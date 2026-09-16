@@ -164,8 +164,10 @@ export const api = {
   listZkProfiles(signal?: AbortSignal) {
     return request<ZkProfile[]>('/quantjudge/zkp/profiles', { signal }, 8_000)
   },
-  createZkMarketDataset(symbol: string, assetClass: string, interval: Interval) {
+  createZkMarketDataset(symbol: string, assetClass: string, interval: Interval, start?: string, end?: string) {
     const params = new URLSearchParams({ symbol, asset_class: assetClass, interval, source: 'auto', adjustment: 'raw' })
+    if (start) params.set('start', start)
+    if (end) params.set('end', end)
     return request<ZkMarketDataset>(`/quantjudge/zkp/market-datasets?${params.toString()}`, { method: 'POST' })
   },
   uploadZkProof(agentId: string, token: string, profile: string, file: File) {

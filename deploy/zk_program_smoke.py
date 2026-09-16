@@ -43,6 +43,15 @@ def main():
         assert report["evidence_level"] == "zk_verified"
         assert quant.verify_report(report["id"], refresh_chain=False)["external_proof_verified"]
         assert not proof["private_witness_stored"]
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.zkp_api import proof_inspection_router
+        app = FastAPI()
+        app.include_router(proof_inspection_router(proofs))
+        response = TestClient(app).post(f"/api/v1/quantjudge/zk-proofs/{proof['id']}/verify")
+        assert response.status_code == 200 and response.json()['valid'] is True
+        assert response.json()['proof_hash'] == proof['proof_hash']
+
         for forbidden in ("strategy_salt", "nullifier_nonce", '"program"'):
             assert forbidden not in json.dumps(report)
         try:

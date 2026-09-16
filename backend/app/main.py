@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 import json
 import re
-from datetime import UTC
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +50,7 @@ from app.quantjudge_models import (
     SubscriptionCreate,
 )
 from app.research import ResearchService
+from app.bkc_payments import bkc_router
 from app.storage import RunStore
 from app.strategies import list_strategies
 from app.strategy_projects import (
@@ -80,6 +81,7 @@ from app.zkp import (
     make_market_dataset,
 )
 from app.zkp_models import ZkReportPublishCreate
+from app.zkp_api import proof_inspection_router
 from app.strategy_code_api import router as strategy_code_router
 from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
 from app.trading_api import ManualTradeSyncScheduler, router as trading_router
@@ -92,7 +94,7 @@ workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
 journal_scheduler = JournalScheduler(journal_store)
-quantjudge_store = QuantJudgeStore()
+quantjudge_store = QuantJudgeStore(seed_demo=False)
 zk_proof_store = ZkProofStore()
 quantjudge_store.bind_proof_store(zk_proof_store)
 strategy_studio_store = StrategyStudioStore()
@@ -131,6 +133,8 @@ app.include_router(exchange_account_router)
 app.include_router(trading_router)
 app.include_router(demo_accounts_router(strategy_runtime_store))
 app.include_router(runtime_router(strategy_runtime_store))
+app.include_router(bkc_router(strategy_runtime_store, run_store))
+app.include_router(proof_inspection_router(zk_proof_store))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -567,11 +571,16 @@ def create_zkp_market_dataset(
     source: str = Query(default="auto", pattern="^(auto|yahoo|binance)$"),
     adjustment: str = Query(default="raw", pattern="^(auto|raw|forward|backward)$"),
     refresh: bool = False,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ):
     try:
+        from app.zkp_dataset import validate_period, closed_frame
+        validate_period(start, end)
         bundle = data_service.fetch(
-            symbol, asset_class, interval, None, None, adjustment, source, refresh
+            symbol, asset_class, interval, start, end, adjustment, source, refresh
         )
+        frame = closed_frame(bundle.frame, interval, start, end)
         dataset = make_market_dataset(
             source=bundle.source,
             symbol=bundle.asset.symbol,
@@ -586,7 +595,7 @@ def create_zkp_market_dataset(
                     "close": row.close,
                     "volume": row.volume,
                 }
-                for index, row in bundle.frame.iterrows()
+                for index, row in frame.iterrows()
             ],
         )
         record = zk_proof_store.register_market_dataset(

@@ -1,0 +1,686 @@
+[
+  {
+    "valid": true,
+    "proof_id": "qzp_6607a29139d149f185",
+    "proof_hash": "0eff384e01d83d3b14d1dab2f4adfe307a5902001106235b446a5b7991a83e4d",
+    "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+    "journal": {
+      "agent_id": "qja_f60e2819d52d4721",
+      "cost_model_hash": "3d225bfd0fd3aaf927774e1d020fa88ec049565460713b1f02325fac74f40e63",
+      "decision_count": 32,
+      "decision_merkle_root": "59ea7623f72e777f51f56d97ef9c43fa9efb79a6e124ef023c644d37ddf6a480",
+      "equity_curve_hash": "3de23f947877d0f548bffbc1e8da0dba8d3889e683a2cb27bc6b0ae7719f578b",
+      "final_equity_micros": 9821208188,
+      "initial_equity_micros": 10000000000,
+      "market_data_hash": "f1712a2881e0c1446778586fae3e48b69d92d82749068240d73f81c370269cbb",
+      "metrics": {
+        "annualized_return_ppm": -165072,
+        "annualized_volatility_ppm": 112999,
+        "benchmark_return_ppm": -35839,
+        "max_drawdown_ppm": -40833,
+        "observation_count": 32,
+        "sharpe_milli": -1824,
+        "total_return_ppm": -17879,
+        "win_rate_ppm": 129032
+      },
+      "nullifier": "8b9a1b20cf1622cb56b55aa2c7ef0bc04e6f38d44b7b51dc3ed234903a87da08",
+      "period_end": 1756684800,
+      "period_start": 1754006400,
+      "previous_receipt_hash": null,
+      "proof_profile": "atlas_program_backtest_risc0_v2",
+      "public_curve": [
+        {
+          "benchmark_return_ppm": 0,
+          "return_ppm": 0,
+          "time": 1754006400
+        },
+        {
+          "benchmark_return_ppm": -6633,
+          "return_ppm": 0,
+          "time": 1754092800
+        },
+        {
+          "benchmark_return_ppm": 8039,
+          "return_ppm": 0,
+          "time": 1754179200
+        },
+        {
+          "benchmark_return_ppm": 15508,
+          "return_ppm": 0,
+          "time": 1754265600
+        },
+        {
+          "benchmark_return_ppm": 7341,
+          "return_ppm": 0,
+          "time": 1754352000
+        },
+        {
+          "benchmark_return_ppm": 14954,
+          "return_ppm": 0,
+          "time": 1754438400
+        },
+        {
+          "benchmark_return_ppm": 36841,
+          "return_ppm": 0,
+          "time": 1754524800
+        },
+        {
+          "benchmark_return_ppm": 29804,
+          "return_ppm": -4143,
+          "time": 1754611200
+        },
+        {
+          "benchmark_return_ppm": 27929,
+          "return_ppm": -5052,
+          "time": 1754697600
+        },
+        {
+          "benchmark_return_ppm": 52923,
+          "return_ppm": 7042,
+          "time": 1754784000
+        },
+        {
+          "benchmark_return_ppm": 47556,
+          "return_ppm": 4467,
+          "time": 1754870400
+        },
+        {
+          "benchmark_return_ppm": 60337,
+          "return_ppm": 10593,
+          "time": 1754956800
+        },
+        {
+          "benchmark_return_ppm": 88337,
+          "return_ppm": 23931,
+          "time": 1755043200
+        },
+        {
+          "benchmark_return_ppm": 44106,
+          "return_ppm": 3115,
+          "time": 1755129600
+        },
+        {
+          "benchmark_return_ppm": 35694,
+          "return_ppm": -941,
+          "time": 1755216000
+        },
+        {
+          "benchmark_return_ppm": 36035,
+          "return_ppm": -779,
+          "time": 1755302400
+        },
+        {
+          "benchmark_return_ppm": 36250,
+          "return_ppm": -1529,
+          "time": 1755388800
+        },
+        {
+          "benchmark_return_ppm": 25853,
+          "return_ppm": -1529,
+          "time": 1755475200
+        },
+        {
+          "benchmark_return_ppm": -3751,
+          "return_ppm": -1529,
+          "time": 1755561600
+        },
+        {
+          "benchmark_return_ppm": 8590,
+          "return_ppm": -1529,
+          "time": 1755648000
+        },
+        {
+          "benchmark_return_ppm": -7042,
+          "return_ppm": -1529,
+          "time": 1755734400
+        },
+        {
+          "benchmark_return_ppm": 32110,
+          "return_ppm": -1529,
+          "time": 1755820800
+        },
+        {
+          "benchmark_return_ppm": 18889,
+          "return_ppm": -1529,
+          "time": 1755907200
+        },
+        {
+          "benchmark_return_ppm": 1726,
+          "return_ppm": -1529,
+          "time": 1755993600
+        },
+        {
+          "benchmark_return_ppm": -28120,
+          "return_ppm": -17152,
+          "time": 1756080000
+        },
+        {
+          "benchmark_return_ppm": -13545,
+          "return_ppm": -17879,
+          "time": 1756166400
+        },
+        {
+          "benchmark_return_ppm": -17969,
+          "return_ppm": -17879,
+          "time": 1756252800
+        },
+        {
+          "benchmark_return_ppm": -6452,
+          "return_ppm": -17879,
+          "time": 1756339200
+        },
+        {
+          "benchmark_return_ppm": -43430,
+          "return_ppm": -17879,
+          "time": 1756425600
+        },
+        {
+          "benchmark_return_ppm": -39555,
+          "return_ppm": -17879,
+          "time": 1756512000
+        },
+        {
+          "benchmark_return_ppm": -44586,
+          "return_ppm": -17879,
+          "time": 1756598400
+        },
+        {
+          "benchmark_return_ppm": -35839,
+          "return_ppm": -17879,
+          "time": 1756684800
+        }
+      ],
+      "report_type": "backtest",
+      "schema": "atlas.quantjudge.zk.statement.v1",
+      "strategy_commitment": "e153bbacd44aef1b10998ec277bc8a42679870980193c642aea119abc1d12669",
+      "workflow_commitment": "b20cf36a741d831aa114db85c39ae9c78d9ab144e16c0a26db2a68a31dba5a32"
+    },
+    "verified_at": "2026-09-16T08:08:16.936084+00:00",
+    "verification_seconds": 0.067,
+    "market_origin_verified": false,
+    "onchain_verification_checked": false,
+    "market": {
+      "symbol": "BTC-USD",
+      "interval": "1d",
+      "source": "binance",
+      "period_start": 1754006400,
+      "period_end": 1756684800,
+      "bar_count": 32,
+      "trust_model": "platform_fetched_binance_public_api_not_provider_signed"
+    },
+    "program": {
+      "source": "def target_bps(index, close, sma):\n    return (5000 if sma(3) > sma(7) else 0) if index >= 7 else 0\n",
+      "source_sha256": "8582e9ac90dbe214cab4c264c800b1453fec2f30a5781a53dc99b6c849230ce7",
+      "language": "atlas-python-subset-v2",
+      "compiled_program_commitment_verified": true,
+      "compiler_inside_zkvm": false,
+      "public_test_strategy": true,
+      "commission_bps": 10,
+      "slippage_bps": 5
+    },
+    "reports": [
+      {
+        "report_id": "qjr_3d23491cf79e4a66ac",
+        "published_return_verified": true
+      }
+    ],
+    "verifier_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/host/src/main.rs",
+    "guest_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/program-core/src/lib.rs"
+  },
+  {
+    "valid": true,
+    "proof_id": "qzp_97dd7aa34ef54c84ba",
+    "proof_hash": "562d06e7fb66a46e62bfe6e26f26be17756270e95a9096fdb86dd38050186e4a",
+    "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+    "journal": {
+      "agent_id": "qja_504320628ade48e3",
+      "cost_model_hash": "3d225bfd0fd3aaf927774e1d020fa88ec049565460713b1f02325fac74f40e63",
+      "decision_count": 32,
+      "decision_merkle_root": "93eea56240b0bc4faefd2cd0e45a3b304efdf1814f4649cbbb67a01191708bc4",
+      "equity_curve_hash": "4164a87a9290647866fccf5f3efe9ea9c6c5b8be2ff66b4f06fc05811c4bf5ea",
+      "final_equity_micros": 9946014283,
+      "initial_equity_micros": 10000000000,
+      "market_data_hash": "f1712a2881e0c1446778586fae3e48b69d92d82749068240d73f81c370269cbb",
+      "metrics": {
+        "annualized_return_ppm": -52693,
+        "annualized_volatility_ppm": 69774,
+        "benchmark_return_ppm": -35839,
+        "max_drawdown_ppm": -15272,
+        "observation_count": 32,
+        "sharpe_milli": -880,
+        "total_return_ppm": -5399,
+        "win_rate_ppm": 258064
+      },
+      "nullifier": "05fd833da3f24056611fa7c871100ad5d7cdcc550321015e3dcf2994a36eeeeb",
+      "period_end": 1756684800,
+      "period_start": 1754006400,
+      "previous_receipt_hash": null,
+      "proof_profile": "atlas_program_backtest_risc0_v2",
+      "public_curve": [
+        {
+          "benchmark_return_ppm": 0,
+          "return_ppm": 0,
+          "time": 1754006400
+        },
+        {
+          "benchmark_return_ppm": -6633,
+          "return_ppm": 0,
+          "time": 1754092800
+        },
+        {
+          "benchmark_return_ppm": 8039,
+          "return_ppm": 0,
+          "time": 1754179200
+        },
+        {
+          "benchmark_return_ppm": 15508,
+          "return_ppm": 0,
+          "time": 1754265600
+        },
+        {
+          "benchmark_return_ppm": 7341,
+          "return_ppm": 0,
+          "time": 1754352000
+        },
+        {
+          "benchmark_return_ppm": 14954,
+          "return_ppm": 0,
+          "time": 1754438400
+        },
+        {
+          "benchmark_return_ppm": 36841,
+          "return_ppm": 0,
+          "time": 1754524800
+        },
+        {
+          "benchmark_return_ppm": 29804,
+          "return_ppm": 0,
+          "time": 1754611200
+        },
+        {
+          "benchmark_return_ppm": 27929,
+          "return_ppm": 0,
+          "time": 1754697600
+        },
+        {
+          "benchmark_return_ppm": 52923,
+          "return_ppm": 0,
+          "time": 1754784000
+        },
+        {
+          "benchmark_return_ppm": 47556,
+          "return_ppm": 0,
+          "time": 1754870400
+        },
+        {
+          "benchmark_return_ppm": 60337,
+          "return_ppm": 0,
+          "time": 1754956800
+        },
+        {
+          "benchmark_return_ppm": 88337,
+          "return_ppm": 0,
+          "time": 1755043200
+        },
+        {
+          "benchmark_return_ppm": 44106,
+          "return_ppm": 0,
+          "time": 1755129600
+        },
+        {
+          "benchmark_return_ppm": 35694,
+          "return_ppm": -2867,
+          "time": 1755216000
+        },
+        {
+          "benchmark_return_ppm": 36035,
+          "return_ppm": -2770,
+          "time": 1755302400
+        },
+        {
+          "benchmark_return_ppm": 36250,
+          "return_ppm": -2708,
+          "time": 1755388800
+        },
+        {
+          "benchmark_return_ppm": 25853,
+          "return_ppm": -5710,
+          "time": 1755475200
+        },
+        {
+          "benchmark_return_ppm": -3751,
+          "return_ppm": -14321,
+          "time": 1755561600
+        },
+        {
+          "benchmark_return_ppm": 8590,
+          "return_ppm": -10667,
+          "time": 1755648000
+        },
+        {
+          "benchmark_return_ppm": -7042,
+          "return_ppm": -15272,
+          "time": 1755734400
+        },
+        {
+          "benchmark_return_ppm": 32110,
+          "return_ppm": -3628,
+          "time": 1755820800
+        },
+        {
+          "benchmark_return_ppm": 18889,
+          "return_ppm": -4088,
+          "time": 1755907200
+        },
+        {
+          "benchmark_return_ppm": 1726,
+          "return_ppm": -4088,
+          "time": 1755993600
+        },
+        {
+          "benchmark_return_ppm": -28120,
+          "return_ppm": -13439,
+          "time": 1756080000
+        },
+        {
+          "benchmark_return_ppm": -13545,
+          "return_ppm": -9010,
+          "time": 1756166400
+        },
+        {
+          "benchmark_return_ppm": -17969,
+          "return_ppm": -10348,
+          "time": 1756252800
+        },
+        {
+          "benchmark_return_ppm": -6452,
+          "return_ppm": -6867,
+          "time": 1756339200
+        },
+        {
+          "benchmark_return_ppm": -43430,
+          "return_ppm": -7317,
+          "time": 1756425600
+        },
+        {
+          "benchmark_return_ppm": -39555,
+          "return_ppm": -6558,
+          "time": 1756512000
+        },
+        {
+          "benchmark_return_ppm": -44586,
+          "return_ppm": -8121,
+          "time": 1756598400
+        },
+        {
+          "benchmark_return_ppm": -35839,
+          "return_ppm": -5398,
+          "time": 1756684800
+        }
+      ],
+      "report_type": "backtest",
+      "schema": "atlas.quantjudge.zk.statement.v1",
+      "strategy_commitment": "0599b6bc0c9e1c2e97458da0e644f24ba92eec4b98b6ee97ef9382aa35573ee2",
+      "workflow_commitment": "b20cf36a741d831aa114db85c39ae9c78d9ab144e16c0a26db2a68a31dba5a32"
+    },
+    "verified_at": "2026-09-16T08:08:17.002416+00:00",
+    "verification_seconds": 0.063,
+    "market_origin_verified": false,
+    "onchain_verification_checked": false,
+    "market": {
+      "symbol": "BTC-USD",
+      "interval": "1d",
+      "source": "binance",
+      "period_start": 1754006400,
+      "period_end": 1756684800,
+      "bar_count": 32,
+      "trust_model": "platform_fetched_binance_public_api_not_provider_signed"
+    },
+    "program": {
+      "source": "def target_bps(index, close, sma):\n    return (3000 if close(0) < sma(5) else 0) if index >= 5 else 0\n",
+      "source_sha256": "4e10f7c495b8063cdb72339f09e6eded72e5daeee91283e62d54c82fe782f2e5",
+      "language": "atlas-python-subset-v2",
+      "compiled_program_commitment_verified": true,
+      "compiler_inside_zkvm": false,
+      "public_test_strategy": true,
+      "commission_bps": 10,
+      "slippage_bps": 5
+    },
+    "reports": [
+      {
+        "report_id": "qjr_6f506a1270b44d6f9c",
+        "published_return_verified": true
+      }
+    ],
+    "verifier_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/host/src/main.rs",
+    "guest_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/program-core/src/lib.rs"
+  },
+  {
+    "valid": true,
+    "proof_id": "qzp_ab9f0297fbfa48a5a2",
+    "proof_hash": "8da55b75996ba330b909bbc663c7bacb4784cb2a06c247eb6fb3c0870a99067a",
+    "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
+    "journal": {
+      "agent_id": "qja_3c423f6e38fe444f",
+      "cost_model_hash": "3d225bfd0fd3aaf927774e1d020fa88ec049565460713b1f02325fac74f40e63",
+      "decision_count": 32,
+      "decision_merkle_root": "be4e06c9b1d906e808fcd269fd436fa03cc2a4c464f45d319e78dc60b40f8c02",
+      "equity_curve_hash": "dd45734fc7c8a5d466fe83c44bfc848274afd07a093e5efead9545f281ee031a",
+      "final_equity_micros": 10172691058,
+      "initial_equity_micros": 10000000000,
+      "market_data_hash": "868ce25e8e6f53da0b3bdc1457bb22aa4a05abdeed94af4fd28e4d3bfc64504a",
+      "metrics": {
+        "annualized_return_ppm": 186748,
+        "annualized_volatility_ppm": 238941,
+        "benchmark_return_ppm": 236884,
+        "max_drawdown_ppm": -78596,
+        "observation_count": 32,
+        "sharpe_milli": 959,
+        "total_return_ppm": 17269,
+        "win_rate_ppm": 225806
+      },
+      "nullifier": "1b27d0095e1352bdc729fce44b0050f21b33dd7a7fc2f68ecaf1d8287549447f",
+      "period_end": 1756684800,
+      "period_start": 1754006400,
+      "previous_receipt_hash": null,
+      "proof_profile": "atlas_program_backtest_risc0_v2",
+      "public_curve": [
+        {
+          "benchmark_return_ppm": 0,
+          "return_ppm": 0,
+          "time": 1754006400
+        },
+        {
+          "benchmark_return_ppm": -27022,
+          "return_ppm": 0,
+          "time": 1754092800
+        },
+        {
+          "benchmark_return_ppm": 2448,
+          "return_ppm": 0,
+          "time": 1754179200
+        },
+        {
+          "benchmark_return_ppm": 66736,
+          "return_ppm": 0,
+          "time": 1754265600
+        },
+        {
+          "benchmark_return_ppm": 35491,
+          "return_ppm": -12316,
+          "time": 1754352000
+        },
+        {
+          "benchmark_return_ppm": 55934,
+          "return_ppm": -4526,
+          "time": 1754438400
+        },
+        {
+          "benchmark_return_ppm": 121010,
+          "return_ppm": 20006,
+          "time": 1754524800
+        },
+        {
+          "benchmark_return_ppm": 149446,
+          "return_ppm": 30333,
+          "time": 1754611200
+        },
+        {
+          "benchmark_return_ppm": 221437,
+          "return_ppm": 56136,
+          "time": 1754697600
+        },
+        {
+          "benchmark_return_ppm": 218556,
+          "return_ppm": 55116,
+          "time": 1754784000
+        },
+        {
+          "benchmark_return_ppm": 210716,
+          "return_ppm": 52400,
+          "time": 1754870400
+        },
+        {
+          "benchmark_return_ppm": 316013,
+          "return_ppm": 89009,
+          "time": 1754956800
+        },
+        {
+          "benchmark_return_ppm": 361533,
+          "return_ppm": 104043,
+          "time": 1755043200
+        },
+        {
+          "benchmark_return_ppm": 303491,
+          "return_ppm": 85204,
+          "time": 1755129600
+        },
+        {
+          "benchmark_return_ppm": 272710,
+          "return_ppm": 74936,
+          "time": 1755216000
+        },
+        {
+          "benchmark_return_ppm": 267699,
+          "return_ppm": 74301,
+          "time": 1755302400
+        },
+        {
+          "benchmark_return_ppm": 282131,
+          "return_ppm": 74301,
+          "time": 1755388800
+        },
+        {
+          "benchmark_return_ppm": 236451,
+          "return_ppm": 74301,
+          "time": 1755475200
+        },
+        {
+          "benchmark_return_ppm": 168393,
+          "return_ppm": 74301,
+          "time": 1755561600
+        },
+        {
+          "benchmark_return_ppm": 243093,
+          "return_ppm": 74301,
+          "time": 1755648000
+        },
+        {
+          "benchmark_return_ppm": 211312,
+          "return_ppm": 74301,
+          "time": 1755734400
+        },
+        {
+          "benchmark_return_ppm": 385261,
+          "return_ppm": 74301,
+          "time": 1755820800
+        },
+        {
+          "benchmark_return_ppm": 369875,
+          "return_ppm": 68883,
+          "time": 1755907200
+        },
+        {
+          "benchmark_return_ppm": 370377,
+          "return_ppm": 69036,
+          "time": 1755993600
+        },
+        {
+          "benchmark_return_ppm": 254566,
+          "return_ppm": 32898,
+          "time": 1756080000
+        },
+        {
+          "benchmark_return_ppm": 318912,
+          "return_ppm": 32310,
+          "time": 1756166400
+        },
+        {
+          "benchmark_return_ppm": 291987,
+          "return_ppm": 32310,
+          "time": 1756252800
+        },
+        {
+          "benchmark_return_ppm": 293277,
+          "return_ppm": 32310,
+          "time": 1756339200
+        },
+        {
+          "benchmark_return_ppm": 249979,
+          "return_ppm": 17867,
+          "time": 1756425600
+        },
+        {
+          "benchmark_return_ppm": 253855,
+          "return_ppm": 17269,
+          "time": 1756512000
+        },
+        {
+          "benchmark_return_ppm": 259053,
+          "return_ppm": 17269,
+          "time": 1756598400
+        },
+        {
+          "benchmark_return_ppm": 236884,
+          "return_ppm": 17269,
+          "time": 1756684800
+        }
+      ],
+      "report_type": "backtest",
+      "schema": "atlas.quantjudge.zk.statement.v1",
+      "strategy_commitment": "9f81bfa2d31af76bf309c0426eef9eb282b7fb9b2b85e9e3141d740bbe34f6f9",
+      "workflow_commitment": "b20cf36a741d831aa114db85c39ae9c78d9ab144e16c0a26db2a68a31dba5a32"
+    },
+    "verified_at": "2026-09-16T08:08:17.066792+00:00",
+    "verification_seconds": 0.062,
+    "market_origin_verified": false,
+    "onchain_verification_checked": false,
+    "market": {
+      "symbol": "ETH-USD",
+      "interval": "1d",
+      "source": "binance",
+      "period_start": 1754006400,
+      "period_end": 1756684800,
+      "bar_count": 32,
+      "trust_model": "platform_fetched_binance_public_api_not_provider_signed"
+    },
+    "program": {
+      "source": "def target_bps(index, close, sma):\n    return (4000 if close(0) > close(3) else 0) if index >= 4 else 0\n",
+      "source_sha256": "2fc03e2490c73c51759de90a2dad07c1b812ac09b84068b8c6543d61714aedf0",
+      "language": "atlas-python-subset-v2",
+      "compiled_program_commitment_verified": true,
+      "compiler_inside_zkvm": false,
+      "public_test_strategy": true,
+      "commission_bps": 10,
+      "slippage_bps": 5
+    },
+    "reports": [
+      {
+        "report_id": "qjr_b19068b0c6b2465f9a",
+        "published_return_verified": true
+      }
+    ],
+    "verifier_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/host/src/main.rs",
+    "guest_source": "https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907/strategy/zkvm/program-core/src/lib.rs"
+  }
+]

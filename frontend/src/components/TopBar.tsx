@@ -1,3 +1,4 @@
+import { BkcWallet } from './BkcControls'
 import { useState } from 'react'
 import { Activity, BarChart3, Bell, CandlestickChart, Clock3, History, Play, Settings2, X } from 'lucide-react'
 import type { Adjustment, Asset, BaseCurrency, DataSource, Interval } from '../types'
@@ -44,6 +45,7 @@ export function TopBar(props: Props) {
         {props.mode === 'single' || props.mode === 'portfolio' ? <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em> : null}
       </div>
       <div className="toolbar-spacer" />
+      <details className="topbar-wallet"><summary>MetaMask</summary><BkcWallet /></details>
       <button className="icon-button system-status-trigger" aria-label="系统状态" title="系统状态与能力" onClick={props.onSystemStatus}><Activity size={17} /></button>
       {props.mode === 'single' ? (
         <>

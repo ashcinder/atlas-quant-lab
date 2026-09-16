@@ -40,5 +40,5 @@ const output={network:'isolated_local_evm',chainId:31337,supervisor:false,
  transactionHash:receipt.hash,blockNumber:receipt.blockNumber,gasUsed:receipt.gasUsed.toString(),
  registryRuntimeCodeHash:keccak256(await provider.getCode(await registry.getAddress())),
  cryptographicVerificationOnEVM:true,rejected};
-fs.writeFileSync(process.argv[2]?'../docs/ATLAS_EVM_ZKP_ACCEPTANCE.json':'../docs/VERIFIER_EVM_COMPATIBILITY.json',JSON.stringify(output,null,2)+'\n');
+fs.writeFileSync(process.argv[3] ?? (process.argv[2]?'../docs/ATLAS_EVM_ZKP_ACCEPTANCE.json':'../docs/VERIFIER_EVM_COMPATIBILITY.json'),JSON.stringify(output,null,2)+'\n');
 console.log(JSON.stringify(output));

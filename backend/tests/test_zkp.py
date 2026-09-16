@@ -207,3 +207,47 @@ def test_tampered_receipt_revokes_public_verification(tmp_path):
     verification = quant.verify_report(report["id"], refresh_chain=False)
     assert verification["external_proof_verified"] is False
     assert verification["proof_file_integrity_valid"] is False
+
+
+def test_reverification_rejects_repointed_database_image(tmp_path):
+    _, proofs, created, verifier = setup(tmp_path)
+    proof = proofs.register_receipt(created['agent']['id'], 'atlas_sma_backtest_risc0_v1', b'receipt', created['developer_token'])
+    with proofs._connect() as conn:
+        conn.execute('UPDATE qj_zk_proofs SET image_id=? WHERE id=?', ('ab'*32, proof['id']))
+    with pytest.raises(ZkProofError, match='固定登记'):
+        proofs.reverify(proof['id'])
+    assert verifier.calls == 1
+
+
+def test_proof_inspection_endpoint_reverifies_and_rejects_corruption(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.zkp_api import proof_inspection_router
+    _, proofs, created, verifier = setup(tmp_path)
+    proof = proofs.register_receipt(created['agent']['id'], 'atlas_sma_backtest_risc0_v1', b'receipt', created['developer_token'])
+    app = FastAPI(); app.include_router(proof_inspection_router(proofs))
+    client = TestClient(app)
+    path = f"/api/v1/quantjudge/zk-proofs/{proof['id']}/verify"
+    assert client.post(path).json()['valid'] is True
+    assert verifier.calls == 2
+    proofs.receipt_path(proof['id']).write_bytes(b'corrupt')
+    assert client.post(path).status_code == 409
+    assert client.post('/api/v1/quantjudge/zk-proofs/missing/verify').status_code == 404
+
+def test_report_metrics_must_match_proof_even_if_resigned(tmp_path):
+    from app.quantjudge import canonical_json
+    quant, proofs, created, _ = setup(tmp_path)
+    proof = proofs.register_receipt(created['agent']['id'], 'atlas_sma_backtest_risc0_v1', b'receipt', created['developer_token'])
+    report = quant.publish_zk_report(created['agent']['id'], proof['id'], created['developer_token'])
+    with quant._connect() as conn:
+        row = conn.execute('SELECT * FROM qj_reports WHERE id=?', (report['id'],)).fetchone()
+        payload = json.loads(row['receipt_payload_json'])
+        payload['metrics']['total_return'] = 9.99
+        encoded = canonical_json(payload)
+        digest = sha256_hex(encoded)
+        conn.execute('UPDATE qj_reports SET receipt_payload_json=?, receipt_hash=?, attestation_signature=?, metrics_json=? WHERE id=?', (encoded, digest, quant.attestor.sign(digest), canonical_json(payload['metrics']), report['id']))
+    result = quant.verify_report(report['id'], refresh_chain=False)
+    assert result['attestation_signature_valid']
+    assert result['record_integrity_valid']
+    assert not result['external_proof_verified']
+    assert not result['verification_claims']['bounded_program_backtest']

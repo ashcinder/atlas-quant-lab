@@ -763,8 +763,21 @@ class QuantJudgeStore:
                 ).fetchone()
             if proof is not None and external:
                 statement = json_object(proof["public_statement_json"])
+                try:
+                    proved_statement = ZkPublicStatement.model_validate(statement)
+                    proved_report_matches = all([
+                        proved_statement.agent_id == row["agent_id"],
+                        proved_statement.report_type == row["report_type"],
+                        canonical_json(proved_statement.metrics.as_public_metrics()) == canonical_json(json_object(row["metrics_json"])),
+                        canonical_json([point.as_public_point() for point in proved_statement.public_curve]) == row["curve_json"],
+                        proved_statement.period_start == int(datetime.fromisoformat(row["period_start"]).timestamp()),
+                        proved_statement.period_end == int(datetime.fromisoformat(row["period_end"]).timestamp()),
+                    ])
+                except (ValueError, TypeError, KeyError):
+                    proved_report_matches = False
                 proof_record_valid = all(
                     [
+                        proved_report_matches,
                         hmac.compare_digest(
                             proof["proof_hash"], str(external.get("proof_hash", ""))
                         ),
