@@ -9,6 +9,7 @@ import './shell.css'
 import './theme.css'
 import './terminal-density.css'
 import './workspace-unified.css'
+import './trine.css'
 import { applyAppearance } from './components/AppearanceSettings'
 
 applyAppearance()

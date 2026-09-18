@@ -20,7 +20,7 @@ it('publishes the edited template parameters instead of catalog defaults', async
     { key: 'fast', label: '快速周期', kind: 'integer', default: 20, minimum: 2, maximum: 100 },
   ] }], onLoading: vi.fn(), onError: vi.fn(), onCustomResult: vi.fn() } as unknown as ResearchWorkspaceProps
   render(<TemplateStrategyWorkspace {...props} pipeline={defaultPipeline()} storageKey="test-template-publish" />)
-  fireEvent.change(screen.getByLabelText('快速周期'), { target: { value: '7' } })
+  fireEvent.change(screen.getByRole('spinbutton', { name: '快速周期' }), { target: { value: '7' } })
   fireEvent.click(screen.getByText('保存并订阅运行版本'))
   await screen.findByText('已订阅 v1 · 配置并运行')
   const body = JSON.parse(request.mock.calls[0][1].body)

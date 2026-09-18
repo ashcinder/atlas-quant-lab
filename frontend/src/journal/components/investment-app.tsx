@@ -1,3 +1,4 @@
+import { SupervisorStatusButton } from '../../components/SupervisorStatusButton'
 "use client";
 import AtlasWorkspaceBrand from "../../components/AtlasWorkspaceBrand";
 import LoginScreen from "./LoginScreen";
@@ -288,7 +289,7 @@ export default function InvestmentApp() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   useEffect(() => {
-    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Atlas`;
+    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Trine`;
   }, [tab]);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);
@@ -970,7 +971,7 @@ export default function InvestmentApp() {
             </div>
             {tab === "overview" && (
               <>
-                <StrategyAssetsSummary />
+                <SupervisorStatusButton expanded /><StrategyAssetsSummary />
                 <div className="stats-grid">
                   <section className="stat-card total-card">
                     <div className="stat-label">

@@ -20,3 +20,15 @@ describe('six dimensional score calibration', () => {
     expect(strategyScores(value)[5]).toBeNull()
   })
 })
+
+import {render,cleanup} from '@testing-library/react'
+import {afterEach} from 'vitest'
+import StrategyRadar from './StrategyRadar'
+import type {QuantAgent} from '../types'
+afterEach(cleanup)
+it('connects available radar dimensions even when zero drawdown leaves Calmar undefined',()=>{
+ const agent={id:'a',name:'均线',latest_report:report({annualized_return:0,max_drawdown:0,sharpe:0,annualized_volatility:0})} as QuantAgent
+ const {container}=render(<StrategyRadar agent={agent} peers={[]}/>);
+ expect(container.querySelectorAll('[data-radar-segment]').length).toBe(4)
+ expect(container.textContent).toContain('待评估')
+})

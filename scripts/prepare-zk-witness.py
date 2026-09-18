@@ -1,7 +1,9 @@
 """Prepare an author-private witness from a downloaded dataset and supported Python.
 
-Does not execute Python, contact any server, or upload source. Print only public
-preflight commitments; inspect is not a cryptographic proof.
+Compiles supported Python without executing it. Default mode prints public
+preflight commitments only; inspect is not a cryptographic proof. Optional
+--proof-output generates a native local proof; --publish-local publishes its
+verified public report to this project database. Source stays on this machine.
 """
 import argparse
 import json
@@ -18,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--dataset', type=Path, required=True)
     parser.add_argument('--python-source', type=Path, required=True)
+    parser.add_argument('--name', default='我的可验证策略')
     parser.add_argument('--agent', default='qja_author_draft')
     parser.add_argument('--capital-micros', type=int, default=100_000_000)
     parser.add_argument('--commission-bps', type=int, default=10)
@@ -42,7 +45,7 @@ def main():
     if args.proof_output:
         command = [sys.executable, str(ROOT / 'scripts/prove-private-program.py'), '--witness', str(args.output.resolve()), '--output', str(args.proof_output.resolve())]
         if args.publish_local:
-            command.append('--publish-local')
+            command.extend(['--publish-local', '--name', args.name])
         subprocess.run(command, check=True)
 
 if __name__ == '__main__':

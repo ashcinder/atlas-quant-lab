@@ -1,0 +1,16 @@
+{
+  "payment_fixture": "simulated",
+  "native_proof": "real",
+  "job": {
+    "id": "cpj_b87a5c9a0f604bcfa762ac6f90b4ee8a",
+    "release_id": "rel_0480b24c89e6433bbc",
+    "market_hash": "f1712a2881e0c1446778586fae3e48b69d92d82749068240d73f81c370269cbb",
+    "order_id": "bkc_ccb19d146bfa450eb6ee0279164299d1",
+    "status": "verified",
+    "proof_id": "qzp_f91054ca41d94b95a7",
+    "error": null,
+    "created_at": 1789604155.619626,
+    "updated_at": 1789604369.391259
+  },
+  "directory": "/var/folders/lc/8kx2dwdx0_x7t3t0q7_bx8wr0000gn/T/trine-native-cloud-check-fvfxbo6o"
+}

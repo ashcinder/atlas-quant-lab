@@ -17,7 +17,7 @@ class QuantAgentCreate(BaseModel):
     description: str = Field(min_length=12, max_length=600)
     risk_level: Literal["low", "medium", "high", "extreme"] = "medium"
     monthly_price: float = Field(default=0, ge=0, le=1_000_000)
-    price_currency: Literal["CNY", "USDT"] = "CNY"
+    price_currency: Literal["BKC"] = "BKC"
     strategy_commitment: str = Field(pattern=HEX_64)
 
     @field_validator("asset_classes")

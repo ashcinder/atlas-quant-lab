@@ -1,3 +1,4 @@
+import { BacktestPeriod } from './BacktestPeriod'
 import { ParameterSweep } from './ParameterSweep'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, BarChart3, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
@@ -5,6 +6,9 @@ import type { Asset, FundamentalsResponse, Strategy } from '../types'
 import { FundamentalsPanel } from './FundamentalsPanel'
 
 interface Props {
+  codeContext?: React.ReactNode
+  releasePicker?: React.ReactNode
+  releaseSelected?: boolean
   sweepContext?: Record<string, unknown>
   asset: Asset | null
   strategies: Strategy[]
@@ -64,28 +68,23 @@ export function StrategyPanel(props: Props) {
         <span>回测参数</span>
         <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button>
       </div>
+      {props.codeContext}
       <div className="form-section backtest-time-controls">
-        <h3>回测时间</h3>
-        <label className="field-stack">开始时间（本地时区）<input aria-label="回测开始时间" type="datetime-local" value={props.start ?? ''} max={props.end || undefined} onChange={e => props.onStart?.(e.target.value)} /></label>
-        <label className="field-stack">结束时间（本地时区）<input aria-label="回测结束时间" type="datetime-local" value={props.end ?? ''} min={props.start || undefined} onChange={e => props.onEnd?.(e.target.value)} /></label>
-        <div className="backtest-presets">{[30, 90, 180, 365].map(days => <button key={days} onClick={() => {
-          const end = new Date(); const start = new Date(end.getTime() - days * 86400000)
-          const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-          props.onStart?.(local(start)); props.onEnd?.(local(end))
-        }}>{days === 365 ? '1年' : `${days}天`}</button>)}<button onClick={() => { props.onStart?.(''); props.onEnd?.('') }}>默认区间</button></div>
-        <small>留空使用数据源默认区间。K线周期与数据源沿用顶部选择；请求时间转换为 UTC。</small>
+        <BacktestPeriod start={props.start ?? ''} end={props.end ?? ''} onApply={(start, end) => { props.onStart?.(start); props.onEnd?.(end) }} />
+        <small>完整历史 K 线保持显示，所选区间用更鲜明的颜色突出。</small>
       </div>
-      {selected && props.sweepContext && <ParameterSweep key={selected.id} disabled={!asset} fields={selected.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(props.values[p.key] ?? p.default), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ ...props.sweepContext, strategy_id: selected.id, params: props.values }} onApply={values => Object.entries(values).forEach(([key, value]) => props.onValue(key.replace(/^params\./, ''), value))} />}
-      <div className="strategy-select-wrap">
-        <label>策略模板</label>
+      {selected && props.sweepContext && !props.releaseSelected && <ParameterSweep key={selected.id} disabled={!asset} fields={selected.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(props.values[p.key] ?? p.default), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ ...props.sweepContext, strategy_id: selected.id, params: props.values }} onApply={values => Object.entries(values).forEach(([key, value]) => props.onValue(key.replace(/^params\./, ''), value))} />}
+      {!props.codeContext && <div className="strategy-select-wrap">
+        {props.releasePicker}
+        <label>策略模板{props.releaseSelected ? "（已选版本将覆盖此模板）" : ""}</label>
         <div className="select-shell">
           <select value={props.selectedId} onChange={(event) => props.onStrategy(event.target.value)}>
             {props.strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.category} · {strategy.name}</option>)}
           </select>
           <ChevronDown size={14} />
         </div>
-      </div>
-      {selected ? (
+      </div>}
+      {selected && !props.codeContext ? (
         <div className="strategy-description">
           <div><strong>{selected.name}</strong><span className={`risk-badge ${riskClass(selected.risk_level)}`}>{selected.risk_level}风险</span></div>
           <p>{selected.description}</p>
@@ -107,7 +106,7 @@ export function StrategyPanel(props: Props) {
         <label className="field-row"><span>止损（0=关闭）</span><div className="input-suffix"><input type="number" min={0} max={99} step={0.5} value={props.stopLoss * 100} onChange={(event) => props.onStopLoss(Number(event.target.value) / 100)} /><em>%</em></div></label>
         <label className="field-row"><span>止盈（0=关闭）</span><div className="input-suffix"><input type="number" min={0} max={1000} step={1} value={props.takeProfit * 100} onChange={(event) => props.onTakeProfit(Number(event.target.value) / 100)} /><em>%</em></div></label>
       </div>
-      <div className="form-section strategy-params">
+      {!props.codeContext && <div className="form-section strategy-params">
         <h3>策略参数</h3>
         {selected?.parameters.map((parameter) => (
           <label className="field-stack" key={parameter.key}>
@@ -124,7 +123,7 @@ export function StrategyPanel(props: Props) {
           </label>
         ))}
         {selected?.parameters.length === 0 ? <div className="empty-inline">该策略没有额外参数</div> : null}
-      </div>
+      </div>}
       </>}
     </aside>
   )

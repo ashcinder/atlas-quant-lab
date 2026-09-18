@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+from pathlib import Path
 from decimal import Decimal
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
@@ -27,6 +29,9 @@ class PrepareInput(BaseModel):
 class ConfirmInput(BaseModel):
     transaction_hash: str = Field(pattern=r"^0x[0-9a-fA-F]{64}$")
 
+class BroadcastInput(BaseModel):
+    raw_transaction: str = Field(pattern=r"^0x[0-9a-fA-F]+$", max_length=140000)
+
 class BkcStore:
     def __init__(self, runtime, runs, client=None):
         self.runtime, self.runs = runtime, runs
@@ -44,6 +49,9 @@ class BkcStore:
                 UNIQUE(owner_id,kind,resource_id));
             ''')
 
+            columns={r[1] for r in conn.execute('PRAGMA table_info(bkc_orders)')}
+            if 'signed_raw' not in columns:conn.execute('ALTER TABLE bkc_orders ADD COLUMN signed_raw TEXT')
+
     def network(self):
         status = self.client.status()
         if not status.connected or status.chain_id != CHAIN_ID:
@@ -58,7 +66,7 @@ class BkcStore:
 
     def config(self):
         status, genesis = self.network()
-        return {'chain_id': CHAIN_ID, 'chain_name': 'Atlas Supervisor', 'currency': 'BKC',
+        return {'chain_id': CHAIN_ID, 'chain_name': os.getenv('TRINE_SUPERVISOR_NETWORK_LABEL','Trine Supervisor'), 'currency': 'BKC',
                 'rpc_url': os.getenv('ATLAS_WALLET_RPC_URL', self.client.rpc_url),
                 'genesis_hash': genesis, 'block_number': status.block_number}
 
@@ -95,11 +103,33 @@ class BkcStore:
         if kind == 'subscription':
             offer = self.offer(owner, resource_id)
             if not offer:
-                raise HTTPException(409, '此版本为免费订阅')
+                raise HTTPException(409, '作者尚未设置 BKC 订阅价格')
             recipient, amount = offer['recipient'], offer['amount_wei']
             release = self.release(owner, resource_id)
             payload = {'domain': 'atlas.bkc-subscription/v1', 'release_id': resource_id,
                        'content_hash': release['content_hash'], 'terms': 'version-access'}
+        elif kind == 'proof_anchor':
+            from app.zkp import ZkProofStore
+            with self.runtime._connect() as conn:
+                job = conn.execute("SELECT release_id FROM cloud_proof_jobs WHERE proof_id=? AND status='verified'", (resource_id,)).fetchone()
+            if not job:
+                raise HTTPException(404, '没有可存证的已验证 Proof')
+            release = self.release(owner, job['release_id'])
+            proofs = ZkProofStore()
+            proofs.reverify(resource_id)
+            proof = proofs.get(resource_id)
+            payload = {'domain': 'trine.verified-proof-anchor/v1', 'release_id': job['release_id'],
+                       'content_hash': release['content_hash'], 'proof_id': resource_id,
+                       'proof_hash': proof['proof_hash'], 'image_id': proof['image_id'],
+                       'public_inputs_hash': proof['public_inputs_hash'],
+                       'public_statement': proof['public_statement'],
+                       'claim': 'server-verified-proof-and-public-results-anchored-not-contract-verified'}
+            recipient, amount = address, '0'
+        elif kind == 'release':
+            release = self.release(owner, resource_id, True)
+            payload = {'domain': 'trine.strategy-release/v1', 'release_id': resource_id,
+                       'content_hash': release['content_hash'], 'claim': 'version-anchored-only'}
+            recipient, amount = address, '0'
         else:
             with self.runs._connect() as conn:
                 row = conn.execute('SELECT * FROM backtest_runs WHERE id=? AND owner_id=?', (resource_id, owner)).fetchone()
@@ -125,9 +155,65 @@ class BkcStore:
             conn.execute('INSERT INTO bkc_orders (id,owner_id,kind,resource_id,signer,recipient,amount_wei,data,genesis) VALUES (?,?,?,?,?,?,?,?,?)', (identifier, owner, kind, resource_id, address, recipient, amount, data, genesis))
         return self.get(owner, identifier)
 
+    def signing(self, owner, identifier):
+        order = self.get(owner, identifier)
+        _, genesis = self.network()
+        if genesis != order['genesis']:
+            raise HTTPException(409, '网络身份发生变化')
+        if order['transaction_hash']:
+            raise HTTPException(409, '订单已广播，请核验原交易')
+        tx = order['transaction']
+        try:
+            nonce = self.client._call('eth_getTransactionCount', [order['signer'], 'pending'])
+            price = self.client._call('eth_gasPrice', [])
+            gas = self.client._call('eth_estimateGas', [{k:v for k,v in tx.items() if k != 'chainId'}])
+            balance = self.client._call('eth_getBalance', [order['signer'], 'latest'])
+            # Supervisor's legacy estimator can omit calldata. Respect its
+            # pre-Istanbul intrinsic cost (68/nonzero byte) as a lower bound.
+            calldata = bytes.fromhex(tx['data'][2:])
+            intrinsic = 21000 + sum(4 if byte == 0 else 68 for byte in calldata)
+            limit = (max(int(gas,16), intrinsic)*12+9)//10
+            if int(balance,16) < int(order['amount_wei'])+limit*int(price,16):
+                raise HTTPException(402, 'BKC 余额不足（含交易手续费）')
+            return {'transaction': {**tx,'nonce':nonce,'gasPrice':price,'gasLimit':hex(limit)}, 'balance_wei':str(int(balance,16))}
+        except (SupervisorRPCError,ValueError) as exc:
+            raise HTTPException(503, '无法从 Supervisor 获取余额或交易费用') from exc
+
+    def broadcast(self, owner, identifier, raw):
+        order = self.get(owner, identifier)
+        _, genesis = self.network()
+        if genesis != order['genesis']:
+            raise HTTPException(409, '网络身份发生变化')
+        script = Path(__file__).resolve().parents[2]/'contracts/scripts/decode-transaction.mjs'
+        try:
+            result = subprocess.run(['node',str(script)], input=json.dumps({'raw_transaction':raw}), capture_output=True,text=True,timeout=10)
+            if result.returncode: raise ValueError()
+            tx = json.loads(result.stdout)
+            if not (tx['from'].lower()==order['signer'] and (tx['to'] or '').lower()==order['recipient']
+                    and tx['value']==order['amount_wei'] and tx['data'].lower()==order['data']
+                    and tx['chainId']==str(CHAIN_ID) and tx['type']==0): raise ValueError()
+        except (ValueError,KeyError,OSError,subprocess.TimeoutExpired) as exc:
+            raise HTTPException(422, '签名交易与订单不匹配') from exc
+        # Persist the exact signed transaction identity before touching the network.
+        # A lost HTTP response cannot cause a second payment with a new nonce.
+        with self.runtime._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            latest=conn.execute('SELECT transaction_hash FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
+            if latest['transaction_hash'] and latest['transaction_hash']!=tx['hash']:
+                raise HTTPException(409,'订单已有交易，请恢复核验')
+            conn.execute("UPDATE bkc_orders SET transaction_hash=?,signed_raw=?,status='submitted' WHERE id=?",(tx['hash'],raw,identifier))
+        try:
+            if not self.client.transaction(tx['hash']):
+                returned=self.client.submit_signed_transaction(raw)
+                if returned.lower()!=tx['hash'].lower(): raise SupervisorRPCError('交易哈希不一致')
+        except SupervisorRPCError:
+            # Return the persisted hash even on an uncertain broadcast; never clear it.
+            return {'transaction_hash':tx['hash'],'status':'submitted','message':'广播结果待核验，请保留原交易哈希'}
+        return {'transaction_hash':tx['hash'],'status':'submitted'}
+
     @staticmethod
     def order_result(row):
-        public = {k: v for k, v in row.items() if k != 'owner_id'}
+        public = {k: v for k, v in row.items() if k not in {'owner_id','signed_raw'}}
         public['transaction'] = {'from': row['signer'], 'to': row['recipient'], 'value': hex(int(row['amount_wei'])), 'data': row['data'], 'chainId': hex(CHAIN_ID)}
         public['payload'] = json.loads(bytes.fromhex(row['data'][2:]))
         return public
@@ -193,6 +279,32 @@ def bkc_router(runtime, runs):
     def network():
         return store.config()
 
+    @router.get('/wallet/balance')
+    def balance(address: str):
+        import re
+        if not re.fullmatch(r'0x[0-9a-fA-F]{40}',address): raise HTTPException(422,'账户地址无效')
+        store.network()
+        try:
+            amount=int(store.client._call('eth_getBalance',[address,'latest']),16)
+            return {'address':address,'balance_wei':str(amount),'balance_bkc':format(Decimal(amount)/Decimal(10**18),'f'),'currency':'BKC','network_label':os.getenv('TRINE_SUPERVISOR_NETWORK_LABEL','Supervisor')}
+        except (SupervisorRPCError,ValueError) as exc:
+            raise HTTPException(503,'余额查询失败') from exc
+
+    @router.get('/bkc-orders/{identifier}/signing')
+    def signing(identifier: str, request: Request):
+        return store.signing(request.state.user.id,identifier)
+
+    @router.post('/bkc-orders/{identifier}/broadcast')
+    def broadcast(identifier: str, value: BroadcastInput, request: Request):
+        return store.broadcast(request.state.user.id,identifier,value.raw_transaction)
+
+    @router.post('/bkc-orders/{identifier}/rebroadcast')
+    def rebroadcast(identifier: str, request: Request):
+        store.get(request.state.user.id,identifier)
+        with runtime._connect() as c: row=c.execute('SELECT signed_raw FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
+        if not row['signed_raw']:raise HTTPException(409,'没有可恢复的签名交易')
+        return store.broadcast(request.state.user.id,identifier,row['signed_raw'])
+
     @router.get('/strategy-releases/{release_id}/bkc-offer')
     def offer(release_id: str, request: Request):
         return store.offer(request.state.user.id, release_id)
@@ -204,6 +316,29 @@ def bkc_router(runtime, runs):
     @router.post('/strategy-releases/{release_id}/bkc-order')
     def prepare_subscription(release_id: str, value: PrepareInput, request: Request):
         return store.prepare(request.state.user.id, 'subscription', release_id, value.address)
+
+    @router.post('/strategy-releases/{release_id}/anchor-order')
+    def prepare_release(release_id: str, value: PrepareInput, request: Request):
+        return store.prepare(request.state.user.id, 'release', release_id, value.address)
+
+    @router.post('/strategy-releases/{release_id}/proof-anchor-order')
+    def prepare_proof_anchor(release_id: str, value: PrepareInput, request: Request):
+        store.release(request.state.user.id, release_id)
+        with runtime._connect() as conn:
+            job = conn.execute("SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified' ORDER BY created_at DESC LIMIT 1", (release_id,)).fetchone()
+        if not job:
+            raise HTTPException(409, '请先完成 Proof 生成与验证')
+        return store.prepare(request.state.user.id, 'proof_anchor', job['proof_id'], value.address)
+
+    @router.get('/strategy-releases/{release_id}/anchors')
+    def release_anchors(release_id: str, request: Request):
+        store.release(request.state.user.id, release_id)
+        with runtime._connect() as conn:
+            rows = conn.execute("SELECT * FROM bkc_orders WHERE status='confirmed' AND (kind='release' AND resource_id=? OR kind='proof_anchor' AND resource_id IN (SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified'))", (release_id, release_id)).fetchall()
+        return [{'kind': row['kind'], 'transaction_hash': row['transaction_hash'],
+                 'block_number': row['block_number'], 'block_hash': row['block_hash'],
+                 'genesis': row['genesis'], 'chain_id': CHAIN_ID,
+                 'payload': json.loads(bytes.fromhex(row['data'][2:]).decode())} for row in rows]
 
     @router.post('/runs/{run_id}/anchor-order')
     def prepare_report(run_id: str, value: PrepareInput, request: Request):

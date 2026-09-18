@@ -8,13 +8,13 @@ vi.mock('./api', () => ({ api: { searchAssets: vi.fn(), getStrategies: vi.fn(), 
 vi.mock('./components/AlertDrawer', () => ({ AlertDrawer: () => null }))
 vi.mock('./components/HistoryDrawer', () => ({ HistoryDrawer: () => null }))
 vi.mock('./components/ResultsPanel', () => ({ ResultsPanel: () => null }))
-vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ start, end, onStart, onEnd }: { start: string; end: string; onStart: (s: string) => void; onEnd: (s: string) => void }) => <><input aria-label="开始" value={start} onChange={e => onStart(e.target.value)} /><input aria-label="结束" value={end} onChange={e => onEnd(e.target.value)} /></> }))
+vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ codeContext, start, end, onStart, onEnd }: { codeContext?: React.ReactNode; start: string; end: string; onStart: (s: string) => void; onEnd: (s: string) => void }) => <>{codeContext}<input aria-label="开始" value={start} onChange={e => onStart(e.target.value)} /><input aria-label="结束" value={end} onChange={e => onEnd(e.target.value)} /></> }))
 vi.mock('./components/TradingChart', () => ({ TradingChart: ({ bars }: { bars: unknown[] }) => <output data-testid="chart-bars">{bars.length}</output> }))
 vi.mock('./components/StrategyLabWorkspace', async () => {
   const { useState } = await import('react')
-  return { StrategyLabWorkspace: function LabDraft() {
+  return { StrategyLabWorkspace: function LabDraft({ onCustomResult }: { onCustomResult: (result: BacktestResult, code: {name:string;source:string;hash:string}) => void }) {
     const [draft, setDraft] = useState('')
-    return <input aria-label="实验室草稿" value={draft} onChange={(event) => setDraft(event.target.value)} />
+    return <><input aria-label="实验室草稿" value={draft} onChange={(event) => setDraft(event.target.value)} /><button onClick={() => onCustomResult({run_id:'code',created_at:'2026-01-01',asset:btc,interval:'1d',strategy,data_source:'binance',bars:market.bars,indicators:{},trades:[],equity:[],metrics:{},regime_metrics:{},warnings:[],source_note:null}, {name:'我的测试代码',source:'def target_bps(index, close, sma):\n return 5000',hash:'a'.repeat(64)})}>完成代码回测</button></>
   } }
 })
 vi.mock('./components/PortfolioWorkspace', async () => {
@@ -95,4 +95,17 @@ it('rejects reversed dates before starting the engine', async () => {
   fireEvent.click(screen.getByRole('button', { name: '运行回测' }))
   expect(api.runBacktest).not.toHaveBeenCalled()
   expect(screen.getByText('回测开始时间必须早于结束时间')).toBeTruthy()
+})
+
+
+it('shows the code identity and reruns the same Python snapshot after lab navigation', async () => {
+  render(<App />)
+  await waitFor(() => expect(screen.getByTestId('chart-bars').textContent).toBe('1'))
+  fireEvent.click(screen.getByRole('button', {name:'策略实验室'}))
+  fireEvent.click(await screen.findByRole('button', {name:'完成代码回测'}))
+  expect(await screen.findByText('我的测试代码')).toBeTruthy()
+  expect(screen.getByText('当前回测 · 我编写的 Python')).toBeTruthy()
+  vi.mocked(api.runBacktest).mockReturnValue(new Promise(() => {}))
+  fireEvent.click(screen.getByRole('button', {name:'运行回测'}))
+  expect(api.runBacktest).toHaveBeenCalledWith(expect.objectContaining({strategy_id:'python_bounded',python_source:'def target_bps(index, close, sma):\n return 5000',release_id:null}))
 })

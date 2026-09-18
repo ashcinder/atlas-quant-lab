@@ -3,7 +3,7 @@ import type { Adjustment, BaseCurrency, DataSource, Interval } from './types'
 const KEY = 'atlas-quant-preferences:v3'
 const LEGACY_KEYS = ['atlas-quant-preferences:v2', 'atlas-quant-preferences:v1']
 let storageUser = ''
-export function setStorageUser(userId: string) { storageUser = userId }
+export function setStorageUser(userId: string) { if (storageUser !== userId) window.dispatchEvent(new Event('trine-session-lock')); storageUser = userId }
 export function userStorageKey(key: string) { return storageUser ? `${key}:${storageUser}` : key }
 
 export type ResultsPanelMode = 'collapsed' | 'normal' | 'maximized'

@@ -575,7 +575,12 @@ class TencentProvider(MarketDataProvider):
 
 class BinanceProvider(MarketDataProvider):
     name = "binance"
-    BASE_URL = "https://api.binance.com/api/v3/klines"
+    # data-api.binance.vision is Binance's official public-market CDN and stays
+    # reachable where api.binance.com is blocked (e.g. mainland China servers).
+    BASE_URLS = (
+        "https://data-api.binance.vision/api/v3/klines",
+        "https://api.binance.com/api/v3/klines",
+    )
     INTERVAL_MAP = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d", "1wk": "1w"}
 
     def __init__(self) -> None:
@@ -610,12 +615,18 @@ class BinanceProvider(MarketDataProvider):
                 params["startTime"] = cursor
             if end_ms is not None:
                 params["endTime"] = end_ms
-            try:
-                response = self.client.get(self.BASE_URL, params=params)
-                response.raise_for_status()
-                batch = response.json()
-            except Exception as exc:
-                raise ProviderError(f"Binance 行情请求失败: {exc}") from exc
+            batch = None
+            last_error = None
+            for candidate in self.BASE_URLS:
+                try:
+                    response = self.client.get(candidate, params=params)
+                    response.raise_for_status()
+                    batch = response.json()
+                    break
+                except Exception as exc:
+                    last_error = exc
+            if batch is None:
+                raise ProviderError(f"Binance 行情请求失败: {last_error}") from last_error
             if not batch:
                 break
             rows.extend(batch)

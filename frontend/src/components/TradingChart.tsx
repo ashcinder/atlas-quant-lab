@@ -1,3 +1,4 @@
+import { outsideBacktest } from '../backtestChart'
 import './quant-controls.css'
 import { indicatorCatalog, calculateChartIndicators, defaultIndicatorSettings, type IndicatorSettings } from '../chartIndicators'
 import { IndicatorPicker } from './IndicatorPicker'
@@ -23,6 +24,8 @@ import { formatNumber } from '../format'
 import { bindChartTheme } from '../chartTheme'
 
 interface Props {
+  highlightStart?: number
+  highlightEnd?: number
   bars: Bar[]
   indicators: Record<string, IndicatorPoint[]>
   trades: Trade[]
@@ -39,6 +42,8 @@ interface Props {
 }
 
 interface ChartPayload {
+  highlightStart?: number
+  highlightEnd?: number
   bars: Bar[]
   indicators: Record<string, IndicatorPoint[]>
   trades: Trade[]
@@ -132,7 +137,7 @@ function rangeTime(time: number, interval: Interval) {
 
 export const TradingChart = memo(function TradingChart({
   bars, indicators, trades, chartType, interval, source, datasetKey, lastBarTime, isStale = false,
-  showVolume, showMacd, onShowVolume, onShowMacd,
+  showVolume, showMacd, onShowVolume, onShowMacd, highlightStart, highlightEnd,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
@@ -184,7 +189,7 @@ export const TradingChart = memo(function TradingChart({
     ? [...trades.filter((trade) => trade.time <= replayTime), ...replayAccount.trades]
     : trades, [replayAccount.trades, replayMode, replayTime, trades])
   const bindingKey = `${datasetKey}:${replayMode ? 'replay' : 'live'}`
-  payloadRef.current = { bars: displayBars, indicators: displayIndicators, trades: displayTrades }
+  payloadRef.current = { bars: displayBars, indicators: displayIndicators, trades: displayTrades, highlightStart, highlightEnd }
   const latest = displayBars.at(-1)
   const change = displayBars.length > 1 && latest ? latest.close / displayBars[displayBars.length - 2].close - 1 : 0
   const indicatorControls = indicatorCatalog.filter(item => toolbarIndicators.has(item.key)).map(item => ({
@@ -226,6 +231,7 @@ export const TradingChart = memo(function TradingChart({
     let updateLineTheme = () => {}
     const refreshLineTheme = () => updateLineTheme()
     window.addEventListener('atlas-appearance-change', refreshLineTheme)
+    const outside = (time: number) => outsideBacktest(time, payloadRef.current.highlightStart, payloadRef.current.highlightEnd)
     let setMainData: (nextBars: Bar[]) => void
     let setMarkers: (markers: SeriesMarker<Time>[]) => void
 
@@ -238,6 +244,7 @@ export const TradingChart = memo(function TradingChart({
       setMainData = (nextBars) => series.setData(nextBars.map((bar) => ({
         time: bar.time as UTCTimestamp,
         open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+        ...(outside(bar.time) ? { color: "rgba(132,148,170,0.28)", wickColor: "rgba(132,148,170,0.35)", borderColor: "rgba(132,148,170,0.28)" } : {}),
       })))
       setMarkers = (markers) => markerPlugin.setMarkers(markers)
     } else {
@@ -246,6 +253,7 @@ export const TradingChart = memo(function TradingChart({
       updateLineTheme = () => series.applyOptions({ color: chartTheme().foreground })
       setMainData = (nextBars) => series.setData(nextBars.map((bar) => ({
         time: bar.time as UTCTimestamp, value: bar.close,
+        color: outside(bar.time) ? "rgba(132,148,170,0.3)" : chartTheme().foreground,
       })))
       setMarkers = (markers) => markerPlugin.setMarkers(markers)
     }
@@ -396,10 +404,10 @@ export const TradingChart = memo(function TradingChart({
 
   useEffect(() => {
     const fit = displayBars.length > 0 && (lastDatasetRef.current !== bindingKey || lastBarCountRef.current === 0)
-    bindingRef.current?.update({ bars: displayBars, indicators: displayIndicators, trades: displayTrades }, fit)
+    bindingRef.current?.update({ bars: displayBars, indicators: displayIndicators, trades: displayTrades, highlightStart, highlightEnd }, fit)
     if (displayBars.length > 0) lastDatasetRef.current = bindingKey
     lastBarCountRef.current = displayBars.length
-  }, [bindingKey, displayBars, displayIndicators, displayTrades])
+  }, [bindingKey, displayBars, displayIndicators, displayTrades, highlightStart, highlightEnd])
 
   const toggleIndicator = (key: string) => {
     setVisibleIndicators((current) => {

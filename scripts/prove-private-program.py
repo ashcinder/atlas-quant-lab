@@ -74,6 +74,7 @@ def execute(args):
     inspected = invoke(['inspect', '--profile', PROFILE, '--witness', str(inspect_path)], timeout=60)
     # inspect is preflight computation, NOT proof verification.
     quant = proofs = None
+    registered = None
     token = None
     if args.publish_local:
         from app.quantjudge import QuantJudgeStore
@@ -83,10 +84,18 @@ def execute(args):
         # Advisory preflight saves expensive proving work. The atomic check in
         # register_receipt remains authoritative against concurrent replays.
         with proofs._connect() as connection:
-            replay = connection.execute('SELECT 1 FROM qj_zk_proofs WHERE nullifier = ?',
+            replay = connection.execute('SELECT * FROM qj_zk_proofs WHERE nullifier = ?',
                                         (inspected['nullifier'],)).fetchone()
         if replay:
-            raise ZkProofError('该报告nonce已使用；新报告须在作者端生成新nonce，禁止重放')
+            # Resume only this exact saved receipt/identity. Normal registration
+            # still rejects duplicate receipts and all new nonce replays.
+            receipt_path = output / 'proof.r0'
+            if (not args.resume or not receipt_path.is_file()
+                    or replay['agent_id'] != witness['agent_id']
+                    or replay['status'] != 'verified'
+                    or hashlib.sha256(receipt_path.read_bytes()).hexdigest() != replay['proof_hash']):
+                raise ZkProofError('该报告nonce已使用；禁止重放')
+            registered = dict(replay)
         if witness.get('previous_receipt_hash'):
             raise ZkProofError('新建策略身份不能声明旧报告；后续报告使用现有身份流程')
         quant = QuantJudgeStore(seed_demo=False)
@@ -110,7 +119,7 @@ def execute(args):
         write_private(private, witness)
     receipt = output / 'proof.r0'
     started = time.monotonic()
-    if not args.resume:
+    if not args.resume or not receipt.is_file():
         print('开始本地真实证明；策略与witness不会发送给远程证明服务。', flush=True)
         invoke(['prove', '--profile', PROFILE, '--witness', str(private), '--receipt', str(receipt)])
     os.chmod(receipt, 0o600)
@@ -148,8 +157,17 @@ def execute(args):
               'confidential_hosting_verified': False, 'exchange_fills_verified': False,
               'market_origin_cryptographically_verified': False, 'onchain_verified': False}
     if quant is not None:
-        proof = proofs.register_receipt(witness['agent_id'], PROFILE, receipt.read_bytes(), token)
-        report = quant.publish_zk_report(witness['agent_id'], proof['id'], token)
+        if registered is not None:
+            # Authenticate saved identity and cryptographically recheck storage.
+            quant._assert_token(witness['agent_id'], token)
+            proofs.reverify(registered['id'])
+            proof = registered
+        else:
+            proof = proofs.register_receipt(witness['agent_id'], PROFILE, receipt.read_bytes(), token)
+        if registered is not None and registered['report_id']:
+            report = {'id': registered['report_id']}
+        else:
+            report = quant.publish_zk_report(witness['agent_id'], proof['id'], token)
         recheck = quant.verify_report(report['id'], refresh_chain=False)
         if recheck.get('external_proof_verified') is not True:
             raise ZkProofError('已发布报告重新验证失败')

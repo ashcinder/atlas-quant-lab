@@ -1,3 +1,6 @@
+import type { ExecutionPipeline } from './components/ExecutionPipelinePanel'
+import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
+import { retainChartHistory } from './backtestChart'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { AlertCircle, LoaderCircle } from 'lucide-react'
 import { api } from './api'
@@ -75,6 +78,8 @@ export default function App() {
   const [fundamentals, setFundamentals] = useState<FundamentalsResponse | null>(null)
   const [fundamentalsLoading, setFundamentalsLoading] = useState(false)
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
+  const [releaseId,setReleaseId] = useState('')
+  const [codeBacktest,setCodeBacktest] = useState<{name:string;source:string;hash:string;executionPipeline?:ExecutionPipeline}|null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setModeState] = useState<WorkspaceMode>(initialMode)
@@ -165,7 +170,7 @@ export default function App() {
 
   useEffect(() => {
     if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
-    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
+    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Trine`
   }, [mode])
 
   const loadMarket = useCallback((
@@ -298,13 +303,16 @@ export default function App() {
     setSingleRunning(true)
     setError(null)
     api.runBacktest({
+      release_id: releaseId || null,
       symbol: asset.symbol,
       asset_class: asset.asset_class,
       start: start ? new Date(start).toISOString() : null,
       end: end ? new Date(end).toISOString() : null,
       interval: preferences.interval,
       data_source: preferences.source,
-      strategy_id: strategyId,
+      strategy_id: codeBacktest ? 'python_bounded' : strategyId,
+      python_source: codeBacktest?.source,
+      execution_pipeline: codeBacktest?.executionPipeline,
       params,
       initial_capital: capital,
       commission_rate: commission,
@@ -320,7 +328,7 @@ export default function App() {
     }).then((result) => {
       if (backtestRequestRef.current === requestId) {
         setSingleResult(result)
-        setMarket({ ...marketFromResult(result), adjustment: preferences.adjustment })
+        setMarket(current => retainChartHistory(current, { ...marketFromResult(result), adjustment: preferences.adjustment }))
       }
       return api.listRuns()
     }).then(setRuns).catch((reason: Error) => { if (backtestRequestRef.current === requestId) setError(reason.message) }).finally(() => { backtestBusyRef.current = false; setSingleRunning(false) })
@@ -368,7 +376,7 @@ export default function App() {
     try {
       if (run.mode === 'single') {
         const result = await api.getRun<BacktestResult>(run.id)
-        setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single')
+        setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single')
         setPreferences((current) => ({ ...current, symbol: result.asset.symbol, assetClass: result.asset.asset_class, interval: result.interval }))
       } else {
         const result = await api.getRun<PortfolioResult>(run.id)
@@ -399,19 +407,19 @@ export default function App() {
           <ResizeHandle rootRef={shellRef} side="left" cssVariable="--market-sidebar-width" oppositeCssVariable="--strategy-panel-width" centerMinimum={460} value={preferences.marketSidebarWidth} minimum={150} maximum={360} defaultValue={178} label="调整市场列表宽度" onCommit={(value) => commitLayout('marketSidebarWidth', value)} />
           <div className={`center-stack results-${preferences.resultsPanelMode}`}>
             <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载图表组件…</div>}>
-              <TradingChart bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={market?.source ?? singleResult?.data_source} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}`} lastBarTime={market?.last_bar_time} isStale={market?.is_stale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
+              <TradingChart highlightStart={start ? Date.parse(start) / 1000 : undefined} highlightEnd={end ? Date.parse(end) / 1000 : undefined} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={market?.source ?? singleResult?.data_source} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}`} lastBarTime={market?.last_bar_time} isStale={market?.is_stale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
             </Suspense>
             {preferences.resultsPanelMode === 'normal' ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
             <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
+          <StrategyPanel codeContext={codeBacktest ? <section className="trine-code-context"><small>当前回测 · 我编写的 Python</small><strong>{codeBacktest.name}</strong><code title={codeBacktest.hash}>代码 SHA256 · {codeBacktest.hash.slice(0,12)}</code><p>{asset?.symbol} · {preferences.interval} · {preferences.source}</p><small>使用点击回测时的代码快照；再次运行将继续使用此版本。回测不代表 ZKP 已验证。</small><details><summary>查看本次代码</summary><pre>{codeBacktest.source}</pre></details><button onClick={() => setMode('research')}>返回编辑</button><button onClick={() => setCodeBacktest(null)}>切换策略模板</button></section> : undefined} releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { setCodeBacktest(null); setReleaseId(id) }}/>} releaseSelected={!!releaseId || !!codeBacktest} sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       </WorkspaceErrorBoundary> : null}
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
-      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result) => { setSingleResult(result); setMarket(marketFromResult(result)); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
       {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />

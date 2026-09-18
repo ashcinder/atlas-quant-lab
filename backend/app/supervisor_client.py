@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -24,24 +25,31 @@ class SupervisorStatus:
 class SupervisorClient:
     """Narrow JSON-RPC adapter; it never imports or modifies Supervisor source/configuration."""
 
-    def __init__(self, rpc_url: str | None = None, timeout: float = 0.8):
+    def __init__(self, rpc_url: str | None = None, timeout: float = 8.0):
         self.rpc_url = (rpc_url or os.getenv("QUANTJUDGE_SUPERVISOR_RPC_URL") or "http://127.0.0.1:42515").rstrip("/")
         self.timeout = timeout
 
     def _call(self, method: str, params: list[Any]) -> Any:
         try:
-            response = httpx.post(
-                self.rpc_url,
-                json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
-                timeout=self.timeout,
-                trust_env=urlparse(self.rpc_url).hostname not in {"localhost", "127.0.0.1", "::1"},
-            )
+            for attempt in range(4):
+                response = httpx.post(
+                    self.rpc_url,
+                    json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                    timeout=self.timeout,
+                    trust_env=urlparse(self.rpc_url).hostname not in {"localhost", "127.0.0.1", "::1"},
+                )
+                if response.status_code != 429 or method == 'eth_sendRawTransaction' or attempt == 3:
+                    break
+                time.sleep(1)
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise SupervisorRPCError(f"Supervisor RPC 不可用: {exc}") from exc
         if payload.get("error"):
             raise SupervisorRPCError(f"Supervisor RPC {method} 失败: {payload['error']}")
+        if "result" not in payload and method in {"eth_getTransactionByHash", "eth_getTransactionReceipt"}:
+            # Supervisor omits its nil result for an unknown transaction.
+            return None
         if "result" not in payload:
             raise SupervisorRPCError(f"Supervisor RPC {method} 响应缺少 result")
         return payload["result"]

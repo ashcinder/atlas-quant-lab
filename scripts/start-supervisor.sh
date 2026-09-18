@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+·#!/usr/bin/env bash
 set -euo pipefail
 ATLAS_PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ATLAS_SUPERVISOR_DIR="$ATLAS_PROJECT_ROOT/Supervisor/brokerchain-supervisor"
@@ -11,3 +11,4 @@ mkdir -p "$ATLAS_SUPERVISOR_BIN_DIR"
 cd "$ATLAS_SUPERVISOR_DIR"
 go build -o "$ATLAS_SUPERVISOR_BIN_DIR/supervisor" .
 exec "$ATLAS_SUPERVISOR_BIN_DIR/supervisor"
+·

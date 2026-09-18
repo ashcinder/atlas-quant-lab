@@ -20,6 +20,10 @@ services:
       ATLAS_ALLOW_REGISTRATION: ${ATLAS_ALLOW_REGISTRATION:-true}
       ATLAS_SESSION_SECRET: ${ATLAS_SESSION_SECRET:-}
       QUANTJUDGE_SUPERVISOR_RPC_URL: ${QUANTJUDGE_SUPERVISOR_RPC_URL:-http://127.0.0.1:42515}
+      TRINE_PROOF_PRICE_BKC: ${TRINE_PROOF_PRICE_BKC:-}
+      TRINE_PROOF_RECIPIENT: ${TRINE_PROOF_RECIPIENT:-}
+      VITE_TRINE_DEMO_MODE: ${VITE_TRINE_DEMO_MODE:-true}
+      VITE_TRINE_TEST_PRIVATE_KEY: ${VITE_TRINE_TEST_PRIVATE_KEY:-0f7597919f8d6442707e93d2723adca206e9090623914942bf876bd6b4f5e5c9}
     volumes:
       - atlas-data:/app/backend/.data
     tmpfs:
@@ -38,6 +42,9 @@ services:
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile
+      args:
+        VITE_TRINE_DEMO_MODE: ${VITE_TRINE_DEMO_MODE:-true}
+        VITE_TRINE_TEST_PRIVATE_KEY: ${VITE_TRINE_TEST_PRIVATE_KEY:-0f7597919f8d6442707e93d2723adca206e9090623914942bf876bd6b4f5e5c9}
     image: atlas-quant-web:local
     init: true
     restart: unless-stopped

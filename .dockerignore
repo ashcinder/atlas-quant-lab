@@ -1,37 +1,43 @@
-# Containers use an explicit, minimal build context. Never send local strategies,
-# databases, credentials, Supervisor, browser traces or Git history to the builder.
-**
-!backend/
-!backend/app/
-!backend/app/**
-!backend/requirements.lock
-!backend/requirements.txt
-!frontend/
-!frontend/src/
-!frontend/src/**
-!frontend/public/
-!frontend/public/**
-!frontend/index.html
-!frontend/package.json
-!frontend/package-lock.json
-!frontend/postcss.config.mjs
-!frontend/tsconfig*.json
-!frontend/vite.config.ts
-!frontend/postcss.config.mjs
-!strategy/
-!strategy/zkvm/
-!strategy/zkvm/profiles.json
-!strategy/sdk/
-!strategy/sdk/python/
-!strategy/sdk/python/atlas_strategy_sdk/
-!strategy/sdk/python/atlas_strategy_sdk/**
-!strategy/runner/
-!strategy/runner/worker.py
-!deploy/
-!deploy/**
-**/__pycache__/
-**/*.pyc
-**/.env*
-# Never send compiled local binaries or author packages to image builders.
-deploy/nitro/nsm/target/
-**/*.nitro-package.json
+# Dependencies
+frontend/node_modules
+backend/.venv
+node_modules
+
+# Build artifacts
+frontend/dist
+strategy/zkvm/target
+**/target
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+
+# Docker
+Dockerfile*
+docker-compose*
+deploy/*.sh
+deploy/*.conf
+.dockerignore
+
+# Scripts
+scripts/*.sh
+
+# Documentation
+*.md
+!DEPLOY.md
+
+# Misc
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db

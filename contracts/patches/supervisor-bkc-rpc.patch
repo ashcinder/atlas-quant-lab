@@ -1,0 +1,24 @@
+--- a/supervisor/eth_rpc.go
++++ b/supervisor/eth_rpc.go
+@@ -673,6 +673,12 @@
+ 	}
+ 	log.Printf("eth_sendRawTransaction from : %+v \n", req)
+ 	IP := ""
++	if rawTx.ChainId().Cmp(big.NewInt(1051)) != 0 { return nil, errors.New("unexpected chain ID") }
++    Lock.Lock()
++    defer Lock.Unlock()
++    var known db.ContractInvoke
++    rawHash := strings.TrimPrefix(rawTx.Hash().Hex(), "0x")
++    if db.DB.Where("hash = ?", rawHash).First(&known).Error == nil { return "0x" + rawHash, nil }
+ 	d.Lock.RLock()
+ 	defer d.Lock.RUnlock()
+ 
+@@ -735,7 +741,7 @@
+ 	tx.SC = true
+ 	randomBytes := make([]byte, 32)
+ 	_, _ = rand.Read(randomBytes)
+-	hexString := hex.EncodeToString(randomBytes)
++	hexString := strings.TrimPrefix(rawTx.Hash().Hex(), "0x")
+ 
+ 	tx1 := db.DB.Begin()
+ 	blockHeader := d.CurChain.GenerateBlockHeader()

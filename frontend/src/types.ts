@@ -204,6 +204,7 @@ export interface CustomStrategyRecord {
 export type RuntimeMarket = 'CRYPTO' | 'US' | 'CN'
 export type RuntimeEnvironment = 'platform_sim' | 'exchange_test' | 'live'
 export interface StrategyRelease {
+  proof_status?: string; proof_id?: string
   runner_public_key?: string; code_commitment?: string
   execution_mode?: "candles" | "quote_probe" | "private_runner"
   published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner' | 'python'
@@ -397,7 +398,7 @@ export interface QuantAgent {
   description: string
   risk_level: QuantRisk
   monthly_price: number
-  price_currency: 'CNY' | 'USDT'
+  price_currency: 'BKC' | 'CNY' | 'USDT'
   strategy_commitment: string
   status: string
   is_demo: boolean

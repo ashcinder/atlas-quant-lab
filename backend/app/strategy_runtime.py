@@ -330,6 +330,7 @@ class StrategyRuntimeStore:
         if request.source_kind == "python":
             try:
                 snapshot["python_program"] = compile_program(request.python_source)
+                snapshot["python_source"] = request.python_source
             except ValueError as exc:
                 raise HTTPException(422, str(exc)) from exc
         if request.source_kind == "private_runner":
@@ -409,8 +410,21 @@ class StrategyRuntimeStore:
                 item.pop("custom_strategy", None)
             item.pop("owner_id", None)
             item.pop("strategy_key", None)
+            item['proof_status'] = 'unverified'
+            with self._connect() as conn:
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='cloud_proof_jobs'").fetchone():
+                    job=conn.execute("SELECT status,proof_id FROM cloud_proof_jobs WHERE release_id=? ORDER BY created_at DESC LIMIT 1",(row['id'],)).fetchone()
+                    if job: item.update(proof_status=job['status'],proof_id=job['proof_id'])
             output.append(item)
         return output
+
+    def backtest_release(self, owner, identifier):
+        with self._connect() as conn:
+            release=self._release_for(conn,identifier)
+            subscribed=conn.execute("SELECT 1 FROM strategy_subscriptions WHERE owner_id=? AND release_id=? AND status='active'",(owner,identifier)).fetchone()
+            if release['owner_id']!=owner and not subscribed: raise HTTPException(403,'只能回测自己开发或已订阅的策略')
+            if release['source_kind']=='private_runner': raise HTTPException(422,'私有执行策略无法在平台回测')
+            return release['strategy_id'],json.loads(release['snapshot'])
 
     def _release_for(self, connection, identifier: str):
         row = connection.execute(
@@ -432,15 +446,20 @@ class StrategyRuntimeStore:
             ).fetchone()
             # Paid version access must be backed by a verified native BKC order.
             # Existing subscribers keep their version entitlement when an offer is added.
-            if not existing and release["owner_id"] != owner and connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bkc_offers'"
-            ).fetchone():
+            if not existing and release["owner_id"] != owner:
+                tables = {row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('bkc_offers','bkc_orders')"
+                )}
+                if tables != {'bkc_offers', 'bkc_orders'}:
+                    raise HTTPException(503, "BKC 支付服务未就绪，暂不可订阅")
                 offer = connection.execute("SELECT 1 FROM bkc_offers WHERE release_id=?", (release_id,)).fetchone()
                 paid = connection.execute(
                     "SELECT 1 FROM bkc_orders WHERE owner_id=? AND kind='subscription' AND resource_id=? AND status='confirmed'",
                     (owner, release_id),
                 ).fetchone()
-                if offer and not paid:
+                if not offer:
+                    raise HTTPException(409, "作者尚未设置 BKC 价格，暂不可订阅")
+                if not paid:
                     raise HTTPException(402, "请先完成 BKC 支付并核验链上回执")
             if existing:
                 if existing["status"] != "active":

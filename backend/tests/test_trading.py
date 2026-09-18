@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 from decimal import Decimal
 from uuid import uuid4
 
@@ -1017,3 +1018,27 @@ def test_rejected_demo_configuration_does_not_save_or_echo_secrets(client, monke
     )
     assert invalid.status_code == 422
     assert "VERY-SECRET" not in invalid.text
+
+
+def test_unreadable_demo_credentials_report_the_account_as_unconfigured(
+    client, monkeypatch, tmp_path, caplog
+):
+    """A key lost with its container, or a database restored elsewhere, must not
+    fail the trading page for everyone who happens to own a stale row."""
+    from app import demo_credentials
+
+    monkeypatch.setattr(demo_credentials, "DB_PATH", trading_api.DB_PATH)
+    key = tmp_path / ".account-key"
+    monkeypatch.setattr(demo_credentials, "KEY_PATH", key)
+    demo_credentials.save("stale-owner", "binance", {"api_key": "k", "secret": "s"})
+    assert demo_credentials.load("stale-owner", "binance")["secret"] == "s"
+
+    with caplog.at_level(logging.WARNING, logger="app.demo_credentials"):
+        key.write_bytes(b"\x00" * 32)  # key rotated
+        assert demo_credentials.load("stale-owner", "binance") is None
+        key.unlink()  # key lost entirely
+        assert demo_credentials.load("stale-owner", "binance") is None
+    # Reported once per account, however often the scheduler re-reads it.
+    assert sum("unreadable here" in r.getMessage() for r in caplog.records) == 1
+
+    assert client.get("/api/v1/trading/capabilities").status_code == 200

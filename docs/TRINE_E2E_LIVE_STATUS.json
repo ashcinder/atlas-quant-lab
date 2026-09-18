@@ -1,0 +1,12 @@
+{
+  "release_id": "rel_1dc3d949598a498a9a",
+  "job_id": "cpj_afcb8dd0f77c453a946b502759f09db8",
+  "proof_payment": "0xe07b2630dd59d10feff1ba860a05011ceee8bd8e6bccd0744f2a1f56d2947650",
+  "subscription_id": "sub_ef364ace80a54e618e",
+  "subscription_payment": "0xba66705bbaa6eaa49a4254abc37e33ab8c623a0daeec07edc721c0048267f87a",
+  "run_id": "run_cab12a5fcee544a1b4",
+  "network": "isolated Supervisor 42516",
+  "mode": "Binance demo",
+  "proof_anchor_transaction": "0x5b437e6d09ab7e2c1694f313df9d1ab11d0cf5ec4c5615a5111bf8534c137190",
+  "proof_anchor_block": 18
+}

@@ -1,0 +1,13 @@
+{
+  "mode": "local_proof_cloud_runtime",
+  "description": "Cloud deployment bundle: proofs are generated locally; cloud only stores, displays and verifies receipts.",
+  "proof_artifacts": [
+    "backend/.data/cloud-proofs",
+    "backend/.data/zk-market-verified-20260916",
+    "docs/zkp-acceptance-20260916"
+  ],
+  "zkvm_source": "strategy/zkvm",
+  "bundle_created": "2026-09-18",
+  "bundle_path": "/tmp/trine-demo-proof-bundle.tgz",
+  "remote_status": "pending_ssh_recovery"
+}

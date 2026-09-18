@@ -36,7 +36,7 @@ export default function LoginScreen({
         <div className="login-brand">
           <ChartCandlestick size={30} />
           <span>
-            Atlas <small>Quant Lab</small>
+            Trine <small>Quant Lab</small>
           </span>
         </div>
         <div className="login-copy">
@@ -66,7 +66,7 @@ export default function LoginScreen({
           </span>
           <div>
 
-            <h2>{register ? "创建 Atlas 账号" : "欢迎回来"}</h2>
+            <h2>{register ? "创建 Trine 账号" : "欢迎回来"}</h2>
             <p>
               {register
                 ? "创建账号，开始策略研究与个人资产记录。"
@@ -133,12 +133,12 @@ export default function LoginScreen({
                 ? "正在创建…"
                 : "正在验证…"
               : register
-                ? "注册并进入 Atlas"
-                : "登录 Atlas"}
+                ? "注册并进入 Trine"
+                : "登录 Trine"}
           </Button>
           {registrationEnabled && (
             <div className="auth-switch">
-              <span>{register ? "已经有账号？" : "第一次使用 Atlas？"}</span>
+              <span>{register ? "已经有账号？" : "第一次使用 Trine？"}</span>
               <button
                 type="button"
                 disabled={busy}

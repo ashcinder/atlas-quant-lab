@@ -1,4 +1,5 @@
-import { BkcWallet } from './BkcControls'
+import { SupervisorWalletSettings } from './SupervisorWalletSettings'
+import { SupervisorStatusButton } from './SupervisorStatusButton'
 import { useState } from 'react'
 import { Activity, BarChart3, Bell, CandlestickChart, Clock3, History, Play, Settings2, X } from 'lucide-react'
 import type { Adjustment, Asset, BaseCurrency, DataSource, Interval } from '../types'
@@ -45,7 +46,7 @@ export function TopBar(props: Props) {
         {props.mode === 'single' || props.mode === 'portfolio' ? <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em> : null}
       </div>
       <div className="toolbar-spacer" />
-      <details className="topbar-wallet"><summary>MetaMask</summary><BkcWallet /></details>
+      <SupervisorStatusButton />
       <button className="icon-button system-status-trigger" aria-label="系统状态" title="系统状态与能力" onClick={props.onSystemStatus}><Activity size={17} /></button>
       {props.mode === 'single' ? (
         <>
@@ -85,7 +86,7 @@ export function TopBar(props: Props) {
       {settingsOpen ? (
         <div className="settings-popover" role="dialog" aria-label="本地设置">
           <div><strong>本地研究设置</strong><button className="settings-close" aria-label="关闭本地设置" onClick={() => setSettingsOpen(false)}><X size={16} /></button></div>
-          <AppearanceSettings />
+          <AppearanceSettings /><details><summary>Supervisor 账户与私钥</summary><SupervisorWalletSettings /></details>
           <details><summary>AI 服务配置</summary><AISettings /></details>
           <details><summary>交易所账户连接</summary><ExchangeAccountSettings /></details>
           <label><span>组合基准币种</span><select value={props.baseCurrency} onChange={(event) => props.onBaseCurrency(event.target.value as BaseCurrency)}><option value="CNY">CNY 人民币</option><option value="USD">USD 美元</option><option value="USDT">USDT</option></select></label>

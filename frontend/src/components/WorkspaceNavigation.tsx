@@ -1,3 +1,4 @@
+import './research-controls.css'
 import { ArrowUpRight, CandlestickChart, FlaskConical, Gavel, Layers3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 export type WorkspaceMode = 'single' | 'portfolio' | 'research' | 'quantjudge'
@@ -13,15 +14,15 @@ export function WorkspaceNavigation({ mode, onMode, collapsed, onCollapse }: {
   mode: WorkspaceMode; onMode: (mode: WorkspaceMode) => void; collapsed: boolean; onCollapse: () => void
 }) {
   return <aside className="workspace-navigation">
-    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Atlas 首页">
-      <span className="workspace-monogram">A<span>↗</span></span><span><strong>Atlas</strong></span>
+    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Trine 首页">
+      <span className="workspace-monogram">T<span>↗</span></span><span><strong>Trine</strong></span>
     </a>
     <nav aria-label="工作模式">{destinations.map(({ id, label, detail, icon: Icon }) => <button key={id} aria-label={label} data-tooltip={collapsed ? label : undefined} title={`${label} · ${detail}`} aria-current={mode === id ? 'page' : undefined} onClick={() => onMode(id)}>
       <Icon size={20} /><span><strong>{label}</strong></span>
     </button>)}</nav>
     <div className="navigation-bottom"><div className="workspace-edition"><span />个人工作空间</div>
       <a href="/api/docs" target="_blank" rel="noreferrer" title="开发者 API 文档">API 文档<ArrowUpRight size={15} /></a>
-      <button className="navigation-collapse" onClick={onCollapse} aria-label={collapsed ? '展开导航' : '收起导航'}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}<span>收起导航</span></button>
+      <button className="navigation-collapse" onClick={onCollapse} title={collapsed ? '展开导航' : '收起导航，扩大图表空间'} aria-expanded={!collapsed} aria-label={collapsed ? '展开导航' : '收起导航'}>{collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}<span>{collapsed ? '展开导航' : '收起导航'}</span></button>
     </div>
   </aside>
 }

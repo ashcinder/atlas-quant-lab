@@ -36,7 +36,7 @@ export interface ResearchWorkspaceProps {
   maxParticipation: number
   onLoading: (loading: boolean) => void
   onError: (message: string) => void
-  onCustomResult: (result: BacktestResult) => void
+  onCustomResult: (result: BacktestResult, code?: { name: string; source: string; hash: string; executionPipeline?: ExecutionPipeline }) => void
   onStrategySaved?: (record: CustomStrategyRecord) => void
   onResearchCompleted?: (job: ResearchJob) => void
   onDraftChange?: (dirty: boolean) => void

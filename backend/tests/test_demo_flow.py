@@ -57,6 +57,8 @@ def test_example_subscription_signal_exchange_fill_and_assets(tmp_path, monkeypa
             (ROOT / "strategy/examples/exchange-demo/release.json").read_text()
         ),
     )
+    from test_strategy_runtime import record_confirmed_payment
+    record_confirmed_payment(store, "subscriber", version["id"])
     subscription = store.subscribe("subscriber", version["id"])
     account = next(
         a for a in store.list_accounts("subscriber") if a["name"].lower().startswith(venue)

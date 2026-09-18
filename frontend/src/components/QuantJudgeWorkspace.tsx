@@ -1,3 +1,5 @@
+import type { StrategyRelease } from '../types'
+import { PublishedStrategyRows, ReleaseMarketDetail, ProofReleaseDetail } from './PublishedStrategyRows'
 import './proof-page.css'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { userStorageKey } from '../storage'
@@ -84,7 +86,7 @@ function ProofRail({ report, verification, chain }: { report: QuantReport | null
       </div>
       <i />
       <div className={`qj-proof-node ${anchored ? 'is-ok' : 'is-pending'}`}>
-        <span><Link2 size={15} /></span><div><strong>Supervisor 链上锚定</strong><small>{anchored ? `已确认于区块 #${verification?.chain.block_number ?? report?.chain_block_number}` : chain?.compatible ? '等待开发者签名提交' : chain?.connected ? `链 ID ${chain.chain_id} 不匹配` : 'Supervisor 当前未连接'}</small></div><em>{anchored ? '已确认' : '待锚定'}</em>
+        <span><Link2 size={15} /></span><div><strong>报告合约登记</strong><small>{anchored ? `已确认于区块 #${verification?.chain.block_number ?? report?.chain_block_number}` : chain?.compatible ? '尚无报告合约登记；Proof 摘要存证见链上记录' : chain?.connected ? `链 ID ${chain.chain_id} 不匹配` : 'Supervisor 当前未连接'}</small></div><em>{anchored ? '已确认' : '待锚定'}</em>
       </div>
     </div>
   )
@@ -116,7 +118,10 @@ async function privateCommitment(secret: string) {
 export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   const [overview, setOverview] = useState<QuantJudgeOverview | null>(null)
   const [chain, setChain] = useState<QuantChainStatus | null>(null)
+  useEffect(() => { const open = () => setActiveView('runtime'); window.addEventListener('trine-open-runtime', open); return () => window.removeEventListener('trine-open-runtime', open) }, [])
   const [agents, setAgents] = useState<QuantAgent[]>([])
+  const [releaseCount,setReleaseCount] = useState(0)
+  const [selectedRelease, setSelectedRelease] = useState<StrategyRelease | null>(null)
   const [selected, setSelected] = useState<QuantAgent | null>(null)
   const [verification, setVerification] = useState<QuantVerification | null>(null)
   const [loading, setLoading] = useState(true)
@@ -185,6 +190,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
   }, [load])
 
   const chooseAgent = (agent: QuantAgent) => {
+    setSelectedRelease(null)
     verificationRequest.current += 1
     setVerifying(false)
     setSelected(agent)
@@ -214,7 +220,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
       const result = await api.createQuantAgent({
         name: publish.name, developer_alias: publish.developerAlias, agent_type: publish.agentType,
         category: publish.category, asset_classes: publish.assetClasses, description: publish.description,
-        risk_level: publish.riskLevel, monthly_price: publish.price, price_currency: 'CNY', strategy_commitment: local.commitment,
+        risk_level: publish.riskLevel, monthly_price: publish.price, price_currency: 'BKC', strategy_commitment: local.commitment,
       })
       setCredential({ token: result.developer_token, salt: local.salt })
       setPublish((current) => ({ ...current, secret: '' }))
@@ -223,15 +229,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
     } catch (reason) { onError(reason instanceof Error ? reason.message : '发布失败') }
   }
 
-  const subscribe = async () => {
-    if (!selected || investorAlias.trim().length < 2) { onError('请输入至少 2 个字符的投资人别名'); return }
-    try {
-      localStorage.setItem(userStorageKey('quantjudge-investor'), investorAlias.trim())
-      await api.subscribeQuantAgent(selected.id, { investor_alias: investorAlias.trim(), billing_cycle: 'monthly' })
-      setSubscriptions(await api.listQuantSubscriptions(investorAlias.trim()))
-      setSubscribeOpen(false); setActiveView('subscriptions'); await load()
-    } catch (reason) { onError(reason instanceof Error ? reason.message : '订阅失败') }
-  }
+  const subscribe = async () => { setSubscribeOpen(false); setActiveView('runtime') }
 
   const openSubscriptions = async () => {
     setActiveView('subscriptions')
@@ -269,14 +267,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
         <div><ShieldCheck size={14} /><span><strong>证据优先</strong>收益排名不会替代证明等级与风险判断</span></div>
       </section>
 
-      {activeView === 'runtime' ? <StrategyRuntimeLibrary /> : activeView === 'subscriptions' ? (
-        <section className="qj-subscriptions-view">
-          <header><div><strong>我的订阅</strong><small>本地投资人身份与策略授权记录</small></div><label>投资人别名<input value={investorAlias} onChange={(event) => setInvestorAlias(event.target.value)} /><button onClick={openSubscriptions}>查询</button></label></header>
-          <div className="qj-subscription-list">
-            {subscriptions.length ? subscriptions.map((item) => <article key={item.id}><span><ShieldCheck size={17} /></span><div><strong>{item.agent_name}</strong><small>{item.id} · {item.payment_mode === 'sandbox' ? '本地沙盒订阅' : '外部支付待验证'}</small></div><b>{item.amount.toFixed(0)} {item.currency}</b><em className={item.status === 'active' ? 'is-active' : ''}>{item.status === 'active' ? '已激活' : '待核验'}</em><time>到期 {new Date(item.expires_at).toLocaleDateString('zh-CN')}</time></article>) : <div className="qj-empty"><CircleDollarSign size={28} /><strong>还没有订阅记录</strong><span>从策略广场选择策略并建立订阅。</span><button onClick={() => setActiveView('market')}>返回广场</button></div>}
-          </div>
-        </section>
-      ) : (
+      {activeView === 'runtime' ? <StrategyRuntimeLibrary key="runtime" /> : activeView === 'subscriptions' ? <StrategyRuntimeLibrary key="subscriptions" initialView="subscriptions" /> : (
         <div className="qj-grid">
           <section className="qj-market">
             <div className="qj-filters">
@@ -286,11 +277,11 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
               <select aria-label="证据筛选" value={evidenceFilter} onChange={(event) => { setEvidenceFilter(event.target.value); setSelected(null); setVerification(null); verificationRequest.current += 1; setVerifying(false) }}><option value="all">所有策略（含演示）</option><option value="real">排除演示样本</option><option value="zk">仅 ZKP 报告</option></select>
             </div>
             <div className="qj-table-head"><span>策略 / 证据等级</span><span>公开净值</span><span>区间总收益</span><span>最大回撤</span><span>Sharpe</span><span>综合评分</span></div>
-            <div className="qj-agent-list">
+            <div className="qj-agent-list"><PublishedStrategyRows onCount={setReleaseCount} selectedId={selectedRelease?.id} onSelect={setSelectedRelease} query={query} hideUnverified={evidenceFilter === 'zk' || !!reportType || !!category} />
               {loading ? <div className="qj-empty"><Zap className="spin" size={24} /><span>读取可验证跑分…</span></div> : visibleAgents.map((agent) => {
                 const itemReport = agent.latest_report
-                return <div role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void chooseAgent(agent) } }} key={agent.id} className={`qj-agent-row ${selected?.id === agent.id ? 'is-selected' : ''}`} onClick={() => chooseAgent(agent)}>
-                  <span className="qj-agent-name"><b>{String(agent.rank).padStart(2, '0')}</b><i>{agent.agent_type === 'ai_agent' ? <Bot size={17} /> : <Activity size={17} />}</i><span><strong>{agent.name}</strong><small>{agent.developer_alias} · {categoryLabel[agent.category]} · {agent.asset_classes.map((item) => assetLabel[item] ?? item).join(' / ')}</small></span><em className={itemReport?.evidence_level === 'zk_verified' ? 'is-zk' : ''}>{agent.is_demo ? '演示样本' : itemReport?.evidence_level === 'zk_verified' ? 'ZKP 报告' : itemReport ? '平台回执' : '待提交报告'}</em><a className="market-proof-button" href={itemReport?.zk_proof_id ? `#/proof/${itemReport.zk_proof_id}` : '#/proof'} onClick={event => event.stopPropagation()}>验证 Proof ↗</a></span>
+                return <div role="button" tabIndex={0} onKeyDown={event => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); void chooseAgent(agent) } }} key={agent.id} className={`qj-agent-row ${!selectedRelease && selected?.id === agent.id ? 'is-selected' : ''}`} onClick={() => chooseAgent(agent)}>
+                  <span className="qj-agent-name"><b>{String(agent.rank).padStart(2, '0')}</b><i>{agent.agent_type === 'ai_agent' ? <Bot size={17} /> : <Activity size={17} />}</i><span><strong>{agent.name}</strong><small>{agent.developer_alias} · {categoryLabel[agent.category]} · {agent.asset_classes.map((item) => assetLabel[item] ?? item).join(' / ')}</small></span><span className="qj-agent-evidence"><em className={itemReport?.evidence_level === 'zk_verified' ? 'is-zk' : ''}>{agent.is_demo ? '演示样本' : itemReport?.evidence_level === 'zk_verified' ? 'ZKP 报告' : itemReport ? '平台回执' : '待提交报告'}</em><a className="market-proof-button" href={itemReport?.zk_proof_id ? `#/proof/${itemReport.zk_proof_id}` : '#/proof'} onClick={event => event.stopPropagation()}>验证 Proof ↗</a></span></span>
                   <Sparkline report={itemReport} />
                   <strong className={(itemReport?.metrics.total_return ?? 0) >= 0 ? 'positive' : 'negative'}>{pct(itemReport?.metrics.total_return, 4)}</strong>
                   <strong className="negative">{pct(itemReport?.metrics.max_drawdown)}</strong>
@@ -298,12 +289,12 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
                   <span className="qj-score"><span><b>{itemReport?.score?.toFixed(1) ?? '—'}</b><small>{scoreLabel(itemReport?.score)}</small></span><i style={{ '--score': `${itemReport?.score ?? 0}%` } as React.CSSProperties} /><ChevronRight size={15} /></span>
                 </div>
               })}
-              {!loading && !visibleAgents.length ? <div className="qj-empty"><Search size={26} /><strong>{evidenceFilter === 'zk' ? '暂无符合条件的 ZKP 报告' : '没有匹配的策略'}</strong><span>{evidenceFilter === 'zk' ? '平台签名不等同于 ZKP；此处只展示标记为零知识证明的报告。' : '试试其他关键词，或清除筛选查看所有策略。'}</span><button onClick={() => { setEvidenceFilter('all'); setQuery(''); setCategory(''); setReportType('') }}>清除筛选</button></div> : null}
+              {!loading && !visibleAgents.length && !releaseCount ? <div className="qj-empty"><Search size={26} /><strong>{evidenceFilter === 'zk' ? '暂无符合条件的 ZKP 报告' : '没有匹配的策略'}</strong><span>{evidenceFilter === 'zk' ? '平台签名不等同于 ZKP；此处只展示标记为零知识证明的报告。' : '试试其他关键词，或清除筛选查看所有策略。'}</span><button onClick={() => { setEvidenceFilter('all'); setQuery(''); setCategory(''); setReportType('') }}>清除筛选</button></div> : null}
             </div>
           </section>
 
           <aside className="qj-detail">
-            {selected && visibleAgents.some((agent) => agent.id === selected.id) ? <>
+            {selectedRelease ? <ReleaseMarketDetail key={selectedRelease.id} release={selectedRelease}/> : selected && visibleAgents.some((agent) => agent.id === selected.id) ? <>
               <header><div className="qj-avatar">{selected.agent_type === 'ai_agent' ? <Bot size={21} /> : <Activity size={21} />}</div><div className="qj-detail-identity"><span><em>{selected.latest_report ? (selected.latest_report.report_type === 'live' ? 'LIVE' : 'BACKTEST') : '待评测'}</em>{selected.is_demo ? <i>DEMO</i> : null}</span><strong>{selected.name}</strong><small>{selected.developer_alias} · {selected.subscriber_count} 位订阅者</small></div><div className="qj-detail-score"><small>JUDGE</small><strong>{report?.score?.toFixed(1) ?? '—'}</strong><em>{scoreLabel(report?.score)}</em></div></header>
               <p>{selected.description}</p>
               <div className="qj-detail-tags"><span>{categoryLabel[selected.category]}</span><span className={`risk-${selected.risk_level}`}>{riskLabel[selected.risk_level]}</span>{selected.asset_classes.map((item) => <span key={item}>{assetLabel[item] ?? item}</span>)}</div>
@@ -313,11 +304,11 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
                 <Metric label="最大回撤" value={pct(metrics?.max_drawdown)} tone="negative" />
                 <Metric label="Sharpe" value={metrics?.sharpe?.toFixed(2) ?? '—'} />
               </div>
+              <ProofReleaseDetail proofId={report?.zk_proof_id}/>
               <StrategyRadar key={selected.id} agent={selected} peers={visibleAgents} />
               <a className="qj-proof-link" href={report?.zk_proof_id ? `#/proof/${report.zk_proof_id}` : '#/proof'}>Proof · 打开零知识验证页面</a><section className="qj-proof-box"><div className="qj-section-title"><span><ShieldCheck size={15} /><span><strong>证据护照</strong><small>{report?.evidence_level === 'zk_verified' ? '零知识执行证明' : '平台签名与业绩复核'}</small></span></span><button disabled={verifying || !report} onClick={verify}>{verifying ? '正在验证…' : verification ? '再次验证' : '验证证据'}</button></div><ProofRail report={report} verification={verification} chain={chain} /></section>
               {verification ? <div className={`qj-verified-note ${verification.calculation_verified ? '' : 'is-error'}`}>{verification.calculation_verified ? <Check size={14} /> : <X size={14} />}<span><strong>{verification.calculation_verified ? (report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? 'zkVM 证明与公开结果均已验证' : '平台回执验算通过') : '展示记录完整性异常'}</strong>{verification.calculation_verified ? `${report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? '固定 image 的 RISC Zero receipt、公开 journal、报告绑定与 Ed25519 平台回执有效。' : '回执哈希、展示记录与 Ed25519 签名有效；该证据等级不是 ZKP。'}${verification.chain.status !== 'confirmed' ? '尚未获得 Supervisor 链上确认。' : '已获得链上确认。'}` : '请勿依赖当前展示数据；回执与数据库公开字段不一致。'}</span></div> : null}
               <details className="qj-ledger"><summary><span><Fingerprint size={14} />公开证明指纹</span><small>3 项可核验记录</small><ChevronRight size={15} /></summary><div className="qj-ledger-body"><div><span>策略承诺</span><code>{shortHash(selected.strategy_commitment)}</code><button title="复制策略承诺" onClick={() => navigator.clipboard.writeText(selected.strategy_commitment)}><Copy size={13} /></button></div><div><span>决策 Merkle 根</span><code>{shortHash(report?.decision_merkle_root)}</code><em>{report?.decision_count ?? 0} 次决策</em></div><div><span>证明回执</span><code>{shortHash(report?.receipt_hash)}</code><em>{report?.attestation_key_id}</em></div></div></details>
-              <div className="qj-subscribe"><div><small>月度订阅</small><strong>{selected.monthly_price.toFixed(0)} <em>{selected.price_currency}</em></strong></div><button onClick={() => setSubscribeOpen(true)}><CircleDollarSign size={15} />订阅策略</button></div>
               <small className="qj-disclaimer">跑分不构成投资建议。演示样本未上链；仅当证据节点显示“已确认”时，才代表 Supervisor 链回执校验成功。
               </small>
             </> : <div className="qj-empty"><DatabaseZap size={26} /><span>选择一个策略查看证据。</span></div>}
@@ -331,14 +322,14 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
           <div className="qj-form-row"><label>策略名称<input value={publish.name} onChange={(event) => setPublish({ ...publish, name: event.target.value })} placeholder="例：Aurora Alpha" /></label><label>开发者别名<input value={publish.developerAlias} onChange={(event) => setPublish({ ...publish, developerAlias: event.target.value })} placeholder="不需真实姓名" /></label></div>
           <div className="qj-form-row"><label>策略形态<select value={publish.agentType} onChange={(event) => setPublish({ ...publish, agentType: event.target.value as PublishState['agentType'] })}><option value="ai_agent">AI 参与策略</option><option value="traditional">传统量化策略</option></select></label><label>核心能力<select value={publish.category} onChange={(event) => setPublish({ ...publish, category: event.target.value as QuantCategory })}>{categories.slice(1).map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label></div>
           <label>公开说明<textarea value={publish.description} onChange={(event) => setPublish({ ...publish, description: event.target.value })} placeholder="只描述适用市场、风险和目标，不要填入源码、提示词或参数。" /></label>
-          <div className="qj-form-row"><label>资产类别<select value={publish.assetClasses[0]} onChange={(event) => setPublish({ ...publish, assetClasses: [event.target.value] })}><option value="equity">股票</option><option value="crypto">加密货币</option><option value="etf">ETF / 多资产</option><option value="commodity">商品</option></select></label><label>风险等级<select value={publish.riskLevel} onChange={(event) => setPublish({ ...publish, riskLevel: event.target.value as PublishState['riskLevel'] })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="extreme">极高</option></select></label><label>月费 CNY<input type="number" min="0" value={publish.price} onChange={(event) => setPublish({ ...publish, price: Number(event.target.value) })} /></label></div>
+          <div className="qj-form-row"><label>资产类别<select value={publish.assetClasses[0]} onChange={(event) => setPublish({ ...publish, assetClasses: [event.target.value] })}><option value="equity">股票</option><option value="crypto">加密货币</option><option value="etf">ETF / 多资产</option><option value="commodity">商品</option></select></label><label>风险等级<select value={publish.riskLevel} onChange={(event) => setPublish({ ...publish, riskLevel: event.target.value as PublishState['riskLevel'] })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="extreme">极高</option></select></label><label>参考月费 BKC<input type="number" min="0" value={publish.price} onChange={(event) => setPublish({ ...publish, price: Number(event.target.value) })} /></label></div>
           <label>承诺来源<select value={publish.commitmentMode} onChange={(event) => setPublish({ ...publish, commitmentMode: event.target.value as PublishState['commitmentMode'] })}><option value="browser">浏览器承诺（平台签名报告）</option><option value="zkp">zkVM 策略承诺（ZKP 报告）</option></select></label>
           {publish.commitmentMode === 'browser' ? <label className="qj-secret-field"><span><KeyRound size={14} />私密承诺材料</span><textarea value={publish.secret} onChange={(event) => setPublish({ ...publish, secret: event.target.value })} placeholder="粘贴源码版本指纹、Agent 配置摘要或任意私密长文。它只在当前浏览器中计算 SHA-256 承诺。" /><small><LockKeyhole size={12} />不会离开本浏览器；服务器只收到 64 位承诺哈希。该模式本身不是 ZKP。</small></label> : <label className="qj-secret-field"><span><Fingerprint size={14} />strategy_commitment</span><textarea value={publish.zkpCommitment} onChange={(event) => setPublish({ ...publish, zkpCommitment: event.target.value.trim().toLowerCase() })} placeholder="先在本地运行 atlas-zkvm inspect --witness witness.json，再粘贴输出的 strategy_commitment。" /><small><LockKeyhole size={12} />必须与 proof journal 完全一致；参数与 salt 不上传。</small></label>}
           <footer><button onClick={() => setPublishOpen(false)}>取消</button><button className="qj-primary" onClick={createAgent} disabled={publish.name.length < 2 || publish.developerAlias.length < 2 || publish.description.length < 12}><Fingerprint size={14} />生成承诺并创建</button></footer>
         </div>}
       </section></div> : null}
 
-      {subscribeOpen && selected ? <div className="qj-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setSubscribeOpen(false)}><section ref={dialogRef} className="qj-modal qj-subscribe-modal" role="dialog" aria-modal="true" aria-labelledby="qj-subscribe-title"><header><div><CircleDollarSign size={18} /><span><strong id="qj-subscribe-title">订阅 {selected.name}</strong><small>授权与支付记录分离</small></span></div><button aria-label="关闭订阅窗口" onClick={() => setSubscribeOpen(false)}><X size={17} /></button></header><div><label>投资人别名<input value={investorAlias} onChange={(event) => setInvestorAlias(event.target.value)} placeholder="用于查询本地订阅" /></label><div className="qj-order"><span>{selected.name} · 月度</span><strong>{selected.monthly_price.toFixed(0)} {selected.price_currency}</strong></div><p>当前未配置真实支付通道，本次建立的是明确标记的本地沙盒订阅，不会扣款。</p><button className="qj-primary" onClick={subscribe}>确认沙盒订阅</button></div></section></div> : null}
+      {subscribeOpen && selected ? <div className="qj-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setSubscribeOpen(false)}><section ref={dialogRef} className="qj-modal qj-subscribe-modal" role="dialog" aria-modal="true" aria-labelledby="qj-subscribe-title"><header><div><CircleDollarSign size={18} /><span><strong id="qj-subscribe-title">订阅 {selected.name}</strong><small>授权与支付记录分离</small></span></div><button aria-label="关闭订阅窗口" onClick={() => setSubscribeOpen(false)}><X size={17} /></button></header><div><label>投资人别名<input value={investorAlias} onChange={(event) => setInvestorAlias(event.target.value)} placeholder="用于查询本地订阅" /></label><div className="qj-order"><span>{selected.name} · 月度</span><strong>{selected.monthly_price.toFixed(0)} {selected.price_currency}</strong></div><p>订阅使用 BKC 支付，并绑定到可运行策略的具体版本。支付确认后才会获得运行授权。</p><button className="qj-primary" onClick={subscribe}>前往 BKC 策略订阅</button></div></section></div> : null}
     </main>
   )
 }

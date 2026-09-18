@@ -231,7 +231,7 @@ export default function TradingWorkspace() {
     const refresh = () => { if (document.visibilityState === 'visible') void load().catch(() => undefined) }
     window.addEventListener(RUNTIME_CHANGED_EVENT, refresh); document.addEventListener('visibilitychange', refresh); window.addEventListener('hashchange', refresh)
     const polling = window.setInterval(() => { if (window.location.hash.startsWith('#/trading')) refresh() }, 5000)
-    document.title = '策略交易 · Atlas'
+    document.title = '策略交易 · Trine'
     return () => { window.clearTimeout(timer); window.clearInterval(polling); window.removeEventListener(RUNTIME_CHANGED_EVENT, refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('hashchange', refresh) }
   }, [load])
   useEffect(() => {

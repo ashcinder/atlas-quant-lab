@@ -65,6 +65,26 @@ def release(store, owner="alice", name="动量"):
     )
 
 
+def record_confirmed_payment(store, owner, release_id):
+    # Runtime tests start from a confirmed payment; receipt/signature checks live
+    # in test_bkc_payments, with an explicit unpaid-access regression below.
+    from app.bkc_payments import BkcStore
+    from app.storage import RunStore
+    BkcStore(store, RunStore(store.path))
+    with store._connect() as c:
+        c.execute("INSERT INTO bkc_offers VALUES (?,?,?)", (release_id, '0x'+'a'*40, '1'))
+        c.execute("INSERT INTO bkc_orders (id,owner_id,kind,resource_id,signer,recipient,amount_wei,data,genesis,status) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            ('test-'+release_id, owner, 'subscription', release_id, '0x'+'b'*40, '0x'+'a'*40, '1', '0x', '0x'+'c'*64, 'confirmed'))
+
+
+def test_subscription_fails_closed_without_payment_tables(runtime):
+    store, _ = runtime
+    version = release(store)
+    with pytest.raises(HTTPException) as error:
+        store.subscribe('unpaid', version['id'])
+    assert error.value.status_code == 503
+
+
 def test_release_is_immutable_and_subscription_is_idempotent(runtime):
     store, _ = runtime
     first = release(store)
@@ -72,6 +92,7 @@ def test_release_is_immutable_and_subscription_is_idempotent(runtime):
     assert first["version"] == 1
     assert second["version"] == 2
     assert first["content_hash"] == second["content_hash"]
+    record_confirmed_payment(store, "bob", first["id"])
     subscription = store.subscribe("bob", first["id"])
     again = store.subscribe("bob", first["id"])
     assert again["id"] == subscription["id"]
@@ -249,6 +270,7 @@ def test_demo_and_stale_data_fail_closed(runtime):
 def test_cancel_subscription_stops_its_runs_and_ledger_isolated(runtime):
     store, data = runtime
     published = release(store, "author")
+    record_confirmed_payment(store, "alice", published["id"])
     subscription = store.subscribe("alice", published["id"])
     run = store.create_run(
         "alice",
@@ -391,6 +413,7 @@ def test_private_version_runs_without_being_published(runtime):
     )
     assert run["release_id"] == private["id"]
     store.publish_release("alice", private["id"])
+    record_confirmed_payment(store, "bob", private["id"])
     assert store.subscribe("bob", private["id"])["status"] == "active"
     with pytest.raises(HTTPException):
         store.publish_release("bob", private["id"])
@@ -513,6 +536,7 @@ def test_published_example_subscription_execution_and_asset_ledger(runtime):
     version = store.create_release(
         "author", ReleaseCreate.model_validate(json.loads(example.read_text()))
     )
+    record_confirmed_payment(store, "subscriber", version["id"])
     subscription = store.subscribe("subscriber", version["id"])
     run = store.create_run(
         "subscriber",

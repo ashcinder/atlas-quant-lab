@@ -40,7 +40,7 @@ def serialize_bars(frame: pd.DataFrame) -> list[Bar]:
 
 
 def run_backtest(
-    request: BacktestRequest, bundle: DataBundle, *, include_details: bool = True, supplied_ai_guard=None
+    request: BacktestRequest, bundle: DataBundle, *, include_details: bool = True, supplied_ai_guard=None, supplied_program=None
 ) -> BacktestResult:
     pipeline = request.execution_pipeline
     ai_stages = []
@@ -67,7 +67,7 @@ def run_backtest(
     frame = bundle.frame.copy()
     if len(frame) < 40:
         raise ValueError("至少需要40根K线才能回测")
-    if request.python_source is not None:
+    if request.python_source is not None or supplied_program is not None:
         strategy = StrategyDefinition(id="python_bounded", name="受限Python策略",
             category="代码", description="整数Python子集；本次回测不生成ZKP",
             suitable_for="收盘价格与均线条件", risk_level="高", parameters=[])
@@ -87,9 +87,9 @@ def run_backtest(
         raise ValueError("组合策略请使用组合回测接口")
     scheduled_dca = request.strategy_id == "scheduled_dca" and request.custom_strategy is None
     schedule_params = validate_params(request.strategy_id, request.params) if scheduled_dca else {}
-    if request.python_source is not None:
+    if request.python_source is not None or supplied_program is not None:
         target, reasons = generate_python_targets(
-            frame, compile_program(request.python_source), request.max_position
+            frame, supplied_program if supplied_program is not None else compile_program(request.python_source), request.max_position
         )
     elif scheduled_dca:
         due_dates = contribution_schedule(frame.index, int(schedule_params["every"]), str(schedule_params["unit"]), int(schedule_params["start_delay"]))

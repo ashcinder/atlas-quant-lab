@@ -256,7 +256,7 @@ body.is-resizing-layout { user-select: none; }
 :where(.quant-workspace) .qj-table-head { padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--panel); color: var(--muted); font: 650 7px var(--mono); text-align: right; letter-spacing: .05em; text-transform: uppercase; }
 :where(.quant-workspace) .qj-table-head span:first-child, :where(.quant-workspace) .qj-table-head span:nth-child(2) { text-align: left; }
 :where(.quant-workspace) .qj-agent-list { min-width: 0; min-height: 0; padding-bottom: 14px; overflow: auto; scrollbar-width: thin; }
-:where(.quant-workspace) .qj-agent-row { position: relative; width: 100%; min-height: 82px; padding: 9px 16px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--panel-raised) 58%, transparent); background: var(--bg); color: var(--text); text-align: right; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 82px; transition: background .15s ease, box-shadow .15s ease; }
+:where(.quant-workspace) .qj-agent-row { position: relative; width: 100%; min-height: 82px; padding: 9px 16px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--panel-raised) 58%, transparent); background: var(--bg); color: var(--text); text-align: right; cursor: pointer; transition: background .15s ease, box-shadow .15s ease; }
 :where(.quant-workspace) .qj-agent-row:hover { background: var(--panel); }
 :where(.quant-workspace) .qj-agent-row.is-selected { background: linear-gradient(90deg, var(--panel-raised) 0%, var(--panel) 72%, var(--panel) 100%); box-shadow: inset 3px 0 var(--shadow-color), inset 0 1px color-mix(in srgb, var(--surface-selected) 2%, transparent); }
 :where(.quant-workspace) .qj-agent-row:focus-visible { z-index: 2; outline-offset: -3px; }

@@ -92,3 +92,76 @@ def test_report_anchor_discloses_metrics_but_not_strategy_source(setup):
     chain.mine(order)
     assert store.confirm('bob', order['id'], HASH)['status'] == 'confirmed'
     with pytest.raises(HTTPException): store.prepare('alice', 'report', 'r1', ALICE)
+
+def test_signed_transaction_relay_checks_exact_order_and_is_idempotent(setup):
+    import json,subprocess
+    from pathlib import Path
+    runtime,_,chain,store,release=setup
+    root=Path(__file__).resolve().parents[2]
+    # Disposable key only for this test, never read a configured user's account.
+    address=subprocess.run(['node','--input-type=module','-e',"import{Wallet}from'ethers';console.log(new Wallet('0x'+'11'.repeat(32)).address)"],cwd=root/'contracts',capture_output=True,text=True,check=True).stdout.strip()
+    order=store.prepare('buyer','subscription',release,address)
+    tx={**order['transaction'],'nonce':0,'gasLimit':'0x30d40','gasPrice':'0x1','type':0}
+    script="import{Wallet}from'ethers';let s='';for await(const c of process.stdin)s+=c;console.log(await new Wallet('0x'+'11'.repeat(32)).signTransaction(JSON.parse(s)))"
+    def sign(transaction):return subprocess.run(['node','--input-type=module','-e',script],cwd=root/'contracts',input=json.dumps(transaction),capture_output=True,text=True,check=True).stdout.strip()
+    with pytest.raises(HTTPException):store.broadcast('buyer',order['id'],sign({**tx,'value':'0x1'}))
+    with pytest.raises(HTTPException):store.broadcast('intruder',order['id'],sign(tx))
+    submitted=[]
+    def send(raw):
+        decoder=subprocess.run(['node',str(root/'contracts/scripts/decode-transaction.mjs')],input=json.dumps({'raw_transaction':raw}),capture_output=True,text=True,check=True)
+        value=json.loads(decoder.stdout);submitted.append(value['hash']);chain.tx={'hash':value['hash']};return value['hash']
+    chain.submit_signed_transaction=send
+    raw=sign(tx);result=store.broadcast('buyer',order['id'],raw)
+    assert result['transaction_hash']==submitted[0]
+    store.broadcast('buyer',order['id'],raw)
+    assert len(submitted)==1
+    assert 'signed_raw' not in store.get('buyer',order['id'])
+    with pytest.raises(HTTPException):store.broadcast('buyer',order['id'],sign({**tx,'nonce':1}))
+    assert runtime.list_subscriptions('buyer')==[]
+
+
+def test_release_anchor_is_owner_bound_zero_value_and_no_subscription(setup):
+    runtime, _, chain, store, release = setup
+    with pytest.raises(HTTPException):
+        store.prepare('bob', 'release', release, BOB)
+    order = store.prepare('alice', 'release', release, ALICE)
+    assert order['amount_wei'] == '0'
+    assert order['payload']['release_id'] == release
+    assert order['payload']['claim'] == 'version-anchored-only'
+    chain.mine(order)
+    assert store.confirm('alice', order['id'], HASH)['status'] == 'confirmed'
+    assert runtime.list_subscriptions('alice') == []
+
+def test_proof_anchor_binds_verified_statement_and_rejects_invalid_receipt(setup, monkeypatch):
+    from app.zkp import ZkProofStore
+    runtime, _, chain, store, release = setup
+    with runtime._connect() as c:
+        c.execute('CREATE TABLE cloud_proof_jobs (release_id TEXT, proof_id TEXT, status TEXT)')
+        c.execute('INSERT INTO cloud_proof_jobs VALUES (?,?,?)',(release,'proof-one','verified'))
+    statement={'metrics':{'total_return':0.12},'market_data_hash':'market','strategy_commitment':'program'}
+    monkeypatch.setattr(ZkProofStore,'reverify',lambda self,p: True)
+    monkeypatch.setattr(ZkProofStore,'get',lambda self,p: {'proof_hash':'receipt','image_id':'image','public_inputs_hash':'inputs','public_statement':statement})
+    order=store.prepare('bob','proof_anchor','proof-one',BOB)
+    assert order['payload']['public_statement']==statement
+    assert order['payload']['content_hash']==store.release('bob',release)['content_hash']
+    assert order['transaction']['value']=='0x0'
+    chain.mine(order)
+    assert store.confirm('bob',order['id'],HASH)['status']=='confirmed'
+    def reject(self,p): raise ValueError('invalid receipt')
+    monkeypatch.setattr(ZkProofStore,'reverify',reject)
+    with pytest.raises(ValueError,match='invalid receipt'):
+        store.prepare('alice','proof_anchor','proof-one',ALICE)
+
+def test_signing_never_underfunds_calldata_when_node_estimate_omits_it(setup, monkeypatch):
+    _, _, chain, store, release = setup
+    order=store.prepare('bob','subscription',release,BOB)
+    import json
+    raw=json.dumps({'statement':'a'*10000}).encode()
+    with store.runtime._connect() as c:
+        c.execute('UPDATE bkc_orders SET data=? WHERE id=?',('0x'+raw.hex(),order['id']))
+    original=chain._call
+    def rpc(method, params):
+        return {'eth_getTransactionCount':'0x1','eth_gasPrice':'0x1','eth_estimateGas':hex(21000),'eth_getBalance':hex(10**20)}.get(method) or original(method,params)
+    monkeypatch.setattr(chain,'_call',rpc)
+    tx=store.signing('bob',order['id'])['transaction']
+    assert int(tx['gasLimit'],16)>=21000+68*len(raw)

@@ -3,11 +3,11 @@
 .parameter-sweep p,.parameter-sweep small { font-size: 12px; line-height: 1.6; color: var(--muted); }
 .parameter-sweep fieldset { border: 0; padding: 0; min-width: 0; }
 .parameter-sweep .sweep-dates { display: flex; flex-wrap: wrap; gap: 12px; }
-.parameter-sweep label { display: flex; align-items: center; gap: 6px; }
-.parameter-sweep input { padding: 6px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
-.parameter-sweep input[type=number] { width: 76px; }
+.parameter-sweep td label { display: flex; align-items: center; gap: 6px; }
+.parameter-sweep td input { padding: 6px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; min-width: 0; }
+.parameter-sweep td input[type=number] { width: 100%; box-sizing: border-box; }
 .parameter-sweep input[type=checkbox] { width: auto; }
-.parameter-sweep button { padding: 7px 12px; margin: 8px 0; background: var(--accent); color: white; border: 0; border-radius: 5px; cursor: pointer; }
+.parameter-sweep > button, .parameter-sweep fieldset > button, .parameter-sweep td button { padding: 7px 12px; margin: 8px 0; background: var(--accent); color: white; border: 0; border-radius: 5px; cursor: pointer; }
 .parameter-sweep button:disabled { opacity: .45; cursor: default; }
 .parameter-sweep .sweep-scroll { overflow-x: auto; max-height: 360px; }
 .parameter-sweep table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }

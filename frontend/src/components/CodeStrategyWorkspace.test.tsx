@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request } from '../request'
 import { STRATEGY_LANGUAGES, languageForFile } from './strategy-languages'
-import { CodeStrategyWorkspace } from './CodeStrategyWorkspace'
+import { CodeStrategyWorkspace, RUNNABLE_PYTHON_TEMPLATE } from './CodeStrategyWorkspace'
 
 vi.mock('../request', () => ({ request: vi.fn() }))
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
@@ -136,7 +136,7 @@ it('discards an AI response after switching languages', async () => {
 it.each(STRATEGY_LANGUAGES)('loads and downloads the $label source with its extension', async (language) => {
   await open()
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: language.id } })
-  expect((screen.getByLabelText(`${language.label} 策略代码`) as HTMLTextAreaElement).value).toBe(language.template)
+  expect((screen.getByLabelText(`${language.label} 策略代码`) as HTMLTextAreaElement).value).toBe(language.id === 'python' ? RUNNABLE_PYTHON_TEMPLATE : language.template)
   for (const extension of language.extensions) expect(languageForFile(`strategy${extension.toUpperCase()}`)?.id).toBe(language.id)
   const create = vi.fn(() => 'blob:test')
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }))

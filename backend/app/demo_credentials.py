@@ -4,6 +4,7 @@ This protects a database copy, not against the platform host administrator.
 """
 
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -15,6 +16,11 @@ from fastapi import HTTPException
 from app.config import DATA_DIR, DB_PATH
 
 KEY_PATH = DATA_DIR / ".demo-account-key"
+
+LOGGER = logging.getLogger(__name__)
+# The scheduler re-reads every owner's account on each tick, so an unreadable
+# row would otherwise repeat the same warning thousands of times a day.
+_REPORTED_UNREADABLE = set()
 
 
 @contextmanager
@@ -53,6 +59,15 @@ def cipher(create=False):
 
 
 def load(owner, venue):
+    """Return saved credentials, or None when none are readable here.
+
+    A key file lost with its container, or a database restored from another
+    host, leaves rows that can never be decrypted again. That is one account's
+    problem, not the caller's: report it as unconfigured so a single unreadable
+    row cannot fail a whole page. Callers never fall back to weaker
+    credentials on this path — see Exchange.__init__, which clears environment
+    keys for any owner other than the configured one.
+    """
     with database() as connection:
         if not exists(connection):
             return None
@@ -65,7 +80,15 @@ def load(owner, venue):
         blob = row["encrypted"]
         return json.loads(cipher().decrypt(blob[:12], blob[12:], f"{owner}:{venue}:demo".encode()))
     except Exception:
-        raise HTTPException(503, "模拟账户配置无法解密，请检查本机密钥与数据文件") from None
+        if (owner, venue) not in _REPORTED_UNREADABLE:
+            _REPORTED_UNREADABLE.add((owner, venue))
+            LOGGER.warning(
+                "%s demo credentials for owner=%s are unreadable here (key missing or rotated); "
+                "treating the account as unconfigured",
+                venue,
+                owner,
+            )
+        return None
 
 
 def owners():

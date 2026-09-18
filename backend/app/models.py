@@ -102,6 +102,7 @@ class StrategyDefinition(BaseModel):
 
 
 class BacktestRequest(BaseModel):
+    release_id: str | None = Field(default=None, max_length=64)
     model_config = ConfigDict(allow_inf_nan=False)
 
     symbol: str = "BTC-USD"

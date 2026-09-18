@@ -1,0 +1,13 @@
+# Build the native zkVM on Linux using the checked-in toolchain first.
+# docker compose -f compose.yaml -f compose.zkvm.yaml up -d --build
+services:
+  api:
+    cpus: 4
+    mem_limit: 8g
+    volumes:
+      - type: bind
+        source: ${TRINE_LINUX_ZKVM_BINARY:?Set the absolute path to the reviewed Linux atlas-zkvm executable}
+        target: /app/strategy/zkvm/target/release/atlas-zkvm
+        read_only: true
+        bind:
+          create_host_path: false

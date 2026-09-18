@@ -50,3 +50,18 @@ class CandleStore:
             db.execute("DELETE FROM candles WHERE key=?", (key,))
             db.executemany("INSERT INTO candles VALUES(?,?,?,?,?,?,?)", rows)
             db.execute("INSERT OR REPLACE INTO snapshots VALUES(?,?)", (key, (fetched_at or datetime.now(UTC)).timestamp()))
+
+    def full_history(self, provider: str, symbol: str, interval: str) -> pd.DataFrame:
+        """Union cached queries for one instrument/feed/interval; newest wins.
+
+        Used only for raw crypto proof snapshots. Never mixes feeds or periods.
+        """
+        prefix = f"{provider}_{symbol.replace('/', '_').replace('=', '-')}_{interval}_"
+        with closing(self.connect()) as db:
+            rows = db.execute("""SELECT c.time,c.open,c.high,c.low,c.close,c.volume
+                FROM candles c JOIN snapshots s ON s.key=c.key
+                WHERE substr(c.key,1,?)=? ORDER BY s.fetched_at,c.key,c.time""",
+                (len(prefix),prefix)).fetchall()
+        frame=pd.DataFrame(rows,columns=['time','open','high','low','close','volume'])
+        frame['time']=pd.to_datetime(frame['time'],utc=True)
+        return frame.drop_duplicates('time',keep='last').set_index('time').sort_index()

@@ -20,7 +20,7 @@ interface Message { id: number; role: 'user' | 'assistant'; text: string; code?:
 interface Validation { valid: boolean; error: { message: string; line?: number | null; offset?: number | null } | null }
 
 export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspaceProps } = {}) {
-  const [code, setCode] = useState<string>(STRATEGY_LANGUAGES[0].template)
+  const [code, setCode] = useState<string>(RUNNABLE_PYTHON_TEMPLATE)
   const [language, setLanguage] = useState<StrategyLanguage>('python')
   const languageInfo = STRATEGY_LANGUAGES.find((item) => item.id === language)!
   const drafts = useRef<Partial<Record<StrategyLanguage, { code: string; name: string; dirty: boolean }>>>({})
@@ -38,7 +38,7 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
   const [error, setError] = useState('')
   const [validation, setValidation] = useState<Validation | null>(null)
   const [pane, setPane] = useState<'code' | 'guide'>('code')
-  const [assistantOpen, setAssistantOpen] = useState(true)
+  const [assistantOpen, setAssistantOpen] = useState(!research)
   const [pending, setPending] = useState<{ code: string; name?: string; language?: StrategyLanguage; reason: string } | null>(null)
   const [undoCode, setUndoCode] = useState<string | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
@@ -82,7 +82,7 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
     const saved = drafts.current[next]
     generation.current += 1; controller.current?.abort(); importSequence.current += 1
     revision.current += 1
-    const nextCode = saved?.code ?? STRATEGY_LANGUAGES.find((item) => item.id === next)!.template
+    const nextCode = saved?.code ?? (next === 'python' ? RUNNABLE_PYTHON_TEMPLATE : STRATEGY_LANGUAGES.find((item) => item.id === next)!.template)
     codeRef.current = nextCode; setCode(nextCode); setLanguage(next)
     setName(saved?.name ?? '我的均线策略'); setDirty(saved?.dirty ?? false)
     setMessages([]); setPrompt(''); setBusy(false); setValidation(null); setUndoCode(null)
@@ -146,7 +146,8 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
         params: {}, initial_capital: research.initialCapital, commission_rate: research.commission,
         slippage_rate: research.slippage, spread_rate: research.spread, max_position: research.maxPosition,
         max_participation_rate: research.maxParticipation, execution_pipeline: research.executionPipeline })
-      research.onCustomResult(result)
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code))
+      research.onCustomResult(result, { name, source: code, executionPipeline: research.executionPipeline, hash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('') })
       setNotice(`代码回测完成：${result.trades.length} 笔交易；收益、曲线与交易明细已更新。`)
     } catch (reason) { setError(reason instanceof Error ? reason.message : '代码回测失败') }
     finally { backtestPending.current = false; setBacktesting(false); research.onLoading(false) }
@@ -186,10 +187,10 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
       <button className="code-check" title={language === 'python' ? '静态语法检查' : `${languageInfo.label} 编译检查尚未接入`} disabled={checking || !code.trim() || language !== 'python'} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
     </header>
     {language === 'python' ? <div className="code-runtime-actions">
-      <button type="button" onClick={() => setPending({ code: RUNNABLE_PYTHON_TEMPLATE, reason: '载入受限 Python 持续运行模板。现有代码可以先下载保存。' })}>载入持续运行模板</button>
+      <button type="button" onClick={() => setPending({ code: RUNNABLE_PYTHON_TEMPLATE, reason: '载入受限 Python 持续运行模板。现有代码可以先下载保存。' })}>载入可证明 Python 模板</button>
       <button type="button" disabled={!research?.asset || backtesting || !code.trim()} onClick={() => void runCodeBacktest()}>{backtesting ? '代码回测中…' : '回测受限 Python'}</button>
       <PublishRuntimeStrategy draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={backtesting || code.length > 16_384} />
-      <p>持续运行支持 target_bps(index, close, sma) 整数子集，仓位 0–9500 bps；不支持导入、循环、网络或 SDK 类。源码提交服务器编译，不属于保密托管或 ZKP 验证。资金与风控在运行页设置。</p>
+      <details className="code-runtime-help"><summary>支持范围与本地证明</summary><p>支持 target_bps(index, close, sma) 整数子集，仓位 0–9500 bps。保存版本后可直接公开或付费申请云端 Proof。本地脚本 scripts/prepare-zk-witness.py 与 strategy/zkvm 保留；普通回测不产生 Proof。</p></details>
     </div> : null}
     <div className="code-studio-body">
       <div className="code-editor-panel">
@@ -201,7 +202,7 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
             edit(code.slice(0, start) + '    ' + code.slice(end))
             requestAnimationFrame(() => editor.current?.setSelectionRange(start + 4, start + 4))
           }
-        }} /></div></div> : <article className="code-writing-guide"><h2>用 {languageInfo.label} 表达你的交易想法</h2><p>{languageInfo.environment}。右侧助手会按所选语言与当前代码生成建议。</p><dl><dt>起步模板</dt><dd>{language === 'python' ? '继承 BaseStrategy，实现 generate_targets(ctx)，用 ctx.history 读取历史并返回 TargetPosition 目标仓位。' : '模板演示 20 周期均线信号。通用语言返回目标仓位；平台语言使用对应平台接口。行情、执行与回测需要在目标环境中接入。'}</dd><dt>导入与保存</dt><dd>支持 UTF-8 {languageInfo.extensions.join(" / ")} 文件，最大 60 KB。导入只读取到编辑器；下载保存到自己的设备。切换语言或模块保留代码草稿，刷新或退出前请下载。</dd><dt>AI 与隐私</dt><dd>发送问题时，当前代码和问题会交给服务端配置的模型。请不要在代码或提问中放入密钥。</dd><dt>检查与执行</dt><dd>Python 支持静态语法检查；其他语言暂未接入编译检查，请下载到对应工具中验证。受限 Python 可通过上方入口回测、保存并订阅，使用平台模拟或币安测试账户持续运行；普通 SDK 类请使用隔离执行工具。不能直接自动运行实盘。</dd></dl></article>}
+        }} /></div></div> : <article className="code-writing-guide"><h2>用 {languageInfo.label} 表达你的交易想法</h2><p>{languageInfo.environment}。右侧助手会按所选语言与当前代码生成建议。</p><dl><dt>起步模板</dt><dd>{language === 'python' ? '使用单个 target_bps(index, close, sma) 函数，返回 0–9500 的整数仓位；5000 表示 50%。默认示例兼容回测与 zkVM 证明。' : '模板演示 20 周期均线信号。通用语言返回目标仓位；平台语言使用对应平台接口。行情、执行与回测需要在目标环境中接入。'}</dd><dt>导入与保存</dt><dd>支持 UTF-8 {languageInfo.extensions.join(" / ")} 文件，最大 60 KB。导入只读取到编辑器；下载保存到自己的设备。切换语言或模块保留代码草稿，刷新或退出前请下载。</dd><dt>AI 与隐私</dt><dd>发送问题时，当前代码和问题会交给服务端配置的模型。请不要在代码或提问中放入密钥。</dd><dt>检查与执行</dt><dd>Python 支持静态语法检查；其他语言暂未接入编译检查，请下载到对应工具中验证。受限 Python 可通过上方入口回测、保存并订阅，使用平台模拟或币安测试账户持续运行；普通 SDK 类请使用隔离执行工具。不能直接自动运行实盘。</dd></dl></article>}
         <footer className="code-editor-status"><span>UTF-8</span><span>{languageInfo.label}</span><span>{code.split('\n').length} 行</span><span>行 {cursor.line}，列 {cursor.column}</span><span>{code.length.toLocaleString()} 字符</span></footer>
         {validation ? <div className={`code-validation ${validation.valid ? 'is-valid' : 'is-invalid'}`} role="status"><strong>{validation.valid ? '语法检查通过' : '需要修复代码'}</strong>{validation.error ? <p>{validation.error.line ? `第 ${validation.error.line} 行：` : ''}{validation.error.message}</p> : null}<small>仅静态检查，未运行策略。</small></div> : null}
       </div>

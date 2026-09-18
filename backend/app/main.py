@@ -1,3 +1,4 @@
+from app.cloud_proofs import CloudProofService, cloud_proof_router
 from contextlib import asynccontextmanager
 import json
 import re
@@ -102,15 +103,18 @@ strategy_project_store = StrategyProjectStore()
 strategy_runtime_store = StrategyRuntimeStore(data_service)
 strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
 manual_trade_sync_scheduler = ManualTradeSyncScheduler()
+cloud_proof_service = CloudProofService(strategy_runtime_store, run_store, zk_proof_store)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    cloud_proof_service.start()
     alert_monitor.start()
     journal_scheduler.start()
     strategy_runtime_scheduler.start()
     manual_trade_sync_scheduler.start()
     yield
+    cloud_proof_service.stop()
     manual_trade_sync_scheduler.stop()
     strategy_runtime_scheduler.stop()
     alert_monitor.stop()
@@ -134,6 +138,7 @@ app.include_router(trading_router)
 app.include_router(demo_accounts_router(strategy_runtime_store))
 app.include_router(runtime_router(strategy_runtime_store))
 app.include_router(bkc_router(strategy_runtime_store, run_store))
+app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
 app.add_middleware(
     CORSMiddleware,
@@ -272,6 +277,12 @@ def market_fundamentals(
 
 @app.post("/api/v1/backtests", response_model=BacktestResult)
 def create_backtest(request: BacktestRequest, http_request: Request):
+    supplied_program=None
+    if request.release_id:
+        strategy_id,snapshot=strategy_runtime_store.backtest_release(http_request.state.user.id,request.release_id)
+        supplied_program=snapshot.get('python_program')
+        from app.models import CustomStrategySpec
+        request=request.model_copy(update={'strategy_id':strategy_id,'params':snapshot.get('params',{}),'python_source':None,'custom_strategy':CustomStrategySpec.model_validate(snapshot['custom_strategy']) if snapshot.get('custom_strategy') else None})
     try:
         bundle = data_service.fetch(
             request.symbol,
@@ -283,7 +294,7 @@ def create_backtest(request: BacktestRequest, http_request: Request):
             request.data_source,
         )
         cloud_config = cloud_ai_config(http_request) if request.execution_pipeline and any(stage.enabled for stage in request.execution_pipeline.ai_stages) else None
-        result = run_backtest(request, bundle, supplied_ai_guard=CloudGuard(cloud_config) if cloud_config else None)
+        result = run_backtest(request, bundle, supplied_program=supplied_program, supplied_ai_guard=CloudGuard(cloud_config) if cloud_config else None)
     except (ProviderError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if request.persist:
@@ -616,6 +627,29 @@ def create_zkp_market_dataset(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/quantjudge/zkp/database-history")
+def create_database_history(symbol: str = "BTC-USD", interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$")):
+    """Freeze all closed Binance candles already stored for this instrument."""
+    from app.catalog import find_asset
+    from app.zkp_dataset import closed_frame
+    try:
+        asset = find_asset(symbol, "crypto")
+        frame = data_service.store.full_history("binance", asset.symbol, interval)
+        if frame.empty:
+            raise ZkProofError("数据库尚无此标的与周期的行情，请先在行情页面加载历史数据")
+        frame = closed_frame(frame, interval)
+        dataset = make_market_dataset(source="binance:database-snapshot", symbol=asset.symbol,
+            interval=interval, adjustment="raw", bars=[{"time":int(t.timestamp()),
+            "open":v.open,"high":v.high,"low":v.low,"close":v.close,"volume":v.volume}
+            for t,v in frame.iterrows()])
+        record = zk_proof_store.register_market_dataset(dataset, fetched_at=datetime.now(UTC),
+            trust_model="platform_database_full_history_snapshot")
+        return {**record,"scope":"database_full_history","bar_count":len(frame),
+            "period_start":frame.index[0].isoformat(),"period_end":frame.index[-1].isoformat()}
+    except (ZkProofError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.get("/api/v1/quantjudge/zkp/market-datasets/{market_hash}")
 def download_zkp_market_dataset(market_hash: str):
     try:
@@ -743,7 +777,7 @@ def attach_quant_report_transaction(
 @app.post("/api/v1/quantjudge/agents/{agent_id}/subscriptions", status_code=status.HTTP_201_CREATED)
 def subscribe_quant_agent(agent_id: str, request: SubscriptionCreate, http_request: Request):
     try:
-        return quantjudge_store.subscribe(agent_id, request, http_request.state.user.id)
+        raise HTTPException(410, "旧版沙盒订阅已关闭，请在可运行策略中使用 BKC 订阅具体版本")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
 
