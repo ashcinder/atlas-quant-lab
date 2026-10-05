@@ -55,7 +55,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.l
 
 # Copy backend
 COPY backend/app ./backend/app
-COPY scripts/prove-private-program.py scripts/prepare-zk-witness.py ./scripts/
+COPY scripts/prove-private-program.py scripts/prepare-zk-witness.py scripts/verify-proof-bundle.py ./scripts/
 
 # Copy Supervisor binary (built during image creation)
 COPY --from=supervisor-build /build/supervisor/supervisor ./supervisor/

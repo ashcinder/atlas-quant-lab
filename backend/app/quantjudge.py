@@ -346,6 +346,30 @@ class QuantJudgeStore:
         )
         return round(max(0, min(100, 48 + sharpe * 10 + annualized * 12 - drawdown * 35 + evidence)), 1)
 
+    @staticmethod
+    def _performance_score(metrics: dict[str, Any], integrity_valid: bool) -> float | None:
+        """Return a comparable performance-only score, or no score for unverified data.
+
+        This intentionally does not use report type or any proof/chain state: those
+        are evidence attributes and must not change an investment performance score.
+        """
+        if not integrity_valid:
+            return None
+        required = ("sharpe", "annualized_return", "max_drawdown")
+        try:
+            raw_values = {name: metrics[name] for name in required}
+            if any(isinstance(value, bool) for value in raw_values.values()):
+                return None
+            values = {name: float(value) for name, value in raw_values.items()}
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not all(math.isfinite(value) for value in values.values()):
+            return None
+        sharpe = max(-1, min(values["sharpe"], 4))
+        annualized = max(-0.5, min(values["annualized_return"], 2))
+        drawdown = abs(values["max_drawdown"])
+        return round(max(0, min(100, 48 + sharpe * 10 + annualized * 12 - drawdown * 35)), 1)
+
     def _curve_integrity(self, row: sqlite3.Row, payload: dict) -> bool | None:
         expected = payload.get('public_curve_hash')
         if not isinstance(expected, str):
@@ -384,6 +408,9 @@ class QuantJudgeStore:
         metrics = payload.get("metrics", {}) if receipt_integrity else {}
         external = payload.get("external_proof") if receipt_integrity else None
         zk_verified = bool(row["zk_proof_id"]) and row["evidence_level"] == "zk_verified"
+        performance_score = self._performance_score(
+            metrics, receipt_integrity and curve_integrity is not False
+        )
         return {
             "id": row["id"],
             "report_type": payload.get("report_type", row["report_type"]),
@@ -407,6 +434,9 @@ class QuantJudgeStore:
             "score": self._score(metrics, row["report_type"], row["chain_status"], zk_verified)
             if receipt_integrity
             else 0,
+            "score_version": "legacy_evidence_v1",
+            "performance_score": performance_score,
+            "performance_score_version": "performance_v1",
             "created_at": payload.get("created_at", row["created_at"]),
             "receipt_integrity_valid": receipt_integrity,
             "public_curve_integrity_valid": curve_integrity,
@@ -460,9 +490,40 @@ class QuantJudgeStore:
                     (row["id"],),
                 ).fetchone()[0]
                 agents.append(self._agent_public(row, latest, subscribers))
-        agents.sort(key=lambda item: item["latest_report"]["score"] if item["latest_report"] else -1, reverse=True)
-        for rank, agent in enumerate(agents, 1):
-            agent["rank"] = rank
+        # Preserve the legacy score-derived rank for existing callers even
+        # though the returned order now follows comparable performance.
+        legacy_rank = {
+            item["id"]: rank
+            for rank, item in enumerate(
+                sorted(
+                    agents,
+                    key=lambda item: item["latest_report"]["score"] if item["latest_report"] else -1,
+                    reverse=True,
+                ),
+                1,
+            )
+        }
+        # Comparable performance is the default ordering.  Reports without a
+        # valid score sort last; report id makes score ties deterministic.
+        agents.sort(
+            key=lambda item: (
+                item["latest_report"] is None
+                or item["latest_report"]["performance_score"] is None,
+                -item["latest_report"]["performance_score"]
+                if item["latest_report"] and item["latest_report"]["performance_score"] is not None
+                else 0,
+                item["latest_report"]["id"] if item["latest_report"] else "\uffff",
+            )
+        )
+        performance_rank = 0
+        for agent in agents:
+            agent["rank"] = legacy_rank[agent["id"]]
+            report = agent["latest_report"]
+            if report and report["performance_score"] is not None:
+                performance_rank += 1
+                agent["performance_rank"] = performance_rank
+            else:
+                agent["performance_rank"] = None
         return agents
 
     def get_agent(self, agent_id: str) -> dict[str, Any]:
@@ -966,10 +1027,22 @@ class QuantJudgeStore:
             confirmed = connection.execute("SELECT COUNT(*) FROM qj_reports WHERE chain_status = 'confirmed'").fetchone()[0]
             subscribers = connection.execute("SELECT COUNT(*) FROM qj_subscriptions WHERE status = 'active'").fetchone()[0]
         scores = [agent["latest_report"]["score"] for agent in agents if agent["latest_report"]]
+        performance_scores = [
+            agent["latest_report"]["performance_score"]
+            for agent in agents
+            if agent["latest_report"] and agent["latest_report"]["performance_score"] is not None
+        ]
         return {
             "agents": len(agents), "reports": reports, "live_reports": live_reports,
             "chain_confirmed_reports": confirmed, "active_subscriptions": subscribers,
             "median_score": round(sorted(scores)[len(scores) // 2], 1) if scores else 0,
+            "median_score_version": "legacy_evidence_v1",
+            "performance_score_count": len(performance_scores),
+            "performance_median_score": (
+                round(sorted(performance_scores)[len(performance_scores) // 2], 1)
+                if performance_scores
+                else None
+            ),
             "attestation": {
                 "algorithm": "Ed25519", "key_id": self.attestor.key_id,
                 "public_key": self.attestor.public_key,

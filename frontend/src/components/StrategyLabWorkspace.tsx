@@ -13,7 +13,8 @@ import type {
 import { StrategyProjectBar } from './StrategyProjectBar'
 import './code-strategy.css'
 import './lab-compact.css'
-import { defaultPipeline, ExecutionPipelinePanel } from './ExecutionPipelinePanel'
+import { ExecutionPipelinePanel } from './ExecutionPipelinePanel'
+import { defaultPipeline } from './executionPipeline'
 import { TemplateStrategyWorkspace } from './TemplateStrategyWorkspace'
 
 const CodeStrategyWorkspace = lazy(() => import('./CodeStrategyWorkspace').then((module) => ({ default: module.CodeStrategyWorkspace })))

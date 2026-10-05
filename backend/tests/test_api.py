@@ -135,9 +135,16 @@ def test_api_stores_use_isolated_test_storage():
 
 
 def test_quantjudge_public_market_and_receipt_verification(client):
+    from app.main import quantjudge_store
+    from tests.test_quantjudge import create_agent, make_report
+
+    created = create_agent(quantjudge_store)
+    report = quantjudge_store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
     overview = client.get("/api/v1/quantjudge/overview")
     assert overview.status_code == 200
-    assert overview.json()["agents"] >= 6
+    assert overview.json()["agents"] >= 1
 
     agents = client.get("/api/v1/quantjudge/agents", params={"report_type": "live"})
     assert agents.status_code == 200
@@ -146,7 +153,8 @@ def test_quantjudge_public_market_and_receipt_verification(client):
     assert all(agent["latest_report"]["report_type"] == "live" for agent in payload)
     assert all("developer_token" not in agent for agent in payload)
 
-    receipt_id = payload[0]["latest_report"]["id"]
+    assert any(agent["id"] == created["agent"]["id"] for agent in payload)
+    receipt_id = report["id"]
     verification = client.get(
         f"/api/v1/quantjudge/reports/{receipt_id}/verify", params={"refresh_chain": False}
     )

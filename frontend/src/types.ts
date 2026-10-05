@@ -230,20 +230,27 @@ export interface RuntimeFill {
   environment: RuntimeEnvironment; executed_at: string; symbol?: string; market?: RuntimeMarket
   account_id?: string; order_id?: string; strategy_name?: string; strategy_version?: number
 }
+export interface BehaviorCheck {
+  rule_version: string; limit_bps: number | null; status: 'not_enabled' | 'normal' | 'deviation' | 'insufficient_data'; reason: string | null
+  period_start: number | null; period_end: number | null; snapshot_count: number; latest_ratio: string | null; peak_ratio: string | null
+  deviation_count: number; first_deviation_at: number | null; points: Array<{ time: number; ratio: string }>
+}
 export interface StrategyRun {
   execution_mode?: "candles" | "quote_probe" | "private_runner"
+  valuation_at?: number | null; valuation_status?: 'missing' | 'incomplete' | 'update_failed' | 'recorded'; behavior_check?: BehaviorCheck
+  commission_rate?: string; slippage_rate?: string; behavior_position_limit_bps?: number | null
   demo_auto?: string;
   id: string; release_id: string; subscription_id: string | null; account_id: string
   market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; interval: Interval
   initial_cash: string; cash: string; quantity: string; average_cost: string; realized_pnl: string
   status: 'draft' | 'active' | 'paused' | 'stopped' | 'error'; latest_signal: string | null
   latest_error: string | null; strategy_name: string; strategy_version: number; strategy_hash: string
-  valuation_complete?: boolean; currency?: string; account_name?: string; recommendation?: { id: string; side: 'buy' | 'sell'; quantity: string; reference_price: string; reason: string } | null
+  valuation_complete?: boolean | null; currency?: string; account_name?: string; recommendation?: { id: string; side: 'buy' | 'sell'; quantity: string; reference_price: string; reason: string } | null
   equity: string; return_rate: string; mark_price?: string | null; position_value?: string; updated_at: string; signals?: StrategySignal[]
   orders?: Array<{ id: string; side: string; requested_quantity: string; filled_quantity: string; status: string; created_at: string }>; fills?: RuntimeFill[]; curve?: Array<{ bar_time: number; equity: string; cash: string; position_value: string; mark_price: string; return_rate: string }>
 }
 export interface TradingAccountAssets {
-  valuation_complete?: boolean; valuation_stale?: boolean; known_value_usdt?: string | null; total_value_usdt?: string | null
+  valuation_complete?: boolean | null; valuation_stale?: boolean; known_value_usdt?: string | null; total_value_usdt?: string | null
   manual_account_id?: string | null; account_id: string; name: string; environment: RuntimeEnvironment
   status: string; synced_at: string | null; message: string
   balances: Array<{ asset: string; available: string; locked: string; total: string; attributed_quantity: string; unattributed_quantity: string; reconciliation_shortfall: string }>
@@ -381,6 +388,9 @@ export interface QuantReport {
   chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable'
   chain_block_number: number | null
   score: number
+  score_version?: 'legacy_evidence_v1'
+  performance_score?: number | null
+  performance_score_version?: string
   created_at: string
   receipt_integrity_valid: boolean
   public_curve_integrity_valid: boolean | null
@@ -389,6 +399,7 @@ export interface QuantReport {
 
 export interface QuantAgent {
   id: string
+  performance_rank?: number | null
   rank: number
   name: string
   developer_alias: string
@@ -416,6 +427,9 @@ export interface QuantJudgeOverview {
   chain_confirmed_reports: number
   active_subscriptions: number
   median_score: number
+  median_score_version?: 'legacy_evidence_v1'
+  performance_median_score?: number | null
+  performance_score_count?: number
   attestation: { algorithm: string; key_id: string; public_key: string }
   privacy_model: string
 }

@@ -1,3 +1,4 @@
+from tests.test_strategy_runtime import record_confirmed_payment
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -36,6 +37,7 @@ def test_probe_subscription_buy_sell_curve_restart_and_pause(tmp_path, monkeypat
                 release_id=release["id"], market="CRYPTO", symbol="BTC-USDT", initial_cash="200"
             ),
         )
+    record_confirmed_payment(store, "subscriber", release["id"])
     sub = store.subscribe("subscriber", release["id"])
     for environment in ("exchange_test", "live"):
         with pytest.raises(HTTPException):

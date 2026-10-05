@@ -6,6 +6,13 @@ import TradingWorkspace from './TradingWorkspace'
 vi.mock('../request', async (importOriginal) => ({ ...await importOriginal<object>(), request: vi.fn() }))
 const caps = { authorized: true, user_id: 'test-user', venues: [{ venue: 'binance', mode: 'demo', configured: true, can_trade: true }] }
 const preview = { id: 'aq-test', order: { venue: 'binance', symbol: 'BTC-USDT', side: 'buy', quantity: '0.001', price: '10000' }, mode: 'demo', expires: 9999999999, state: 'preview', result: {} }
+const runtimeRun = (status = 'active', fillId = 'fill-current') => ({
+  id: 'run-actions', release_id: 'rel-actions', strategy_name: '运行反馈测试', strategy_version: 1,
+  account_name: '平台模拟', market: 'US', environment: 'platform_sim', symbol: 'AAPL', interval: '1d', status,
+  initial_cash: '1000', cash: '1000', quantity: '0', average_cost: '0', realized_pnl: '0', equity: '1000',
+  return_rate: '0', currency: 'USD', position_value: '0', curve: [], signals: [], orders: [],
+  fills: [{ id: fillId, side: 'buy', quantity: fillId, price: '100', fee: '0', fee_currency: 'USD', executed_at: '2026-09-29T00:00:00Z' }],
+})
 beforeEach(() => {
   vi.resetAllMocks()
   window.history.replaceState(null, '', '#/trading')
@@ -105,6 +112,97 @@ it('opens a run detail with its curve and attributed fills', async () => {
   fireEvent.click(await screen.findByRole('button', { name:'运行详情' }))
   expect(await screen.findByRole('img', { name: '动量测试 净值曲线，共 2 个快照' })).toBeTruthy()
   expect(screen.getByText('费用 0.5 USD')).toBeTruthy()
+})
+
+it('replaces the operation notice as a run is paused, resumed and stopped', async () => {
+  let status = 'active'
+  vi.mocked(request).mockImplementation(async (path, options) => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return [runtimeRun(status)]
+    if (path === '/trading/runs/run-actions' && !options) return runtimeRun(status)
+    if (path === '/trading/runs/run-actions/pause') { status = 'paused'; return {} }
+    if (path === '/trading/runs/run-actions/resume') { status = 'active'; return {} }
+    if (path === '/trading/runs/run-actions/stop') { status = 'stopped'; return {} }
+    return []
+  })
+  render(<TradingWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: /^策略运行/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '运行详情' }))
+  fireEvent.click(await screen.findByRole('button', { name: '暂停' }))
+  expect(await screen.findByText('策略实例已暂停。')).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: '恢复' }))
+  expect(await screen.findByText('策略实例已恢复运行。')).toBeTruthy()
+  expect(screen.queryByText('策略实例已暂停。')).toBeNull()
+  fireEvent.click(await screen.findByRole('button', { name: '停止' }))
+  expect(await screen.findByText('策略实例已停止。')).toBeTruthy()
+  expect(screen.queryByText('策略实例已恢复运行。')).toBeNull()
+})
+
+it('clears a previous success notice when the next run action fails', async () => {
+  let status = 'active'
+  vi.mocked(request).mockImplementation(async (path, options) => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return [runtimeRun(status)]
+    if (path === '/trading/runs/run-actions' && !options) return runtimeRun(status)
+    if (path === '/trading/runs/run-actions/pause') { status = 'paused'; return {} }
+    if (path === '/trading/runs/run-actions/resume') throw new Error('恢复运行失败')
+    return []
+  })
+  render(<TradingWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: /^策略运行/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '运行详情' }))
+  fireEvent.click(await screen.findByRole('button', { name: '暂停' }))
+  await screen.findByText('策略实例已暂停。')
+  fireEvent.click(await screen.findByRole('button', { name: '恢复' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('恢复运行失败')
+  expect(screen.queryByText('策略实例已暂停。')).toBeNull()
+  expect(screen.queryByText('策略实例已恢复运行。')).toBeNull()
+})
+
+it('keeps a successful run status when the following refresh fails', async () => {
+  let refreshFails = false
+  vi.mocked(request).mockImplementation(async (path) => {
+    if (path.endsWith('/capabilities')) {
+      if (refreshFails) throw new Error('状态读取超时')
+      return caps
+    }
+    if (path.startsWith('/trading/runs?')) return [runtimeRun()]
+    if (path === '/trading/runs/run-actions') return runtimeRun()
+    if (path === '/trading/runs/run-actions/pause') { refreshFails = true; return {} }
+    return []
+  })
+  render(<TradingWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: /^策略运行/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '运行详情' }))
+  fireEvent.click(await screen.findByRole('button', { name: '暂停' }))
+  expect(await screen.findByText('已暂停')).toBeTruthy()
+  expect(screen.getByRole('status').textContent).toContain('策略实例已暂停。 最新状态暂未更新，请手动刷新。')
+  expect(screen.getByRole('alert').textContent).toContain('操作已成功，但最新状态读取失败：状态读取超时')
+})
+
+it('ignores a stale run-detail response after a newer read completes', async () => {
+  let detailCalls = 0
+  let resolveFirst!: (value: unknown) => void
+  let resolveSecond!: (value: unknown) => void
+  const first = new Promise((resolve) => { resolveFirst = resolve })
+  const second = new Promise((resolve) => { resolveSecond = resolve })
+  vi.mocked(request).mockImplementation(async (path) => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return [runtimeRun()]
+    if (path === '/trading/runs/run-actions') return ++detailCalls === 1 ? first : second
+    return []
+  })
+  render(<TradingWorkspace />)
+  fireEvent.click(screen.getByRole('button', { name: /^策略运行/ }))
+  const detailButton = await screen.findByRole('button', { name: '运行详情' })
+  fireEvent.click(detailButton)
+  fireEvent.click(screen.getByRole('button', { name: '收起详情' }))
+  fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
+  await act(async () => resolveSecond(runtimeRun('active', 'fill-new')))
+  expect(await screen.findByText('fill-new AAPL')).toBeTruthy()
+  await act(async () => resolveFirst(runtimeRun('active', 'fill-old')))
+  expect(screen.queryByText('fill-old AAPL')).toBeNull()
+  expect(screen.getByText('fill-new AAPL')).toBeTruthy()
 })
 
 const bothVenues = { ...caps, venues: [...caps.venues, { venue: 'okx', mode: 'live', configured: true, can_trade: false }] }
@@ -252,9 +350,32 @@ it('creates and starts a strategy with the existing form contract', async () => 
   fireEvent.click(start)
   await waitFor(() => expect(request).toHaveBeenCalledWith('/trading/runs/new-run/start', { method: 'POST' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByText('策略实例已启动，首次运行将建立行情基线。')).toBeTruthy()
   expect(screen.getByRole('button', { name: '策略运行' }).getAttribute('aria-current')).toBe('page')
   const call = vi.mocked(request).mock.calls.find(([path]) => path === '/trading/runs')
   expect(JSON.parse(call?.[1]?.body as string)).toMatchObject({ release_id: 'test-release', account_id: 'test-account', market: 'CRYPTO', environment: 'platform_sim', symbol: 'BTC-USD', initial_cash: '10000' })
+})
+
+it('closes the run form after a successful start even when refresh fails', async () => {
+  let refreshFails = false
+  vi.mocked(request).mockImplementation(async (path, options) => {
+    if (path.endsWith('/capabilities')) {
+      if (refreshFails) throw new Error('刷新失败')
+      return caps
+    }
+    if (path === '/trading/accounts') return [{ id: 'test-account', name: '加密货币模拟', market: 'CRYPTO', environment: 'platform_sim', currency: 'USD' }]
+    if (path === '/strategy-releases') return [{ id: 'test-release', name: '测试策略', version: 1, owned: true }]
+    if (path === '/trading/runs' && options?.method === 'POST') return { id: 'new-run' }
+    if (path === '/trading/runs/new-run/start') { refreshFails = true; return {} }
+    return []
+  })
+  render(<TradingWorkspace />)
+  await screen.findByText('已配置，待验证')
+  fireEvent.click(screen.getAllByRole('button', { name: '新建运行' })[0])
+  fireEvent.click(await screen.findByRole('button', { name: '启动模拟' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(screen.getByRole('status').textContent).toContain('策略实例已启动，首次运行将建立行情基线。 最新状态暂未更新，请手动刷新。')
+  expect(screen.getByRole('alert').textContent).toContain('操作已成功，但最新状态读取失败：刷新失败')
 })
 
 

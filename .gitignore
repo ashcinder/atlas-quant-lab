@@ -16,6 +16,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 strategy/zkvm/target/
+strategy/zkvm/release/
 coverage/
 .playwright-cli/
 .artifacts/

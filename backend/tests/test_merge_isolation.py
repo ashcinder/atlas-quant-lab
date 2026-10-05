@@ -72,13 +72,25 @@ def test_package_links_require_developer_credential_and_subscriptions_require_se
     subscription = first.post(f'/api/v1/quantjudge/agents/{agent_id}/subscriptions', json={
         'investor_alias': 'shared-alias', 'payment_reference': 'first-private-reference',
     })
-    assert subscription.status_code == 201, subscription.text
+    assert subscription.status_code == 410, subscription.text
+    assert 'BKC' in subscription.json()['detail']
     query = '/api/v1/quantjudge/subscriptions?investor_alias=shared-alias'
+    assert first.get(query).json() == []
     assert second.get(query).json() == []
     own = second.post(f'/api/v1/quantjudge/agents/{agent_id}/subscriptions', json={'investor_alias': 'shared-alias'})
-    assert own.status_code == 201, own.text
-    assert [s['id'] for s in first.get(query).json()] == [subscription.json()['id']]
-    assert [s['id'] for s in second.get(query).json()] == [own.json()['id']]
+    assert own.status_code == 410, own.text
+
+    # Current version subscriptions remain bound to the authenticated account;
+    # a shared display alias cannot read or cancel another user's entitlement.
+    from tests.test_strategy_runtime import release
+    owner = first.get('/api/session').json()['userId']
+    version = release(main.strategy_runtime_store, owner=owner)
+    current = first.post('/api/v1/strategy-subscriptions', json={'release_id': version['id']})
+    assert current.status_code == 201, current.text
+    assert [item['id'] for item in first.get('/api/v1/strategy-subscriptions').json()] == [current.json()['id']]
+    assert second.get('/api/v1/strategy-subscriptions').json() == []
+    assert second.delete('/api/v1/strategy-subscriptions/' + current.json()['id']).status_code == 404
+    assert first.get('/api/v1/strategy-subscriptions').json()[0]['status'] == 'active'
 
 
 def test_project_owner_migration_preserves_unassigned_legacy_rows(tmp_path):

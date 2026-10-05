@@ -7,6 +7,9 @@ import DemoAccountSetup from './DemoAccountSetup'
 import './trading.css'
 import './trading-refinement.css'
 import TradingEquityChart from './TradingEquityChart'
+import BehaviorMonitor from './BehaviorMonitor'
+import SummaryExport from './SummaryExport'
+import { runSummary } from './report-summary'
 import AtlasWorkspaceBrand from './AtlasWorkspaceBrand'
 
 type Venue = 'binance' | 'okx'
@@ -25,13 +28,21 @@ const signalStates: Record<string, string> = { queued: '待执行', filled: '已
 const runCurrency = (run: StrategyRun) => run.currency ?? (run.market === 'CN' ? 'CNY' : run.market === 'US' || run.symbol.endsWith('-USD') ? 'USD' : 'USDT')
 const moment = (value: number | string) => new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(typeof value === 'number' ? value * 1000 : value))
 
+function ValuationStatus({ run }: { run: StrategyRun }) {
+  const label = run.valuation_status === 'incomplete' ? '估值不完整' : run.valuation_status === 'update_failed' ? '更新失败，以下为最后一次已记录估值' : run.valuation_at == null ? '无估值 · 尚无已记录快照' : '已记录估值'
+  return <p className="run-valuation-status">{label}{run.valuation_at != null && ` · ${run.status === 'paused' || run.status === 'stopped' ? '最后记录' : '估值截至'} ${moment(run.valuation_at)}`} · {environmentNames[run.environment]}{run.valuation_status === 'incomplete' && ' · 当前数据不足以完整计算净收益'}</p>
+}
+
 function RunDetail({ run }: { run: StrategyRun }) {
   const [recordTab, setRecordTab] = useState<'fills' | 'signals' | 'orders'>('fills')
   let peak = Number(run.initial_cash); let drawdown = 0
   for (const point of run.curve ?? []) { const equity = Number(point.equity); peak = Math.max(peak, equity); if (peak > 0) drawdown = Math.max(drawdown, (peak - equity) / peak) }
   const fills = run.fills ?? []; const signals = run.signals ?? []; const orders = run.orders ?? []
   return <section className="trade-run-detail" id={`detail-${run.id}`} aria-label={`${run.strategy_name} 运行详情`}>
-    <div className="trade-detail-heading"><div><h4>运行详情</h4><p>{run.account_name} · {run.execution_mode === 'private_runner' ? '开发者本地执行' : run.execution_mode === 'quote_probe' ? '10秒报价联调' : intervalNames[run.interval]} · 固定初始资金 {money(run.initial_cash, runCurrency(run))}{run.valuation_complete === false && ' · 费用币种未折算，以下为已知覆盖范围'}</p></div><a href={`#/journal/trading?run=${run.id}`}>在账本中追溯</a></div>
+    <div className="trade-detail-heading"><div><h4>运行详情</h4><p>{run.account_name} · {run.execution_mode === 'private_runner' ? '开发者本地执行' : run.execution_mode === 'quote_probe' ? '10秒报价联调' : intervalNames[run.interval]} · 固定初始资金 {money(run.initial_cash, runCurrency(run))}{run.valuation_status === 'incomplete' && ' · 估值不完整，以下为已知覆盖范围'}</p></div><a href={`#/journal/trading?run=${run.id}`}>在账本中追溯</a></div>
+    <ValuationStatus run={run} />
+    <SummaryExport title={`${run.strategy_name} · 运行摘要`} identifier={run.id} summary={runSummary(run)} />
+    <BehaviorMonitor run={run} />
     {run.execution_mode === 'private_runner' && <><p className="trade-probe-note">证据等级：开发者签名信号。源码未上传；尚无ZKP/TEE执行证明。当前为实时报价驱动的平台模拟收益，不是交易所账户收益。</p><details><summary>本地执行连接配置（无源码或私钥）</summary><p>保存以下JSON为run.json，在开发者本地启动runner。持续模式使用 --continuous --interval 12；关闭网页不影响本地进程。暂停或停止实例后信号将被拒绝，恢复时需重新启动本地 runner。没有签名信号时不会自动交易；下方曲线为最后一次成交报价估值。</p><pre>{JSON.stringify({ api_url: window.location.origin, run_id: run.id, release_id: run.release_id, content_hash: run.strategy_hash }, null, 2)}</pre></details></>}
     <div className="trade-detail-layout">
       <section><h5>净值曲线</h5><TradingEquityChart run={run} /></section>
@@ -129,6 +140,8 @@ export default function TradingWorkspace() {
   const query = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
   const appliedDeepLink = useRef(window.location.hash)
   const loadSequence = useRef(0)
+  const detailSequences = useRef<Record<string, number>>({})
+  const actionPending = useRef(false)
   const [caps, setCaps] = useState<Capabilities | null>(null)
   const [venue, setVenue] = useState<Venue>('binance')
   const [connectionRevision, setConnectionRevision] = useState(0)
@@ -157,6 +170,7 @@ export default function TradingWorkspace() {
   const [commissionRate, setCommissionRate] = useState('0.001')
   const [slippageRate, setSlippageRate] = useState('0.0005')
   const [maxPosition, setMaxPosition] = useState('0.95')
+  const [behaviorLimit, setBehaviorLimit] = useState('')
   const [maxParticipation, setMaxParticipation] = useState('0.01')
   const [stopLoss, setStopLoss] = useState('0')
   const [takeProfit, setTakeProfit] = useState('0')
@@ -175,15 +189,17 @@ export default function TradingWorkspace() {
   const phrase = preview?.mode === 'live' ? '确认实盘下单' : '确认模拟下单'
 
   const loadRunDetail = useCallback(async (identifier: string) => {
+    const sequence = (detailSequences.current[identifier] ?? 0) + 1
+    detailSequences.current[identifier] = sequence
     setDetailLoading((current) => ({ ...current, [identifier]: true }))
     setDetailErrors((current) => ({ ...current, [identifier]: '' }))
     try {
       const detail = await request<StrategyRun>(`/trading/runs/${identifier}`)
-      setRunDetails((current) => ({ ...current, [identifier]: detail }))
+      if (detailSequences.current[identifier] === sequence) setRunDetails((current) => ({ ...current, [identifier]: detail }))
     } catch (cause) {
-      setDetailErrors((current) => ({ ...current, [identifier]: cause instanceof Error ? cause.message : '运行详情读取失败，请重试。' }))
+      if (detailSequences.current[identifier] === sequence) setDetailErrors((current) => ({ ...current, [identifier]: cause instanceof Error ? cause.message : '运行详情读取失败，请重试。' }))
     } finally {
-      setDetailLoading((current) => ({ ...current, [identifier]: false }))
+      if (detailSequences.current[identifier] === sequence) setDetailLoading((current) => ({ ...current, [identifier]: false }))
     }
   }, [])
 
@@ -231,7 +247,7 @@ export default function TradingWorkspace() {
     const refresh = () => { if (document.visibilityState === 'visible') void load().catch(() => undefined) }
     window.addEventListener(RUNTIME_CHANGED_EVENT, refresh); document.addEventListener('visibilitychange', refresh); window.addEventListener('hashchange', refresh)
     const polling = window.setInterval(() => { if (window.location.hash.startsWith('#/trading')) refresh() }, 5000)
-    document.title = '策略交易 · Trine'
+    document.title = '策略交易 · Atlas'
     return () => { window.clearTimeout(timer); window.clearInterval(polling); window.removeEventListener(RUNTIME_CHANGED_EVENT, refresh); document.removeEventListener('visibilitychange', refresh); window.removeEventListener('hashchange', refresh) }
   }, [load])
   useEffect(() => {
@@ -249,10 +265,27 @@ export default function TradingWorkspace() {
   }, [orders, view])
 
   async function action(work: () => Promise<void>) {
-    if (busy) return
-    setBusy(true); setError('')
+    if (actionPending.current) return
+    actionPending.current = true
+    setBusy(true); setError(''); setNotice('')
     try { await work() } catch (cause) { setError(cause instanceof Error ? cause.message : '请求失败') }
-    finally { setBusy(false) }
+    finally { actionPending.current = false; setBusy(false) }
+  }
+  async function finishRunAction(identifier: string, status: StrategyRun['status'] | null, successNotice: string) {
+    if (status) {
+      setRuns((current) => current.map((run) => run.id === identifier ? { ...run, status } : run))
+      setRunDetails((current) => current[identifier] ? { ...current, [identifier]: { ...current[identifier], status } } : current)
+    }
+    setNotice(successNotice)
+    try {
+      await load()
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '请求失败'
+      setNotice(`${successNotice} 最新状态暂未更新，请手动刷新。`)
+      setError(`操作已成功，但最新状态读取失败：${message}`)
+      return
+    }
+    await loadRunDetail(identifier)
   }
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -325,10 +358,10 @@ export default function TradingWorkspace() {
           <div className="trade-run-grid">{runs.map((run) => {
             const expanded = !!expandedRuns[run.id]; const detail = runDetails[run.id]
             return <article key={run.id} id={run.id} className={expanded ? 'is-expanded' : ''}>
-              <div className="trade-run-line"><span className="trade-run-symbol" aria-hidden="true">{run.symbol.slice(0, 2)}</span><div className="trade-run-identity"><h3>{run.strategy_name}{run.demo_auto === '1' && <small>模拟自动执行</small>}<small>v{run.strategy_version}</small></h3><p>{run.symbol} <span>·</span> {run.execution_mode === 'private_runner' ? '开发者本地执行' : run.execution_mode === 'quote_probe' ? '10秒报价联调' : intervalNames[run.interval]} <span>·</span> {environmentNames[run.environment]}</p></div><span className={`trade-run-status is-${run.status}`}>{run.status === 'active' ? '运行中' : run.status === 'paused' ? '已暂停' : run.status === 'stopped' ? '已停止' : run.status === 'error' ? '待处理' : '待启动'}</span><div className="trade-run-valuation"><small>策略净值</small><strong>{money(run.equity, runCurrency(run))}</strong></div><div className="trade-run-return"><small>收益率</small><strong className={run.valuation_complete === false ? '' : Number(run.return_rate) >= 0 ? 'positive' : 'negative'}>{run.valuation_complete === false ? '不可完整计算' : pct(run.return_rate)}</strong></div><button className="trade-detail-toggle" aria-expanded={expanded} aria-controls={`detail-${run.id}`} onClick={() => { setExpandedRuns((current) => ({ ...current, [run.id]: !expanded })); if (!expanded) void loadRunDetail(run.id) }}>{expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}<span>{expanded ? '收起详情' : '运行详情'}</span></button></div>
+              <ValuationStatus run={run} /><div className="trade-run-line"><span className="trade-run-symbol" aria-hidden="true">{run.symbol.slice(0, 2)}</span><div className="trade-run-identity"><h3>{run.strategy_name}{run.demo_auto === '1' && <small>模拟自动执行</small>}<small>v{run.strategy_version}</small></h3><p>{run.symbol} <span>·</span> {run.execution_mode === 'private_runner' ? '开发者本地执行' : run.execution_mode === 'quote_probe' ? '10秒报价联调' : intervalNames[run.interval]} <span>·</span> {environmentNames[run.environment]}</p></div><span className={`trade-run-status is-${run.status}`}>{run.status === 'active' ? '运行中' : run.status === 'paused' ? '已暂停' : run.status === 'stopped' ? '已停止' : run.status === 'error' ? '待处理' : '待启动'}</span><div className="trade-run-valuation"><small>{run.valuation_at == null ? '初始分配资金 · 未估值' : '策略净值'}</small><strong>{money(run.valuation_at == null ? run.initial_cash : run.equity, runCurrency(run))}</strong></div><div className="trade-run-return"><small>收益率</small><strong className={run.valuation_complete === false ? '' : Number(run.return_rate) >= 0 ? 'positive' : 'negative'}>{run.valuation_at == null ? '未估值' : run.valuation_complete === false ? '不可完整计算' : pct(run.return_rate)}</strong></div><button className="trade-detail-toggle" aria-expanded={expanded} aria-controls={`detail-${run.id}`} onClick={() => { setExpandedRuns((current) => ({ ...current, [run.id]: !expanded })); if (!expanded) void loadRunDetail(run.id) }}>{expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}<span>{expanded ? '收起详情' : '运行详情'}</span></button></div>
               <div className="trade-run-signal"><Activity size={14} /><span>{run.latest_signal ?? '等待首个收盘信号'}</span>{run.recommendation && <button onClick={() => prepareRecommendation(run)} disabled={busy || !!preview}>预览策略建议<ArrowUpRight size={14} /></button>}</div>
               {run.latest_error && <p className="trade-run-alert">{run.latest_error}</p>}
-              {expanded && <><div className="trade-run-toolbar"><span>暂停或停止不会自动清仓</span>{run.status === 'active' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/pause`, { method: 'POST' }); await load(); await loadRunDetail(run.id) })}><Pause size={14} />暂停</button>}{['paused', 'error'].includes(run.status) && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/resume`, { method: 'POST' }); await load(); await loadRunDetail(run.id) })}><Play size={14} />恢复</button>}{run.status !== 'stopped' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/stop`, { method: 'POST' }); await load(); await loadRunDetail(run.id) })}><Square size={14} />停止</button>}<button disabled={busy || run.status !== 'active'} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/tick`, { method: 'POST' }); await load(); await loadRunDetail(run.id) })}><RefreshCw size={14} />立即检查</button><a href={`#/journal/trading?run=${run.id}`}>成交与账本<ArrowUpRight size={14} /></a></div>{detailLoading[run.id] ? <p className="trade-detail-state" role="status">正在读取净值、持仓和交易记录…</p> : detailErrors[run.id] ? <div className="trade-detail-state trade-run-alert" role="alert"><p>{detailErrors[run.id]}</p><button onClick={() => void loadRunDetail(run.id)}>重新读取</button></div> : detail ? <RunDetail run={detail} /> : null}</>}
+              {expanded && <><div className="trade-run-toolbar"><span>暂停或停止不会自动清仓</span>{run.status === 'active' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/pause`, { method: 'POST' }); await finishRunAction(run.id, 'paused', '策略实例已暂停。') })}><Pause size={14} />暂停</button>}{['paused', 'error'].includes(run.status) && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/resume`, { method: 'POST' }); await finishRunAction(run.id, 'active', '策略实例已恢复运行。') })}><Play size={14} />恢复</button>}{run.status !== 'stopped' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/stop`, { method: 'POST' }); await finishRunAction(run.id, 'stopped', '策略实例已停止。') })}><Square size={14} />停止</button>}<button disabled={busy || run.status !== 'active'} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/tick`, { method: 'POST' }); await finishRunAction(run.id, null, '策略实例检查已完成。') })}><RefreshCw size={14} />立即检查</button><a href={`#/journal/trading?run=${run.id}`}>成交与账本<ArrowUpRight size={14} /></a></div>{detailLoading[run.id] ? <p className="trade-detail-state" role="status">正在读取净值、持仓和交易记录…</p> : detailErrors[run.id] ? <div className="trade-detail-state trade-run-alert" role="alert"><p>{detailErrors[run.id]}</p><button onClick={() => void loadRunDetail(run.id)}>重新读取</button></div> : detail ? <RunDetail run={detail} /> : null}</>}
             </article>
           })}{loaded && !runs.length && <div className="trade-empty-state"><Layers3 size={36} strokeWidth={1.25} /><h3>让策略开始积累记录</h3><p>选择一个已发布或订阅的版本，分配模拟资金，即可开始追踪表现。</p><button className="trade-primary" onClick={() => setComposer('run')}><Plus size={16} />创建运行实例</button><a href="#quantjudge">先去发现策略<ArrowUpRight size={15} /></a></div>}</div>
         </section>
@@ -344,8 +377,8 @@ export default function TradingWorkspace() {
         const release = allowedReleases.find((item) => item.id === runRelease); if (!release) return
         const subscription = subscriptions.find((item) => item.release_id === release.id && item.status === 'active')
         const account = availableRunAccounts.find((item) => item.id === runAccount) ?? availableRunAccounts[0]
-        const created = await request<StrategyRun>('/trading/runs', { method: 'POST', body: JSON.stringify({ release_id: release.id, subscription_id: subscription?.id, account_id: isQuoteProbe ? undefined : account?.id, market: isQuoteProbe ? 'CRYPTO' : runMarket, environment: isQuoteProbe ? 'platform_sim' : runEnvironment, symbol: isQuoteProbe ? 'BTC-USDT' : runSymbol, interval: runInterval, initial_cash: isQuoteProbe ? '200' : runCash, demo_auto: !isQuoteProbe && runEnvironment === 'exchange_test' && demoAuto, commission_rate: commissionRate, slippage_rate: slippageRate, max_position: maxPosition, max_participation: maxParticipation, stop_loss: stopLoss, take_profit: takeProfit }) })
-        await request(`/trading/runs/${created.id}/start`, { method: 'POST' }); setNotice(isPrivateRunner ? '策略实例已启动，等待开发者本地签名信号。' : '策略实例已启动，首次运行将建立行情基线。'); await load(); setComposer(null); setView('strategies')
+        const created = await request<StrategyRun>('/trading/runs', { method: 'POST', body: JSON.stringify({ release_id: release.id, subscription_id: subscription?.id, account_id: isQuoteProbe ? undefined : account?.id, market: isQuoteProbe ? 'CRYPTO' : runMarket, environment: isQuoteProbe ? 'platform_sim' : runEnvironment, symbol: isQuoteProbe ? 'BTC-USDT' : runSymbol, interval: runInterval, initial_cash: isQuoteProbe ? '200' : runCash, behavior_position_limit_bps: !isQuoteProbe && runEnvironment === 'platform_sim' && behaviorLimit ? Math.round(Number(behaviorLimit) * 100) : null, demo_auto: !isQuoteProbe && runEnvironment === 'exchange_test' && demoAuto, commission_rate: commissionRate, slippage_rate: slippageRate, max_position: maxPosition, max_participation: maxParticipation, stop_loss: stopLoss, take_profit: takeProfit }) })
+        await request(`/trading/runs/${created.id}/start`, { method: 'POST' }); setComposer(null); setView('strategies'); await finishRunAction(created.id, null, isPrivateRunner ? '策略实例已启动，等待开发者本地签名信号。' : '策略实例已启动，首次运行将建立行情基线。')
       }) }}>
         {isPrivateRunner && <p className="trade-probe-note">私有策略在开发者本地执行。此实例使用BTC-USDT、200 USDT平台模拟资金；启动后等待签名信号，不会自行读取或执行源码。</p>}
         {isQuoteProbe && !isPrivateRunner && <p className="trade-probe-note">联调固定使用 BTC-USDT、200 USDT 平台模拟资金，每10秒交替买卖。12次执行后自动暂停。价格来自币安现货买卖报价，成交由平台模拟，包含手续费、滑点和盘口数量限制。</p>}
@@ -356,6 +389,7 @@ export default function TradingWorkspace() {
         <label>标的<input required value={runSymbol} onChange={(event) => { setRunSymbol(event.target.value.toUpperCase()); setRunAccount('') }} /></label>
         <label>周期<select value={runInterval} onChange={(event) => setRunInterval(event.target.value as Interval)}>{(['15m', '1h', '4h', '1d', '1wk'] as Interval[]).filter((item) => runMarket !== 'CN' || ['1d', '1wk'].includes(item)).map((item) => <option key={item} value={item}>{intervalNames[item]}</option>)}</select></label>
         {runEnvironment === 'exchange_test' && <label className="trade-demo-auto"><input type="checkbox" checked={demoAuto} onChange={(event) => setDemoAuto(event.target.checked)} />自动执行模拟订单（仅测试资金）</label>}
+        {runEnvironment === 'platform_sim' && <label>监测仓位上限（可选，%）<input type="number" min="1" max="100" step="0.01" value={behaviorLimit} onChange={event => setBehaviorLimit(event.target.value)} placeholder="不填则不启用" /><small>创建后固定，仅提示，不改变交易风控。</small></label>}
         <label>分配资金<input required type="number" min="1" value={runCash} onChange={(event) => setRunCash(event.target.value)} /></label>
         </>}
         <button className="trade-primary" disabled={busy || !runRelease || (!isQuoteProbe && !availableRunAccounts.length)}><Play size={15} />{isPrivateRunner ? '启动并等待本地信号' : isQuoteProbe ? '启动10秒联调' : runEnvironment === 'platform_sim' ? '启动模拟' : runEnvironment === 'exchange_test' && demoAuto ? '启动测试交易' : '启动信号监控'}</button>

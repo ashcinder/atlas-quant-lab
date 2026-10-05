@@ -1,0 +1,16 @@
+.summary-export { margin-block: 16px; color: var(--text, #172b35); }
+.summary-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.summary-actions button { padding: 9px 14px; border: 1px solid var(--border, #ccd6db); border-radius: 8px; background: var(--panel, #fff); color: inherit; cursor: pointer; }
+.summary-export details { margin-top: 12px; }
+.summary-export summary { cursor: pointer; }
+.summary-export dl > div { padding-block: 8px; border-bottom: 1px solid var(--border, #ccd6db); }
+.summary-export dd { margin: 4px 0 0; }
+.summary-export pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 220px; overflow: auto; }
+.behavior-monitor { margin-block: 20px; padding-block: 16px; border-block: 1px solid var(--border, #ccd6db); }
+.behavior-monitor h5 { font-size: 16px; margin: 0 0 10px; }
+.behavior-monitor p { line-height: 1.6; overflow-wrap: anywhere; }
+.behavior-monitor svg { display: block; width: 100%; max-width: 780px; }
+.behavior-monitor .behavior-limit { stroke: var(--text, #172b35); stroke-dasharray: 5 4; }
+.behavior-monitor .behavior-series { stroke: #087e78; fill: none; stroke-width: 2; }
+.behavior-monitor .behavior-breach { fill: #c14f27; }
+.run-valuation-status { font-size: 13px; line-height: 1.6; color: inherit; margin-block: 8px; }

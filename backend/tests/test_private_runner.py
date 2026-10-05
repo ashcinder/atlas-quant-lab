@@ -1,3 +1,4 @@
+from tests.test_strategy_runtime import record_confirmed_payment
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -42,6 +43,7 @@ def setup(tmp_path, monkeypatch):
         runner_public_key=key.public_key().public_bytes_raw().hex(),
     )
     release = store.create_release("author", ReleaseCreate(**body))
+    record_confirmed_payment(store, "subscriber", release["id"])
     subscription = store.subscribe("subscriber", release["id"])
     run = store.create_run(
         "subscriber",

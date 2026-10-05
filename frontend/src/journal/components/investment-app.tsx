@@ -1,5 +1,5 @@
-import { SupervisorStatusButton } from '../../components/SupervisorStatusButton'
 "use client";
+import { SupervisorStatusButton } from '../../components/SupervisorStatusButton'
 import AtlasWorkspaceBrand from "../../components/AtlasWorkspaceBrand";
 import LoginScreen from "./LoginScreen";
 import { journalFetch } from "../request";
@@ -289,7 +289,7 @@ export default function InvestmentApp() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   useEffect(() => {
-    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Trine`;
+    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Atlas`;
   }, [tab]);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);

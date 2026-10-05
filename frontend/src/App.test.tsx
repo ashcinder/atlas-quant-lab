@@ -109,3 +109,12 @@ it('shows the code identity and reruns the same Python snapshot after lab naviga
   fireEvent.click(screen.getByRole('button', {name:'运行回测'}))
   expect(api.runBacktest).toHaveBeenCalledWith(expect.objectContaining({strategy_id:'python_bounded',python_source:'def target_bps(index, close, sma):\n return 5000',release_id:null}))
 })
+
+it('preserves a shell-owned Proof deep link when the hidden quant workspace boots', async () => {
+  window.history.replaceState(null, '', '/#/proof/qzp_test')
+  document.title = 'Proof 验证 · Atlas'
+  render(<App />)
+  await waitFor(() => expect(api.getMarket).toHaveBeenCalled())
+  expect(window.location.hash).toBe('#/proof/qzp_test')
+  expect(document.title).toBe('Proof 验证 · Atlas')
+})

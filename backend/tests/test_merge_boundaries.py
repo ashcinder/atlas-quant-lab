@@ -110,7 +110,8 @@ def test_subscription_alias_does_not_grant_cross_account_access(accounts):
         f"/api/v1/quantjudge/agents/{agent['id']}/subscriptions",
         json={"investor_alias": "shared-public-name"},
     )
-    assert response.status_code == 201
+    assert response.status_code == 410
+    assert "BKC" in response.json()["detail"]
     params = {"investor_alias": "shared-public-name"}
-    assert len(first.get("/api/v1/quantjudge/subscriptions", params=params).json()) == 1
+    assert first.get("/api/v1/quantjudge/subscriptions", params=params).json() == []
     assert second.get("/api/v1/quantjudge/subscriptions", params=params).json() == []

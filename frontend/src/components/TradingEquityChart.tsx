@@ -32,6 +32,6 @@ export default function TradingEquityChart({ run }: { run: StrategyRun }) {
       <circle cx={x(selected)} cy={y(values[selected])} r="4" fill="currentColor" stroke="var(--panel)" strokeWidth="2" />
       <text x="22" y="239">{date(0)}</text><text x="684" y="239" textAnchor="end">{date(points.length - 1)}</text>
     </svg>
-    <div className="trade-chart-caption"><span><i />策略净值 · {points.length} 个快照</span><span>已计入成交费用 · 非连续行情</span></div>
+    <div className="trade-chart-caption"><span><i />策略净值 · {points.length} 个快照</span><span>{run.valuation_complete === false ? '费用未完整折算 · 非连续行情' : '已计入成交费用 · 非连续行情'}</span></div>
   </div>
 }

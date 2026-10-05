@@ -15,6 +15,10 @@ def proof_inspection_router(store):
     init_public_programs(store)
     slots = BoundedSemaphore(2)
 
+    @router.get('/proof-imports')
+    def imported_proofs():
+        return store.list_imported()
+
     @router.get('/zk-proofs/{proof_id}/public-example')
     def public_example(proof_id: str):
         # Only deliberately published fixtures are stored in this table.

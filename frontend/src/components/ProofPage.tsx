@@ -1,24 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { request } from '../request'
 import './proof-page.css'
-type Proof = { id: string; image_id: string; proof_hash: string; public_inputs_hash: string; proof_profile: string; receipt_size: number; public_statement: Record<string, unknown> }
+type ImportOrigin = { origin_kind: 'local_isolated_proof'; payment_scope: 'test_chain_only'; imported_at: string }
+type Proof = { id: string; image_id: string; proof_hash: string; public_inputs_hash: string; proof_profile: string; receipt_size: number; public_statement: Record<string, unknown>; import_origin?: ImportOrigin | null }
 type Market = { symbol: string; interval: string; source: string; period_start: number; period_end: number; bar_count: number; trust_model: string }
 type Verified = { market?: Market; program?: { source: string; source_sha256: string; commission_bps: number; slippage_bps: number; compiled_program_commitment_verified: boolean } | null; reports?: { report_id: string; published_return_verified: boolean }[]; valid: boolean; image_id: string; proof_hash: string; journal: Record<string, unknown>; verification_seconds: number; verified_at: string }
 const repository = 'https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907'
 export default function ProofPage({ proofId }: { proofId: string }) {
   const [proof, setProof] = useState<Proof | null>(null), [verification, setVerification] = useState<Verified | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false)
-  useEffect(() => { if (!proofId) return; const abort = new AbortController(); request<Proof>(`/quantjudge/zk-proofs/${encodeURIComponent(proofId)}`, { signal: abort.signal }).then(setProof).catch(cause => { if (!abort.signal.aborted) setError(cause.message) }); return () => abort.abort() }, [proofId])
-  async function verify() { if (busy || !proof) return; setBusy(true); setError(''); setVerification(null); try { const value = await request<Verified>(`/quantjudge/zk-proofs/${proof.id}/verify`, { method: 'POST' }); if (value.valid !== true || value.image_id !== proof.image_id || value.proof_hash !== proof.proof_hash) throw new Error('证明核验响应不一致'); setVerification(value) } catch (cause) { setError(cause instanceof Error ? cause.message : '验证失败') } finally { setBusy(false) } }
+  const [imports, setImports] = useState<Proof[]>([])
+  const [loading, setLoading] = useState(true), [reload, setReload] = useState(0)
+  const selectedId = useRef(proofId), generation = useRef(0)
+  useEffect(() => {
+    selectedId.current = proofId; generation.current += 1
+    const abort = new AbortController()
+    Promise.resolve().then(async () => {
+      if (abort.signal.aborted) return
+      setProof(null); setVerification(null); setImports([]); setError(''); setLoading(true); setBusy(false)
+      try {
+        if (proofId) {
+          const result = await request<Proof>(`/quantjudge/zk-proofs/${encodeURIComponent(proofId)}`, { signal: abort.signal })
+          if (!abort.signal.aborted) setProof(result)
+        } else {
+          const result = await request<Proof[]>('/quantjudge/proof-imports', { signal: abort.signal })
+          if (!abort.signal.aborted) setImports(result)
+        }
+      } catch (cause) { if (!abort.signal.aborted) setError(cause instanceof Error ? cause.message : '读取证明失败') }
+      finally { if (!abort.signal.aborted) setLoading(false) }
+    })
+    return () => abort.abort()
+  }, [proofId, reload])
+  async function verify() {
+    if (busy || !proof || proof.id !== proofId) return
+    const identifier = proof.id, requestGeneration = generation.current
+    setBusy(true); setError(''); setVerification(null)
+    try {
+      const value = await request<Verified>(`/quantjudge/zk-proofs/${encodeURIComponent(identifier)}/verify`, { method: 'POST' })
+      if (selectedId.current !== identifier || generation.current !== requestGeneration) return
+      if (value.valid !== true || value.image_id !== proof.image_id || value.proof_hash !== proof.proof_hash) throw new Error('证明核验响应不一致')
+      setVerification(value)
+    } catch (cause) { if (selectedId.current === identifier && generation.current === requestGeneration) setError(cause instanceof Error ? cause.message : '验证失败') }
+    finally { if (selectedId.current === identifier && generation.current === requestGeneration) setBusy(false) }
+  }
   const statement = (verification?.journal ?? proof?.public_statement) as { metrics?: { total_return_ppm: number }; period_start?: number; period_end?: number; market_data_hash?: string; initial_equity_micros?: number; final_equity_micros?: number } | undefined
   const date = (value?: number) => value ? new Date(value * 1000).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—'
   const apiRoot = (import.meta.env.VITE_API_ROOT ?? '/api/v1').replace(/\/$/, '')
   return <main className="proof-page"><a href="#quantjudge">← 返回策略市场</a><header><small>ATLAS · VERIFIABLE COMPUTATION</small><h1>ZKP / zkVM 证明验证</h1><p>zkVM 执行固定版本的回测程序，并生成零知识证明。验证者检查程序 ID 与公开结果，无需获取策略私有参数。</p></header>
     <ol className="proof-stages"><li>策略承诺</li><li>历史数据哈希</li><li>zkVM 执行</li><li>Receipt 验证</li></ol>
-    {!proofId && <p>此策略尚未关联可核验的零知识证明。普通收益展示与哈希上链不会自动获得 ZKP 状态。</p>}
-    {proof && <section><h2>{verification ? '本次密码学验证通过' : '证明已登记 · 等待本次验证'}</h2><button disabled={busy} onClick={() => void verify()}>{busy ? '真实验证中…' : '验证 Proof'}</button>{verification && <><p role="status">耗时 {verification.verification_seconds} 秒 · {verification.verified_at}</p><p><strong>{verification.market?.symbol} · 区间总收益 {statement?.metrics ? (statement.metrics.total_return_ppm / 10000).toFixed(4) + '%' : '—'}</strong></p><p>{date(statement?.period_start)} — {date(statement?.period_end)}</p></>}<dl>{[['Proof ID', proof.id], ['程序 Image ID', proof.image_id], ['Receipt SHA-256', proof.proof_hash], ['公开输入哈希', proof.public_inputs_hash], ['协议', proof.proof_profile], ['证明大小', `${proof.receipt_size} bytes`]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><a href={`${apiRoot}/quantjudge/zk-proofs/${proof.id}/receipt`}>下载原始 receipt</a><p><a href={`${apiRoot}/quantjudge/zk-proofs/${proof.id}/bundle`}>下载离线验证包（Proof、数据与独立验证脚本）</a></p><details><summary>公开 Journal（策略承诺、数据根、成本、收益与曲线）</summary><pre>{JSON.stringify(verification?.journal ?? proof.public_statement, null, 2)}</pre></details><h3>在自己的设备独立验证</h3><pre>{`strategy/zkvm/target/release/atlas-zkvm verify --receipt ${proof.id}.r0 --expected-image-id ${proof.image_id}`}</pre></section>}
+    {loading && <p role="status">读取证明记录…</p>}
+    {!proofId && !loading && !error && <section><h2>已导入的真实 Proof</h2><p>以下证明由独立设备生成，网站重新验证后登记；测试输入及付款范围在证明详情中说明。</p>{imports.length ? <ul>{imports.map(item => <li key={item.id}><a href={`#/proof/${item.id}`}>{item.id} · {item.proof_profile}</a></li>)}</ul> : <p>目前没有导入的 Proof。普通收益展示与哈希上链不会自动获得 ZKP 状态。</p>}</section>}
+    {proof && proof.id === proofId && <section><h2>{verification ? '本次密码学验证通过' : '证明已登记 · 等待本次验证'}</h2>{proof.import_origin && <p role="note"><strong>本机独立验证导入 · 隔离测试输入。</strong>测试链付款未在正式网站确认为付款；此证明不代表正式链支付、实盘成交或行情来源认证。</p>}<button disabled={busy} onClick={() => void verify()}>{busy ? '真实验证中…' : '验证 Proof'}</button>{verification && <><p role="status">耗时 {verification.verification_seconds} 秒 · {verification.verified_at}</p><p><strong>{verification.market?.symbol} · 区间总收益 {statement?.metrics ? (statement.metrics.total_return_ppm / 10000).toFixed(4) + '%' : '—'}</strong></p><p>{date(statement?.period_start)} — {date(statement?.period_end)}</p></>}<dl>{[['Proof ID', proof.id], ['程序 Image ID', proof.image_id], ['Receipt SHA-256', proof.proof_hash], ['公开输入哈希', proof.public_inputs_hash], ['协议', proof.proof_profile], ['证明大小', `${proof.receipt_size} bytes`]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl><a href={`${apiRoot}/quantjudge/zk-proofs/${proof.id}/receipt`}>下载原始 receipt</a><p><a href={`${apiRoot}/quantjudge/zk-proofs/${proof.id}/bundle`}>下载离线验证包（Proof、数据与独立验证脚本）</a></p><details><summary>公开 Journal（策略承诺、数据根、成本、收益与曲线）</summary><pre>{JSON.stringify(verification?.journal ?? proof.public_statement, null, 2)}</pre></details><h3>在自己的设备独立验证</h3><pre>{`strategy/zkvm/target/release/atlas-zkvm verify --receipt ${proof.id}.r0 --expected-image-id ${proof.image_id}`}</pre></section>}
     {verification && <section><h2>收益与输入绑定检查</h2><p>证明内区间总收益：<strong>{statement?.metrics ? (statement.metrics.total_return_ppm / 10000).toFixed(4) + '%' : '—'}</strong></p><p>市场公开报告：{verification.reports?.length ? verification.reports.every(report => report.published_return_verified) ? '已逐项核对，与证明输出一致' : '不一致' : '此证明尚未发布报告'}</p><p>标的：{verification.market?.symbol} · {verification.market?.interval} · {verification.market?.bar_count} 根 K 线 · {verification.market?.source}</p><p>区间：{date(statement?.period_start)} — {date(statement?.period_end)}</p><p>初始资金：{Number(statement?.initial_equity_micros) / 1000000} · 最终资金：{Number(statement?.final_equity_micros) / 1000000}（标的计价货币）</p>{statement?.market_data_hash && <><a href={`${apiRoot}/quantjudge/zkp/market-datasets/${statement.market_data_hash}`} download="market.json">下载绑定的完整历史 K 线</a><ProofCandles marketHash={statement.market_data_hash} /></>}{verification.program ? <><p>手续费：{verification.program.commission_bps / 100}% · 滑点：{verification.program.slippage_bps / 100}% · 信号收盘确认，下一根开盘执行</p><h3>公开测试策略代码 · 编译后承诺已核对</h3><a href={`${apiRoot}/quantjudge/zk-proofs/${proofId}/public-example`} download="public-example.json">下载公开测试源码与完整输入</a><pre>{verification.program.source}</pre><small>源码 SHA-256：{verification.program.source_sha256}</small><p>本例公开源码，独立重新编译并对照已证明的程序承诺。编译器在 zkVM 外运行；证明本体绑定的是编译后的整数程序。</p></> : <p>策略程序由公开承诺绑定；作者未公开源码，不展示未经绑定的代码。</p>}</section>}
-    {error && <p role="alert">{error}</p>}
-    <section><h2>开源验证程序</h2><p><a href={`${repository}/strategy/zkvm/host/src/main.rs`} target="_blank" rel="noreferrer">GitHub · Receipt 验证器</a> · <a href={`${repository}/strategy/zkvm/program-core/src/lib.rs`} target="_blank" rel="noreferrer">GitHub · v2 回测程序</a> · <a href={`${repository}/strategy/zkvm/profiles.json`} target="_blank" rel="noreferrer">固定程序 ID</a></p><p>下载源码后，按仓库 ZKP 文档构建本地工具；核对固定 Image ID，再验证 receipt。平台上“已登记”的状态不替代本次密码学核验。</p></section>
+    {error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setReload(value => value + 1)}>重新读取记录</button></div>}
+    <section><h2>公开参考源与验证程序</h2><p><a href={`${repository}/strategy/zkvm/host/src/main.rs`} target="_blank" rel="noreferrer">GitHub · Receipt 验证器</a> · <a href={`${repository}/strategy/zkvm/program-core/src/lib.rs`} target="_blank" rel="noreferrer">GitHub · v2 回测程序</a> · <a href={`${repository}/strategy/zkvm/profiles.json`} target="_blank" rel="noreferrer">固定程序 ID</a></p><p>链接提供固定 guest/profile 的公开参考源；实际生成与验证二进制、平台构建补丁未随该提交完整发布。独立核验须使用相应平台的验证器，核对固定 Image ID 和二进制来源，再验证 receipt。平台上“已登记”的状态不替代本次密码学核验。</p></section>
     <section><h2>证明的含义</h2><p>证明固定有界整数程序在承诺的历史数据上执行，以及该执行语义下的扣费收益。当前 Python 入口仅编译支持的子集；普通 Python 回测、外部 AI 响应、实盘成交与行情来源真实性不在该证明范围内。</p><p>本页仅核验 receipt，不宣称已完成链上合约验证。私有输入由生成证明的设备持有；在平台普通服务器上生成证明不能对服务器管理员隐藏输入。</p></section>
   </main>
 }

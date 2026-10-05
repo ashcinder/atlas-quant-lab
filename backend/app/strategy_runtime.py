@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
 from app.config import DB_PATH
 from app.data.providers import ProviderError
@@ -132,6 +132,7 @@ class RunCreate(BaseModel):
     max_participation: Decimal = Field(default=Decimal("0.01"), gt=0, le=1)
     stop_loss: Decimal = Field(default=Decimal("0"), ge=0, lt=1)
     take_profit: Decimal = Field(default=Decimal("0"), ge=0, le=10)
+    behavior_position_limit_bps: StrictInt | None = Field(default=None, ge=100, le=10_000)
 
     @model_validator(mode="after")
     def supported_market_rules(self):
@@ -279,6 +280,10 @@ class StrategyRuntimeStore:
                         f"ALTER TABLE strategy_runs ADD COLUMN {name} TEXT NOT NULL "
                         f"DEFAULT '{default}'"
                     )
+            if "behavior_position_limit_bps" not in columns:
+                connection.execute(
+                    "ALTER TABLE strategy_runs ADD COLUMN behavior_position_limit_bps INTEGER"
+                )
             release_columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(strategy_releases)")
             }
@@ -792,7 +797,12 @@ class StrategyRuntimeStore:
         self._ensure_accounts(owner)
         with self._connect() as connection:
             release = self._release_for(connection, request.release_id)
-            if json.loads(release["snapshot"]).get("execution_mode") in {
+            execution_mode = json.loads(release["snapshot"]).get("execution_mode", "candles")
+            if request.behavior_position_limit_bps is not None and (
+                request.environment != "platform_sim" or execution_mode != "candles"
+            ):
+                raise HTTPException(422, "仓位约束监测仅支持平台模拟的K线运行")
+            if execution_mode in {
                 "quote_probe",
                 "private_runner",
             } and (
@@ -852,9 +862,10 @@ class StrategyRuntimeStore:
                    symbol,interval,initial_cash,cash,quantity,average_cost,realized_pnl,
                    commission_rate,slippage_rate,max_position,max_participation,stop_loss,
                    take_profit,status,last_bar_time,pending_target,
-                   latest_signal,latest_error,lease_until,created_at,updated_at
+                   latest_signal,latest_error,lease_until,created_at,updated_at,
+                   behavior_position_limit_bps
                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',NULL,'0',
-                             NULL,NULL,0,?,?)""",
+                             NULL,NULL,0,?,?,?)""",
                 (
                     identifier,
                     owner,
@@ -878,6 +889,7 @@ class StrategyRuntimeStore:
                     _text(request.take_profit),
                     now,
                     now,
+                    request.behavior_position_limit_bps,
                 ),
             )
             connection.execute(
@@ -899,6 +911,55 @@ class StrategyRuntimeStore:
                 ("1" if request.demo_auto else "0", identifier),
             )
         return self.get_run(owner, identifier)
+
+    @staticmethod
+    def _behavior_check(
+        row: dict[str, Any], curve: list[dict[str, Any]], valuation_complete: bool | None
+    ) -> dict[str, Any]:
+        limit_bps = row.get("behavior_position_limit_bps")
+        base = {
+            "rule_version": "position_limit_v1",
+            "limit_bps": limit_bps,
+            "period_start": None,
+            "period_end": None,
+            "snapshot_count": len(curve),
+            "latest_ratio": None,
+            "peak_ratio": None,
+            "deviation_count": 0,
+            "first_deviation_at": None,
+            "points": [],
+        }
+        if limit_bps is None:
+            return {**base, "status": "not_enabled", "reason": "未配置仓位约束监测"}
+        if not curve:
+            return {**base, "status": "insufficient_data", "reason": "没有已记录的估值快照"}
+        ratios: list[tuple[int, Decimal]] = []
+        try:
+            for point in curve:
+                equity = Decimal(str(point["equity"]))
+                position_value = Decimal(str(point["position_value"]))
+                if not equity.is_finite() or not position_value.is_finite() or equity <= 0 or position_value < 0:
+                    raise ValueError
+                ratios.append((int(point["bar_time"]), position_value / equity))
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            return {**base, "status": "insufficient_data", "reason": "估值快照包含无效仓位或权益"}
+        if not valuation_complete:
+            return {**base, "status": "insufficient_data", "reason": "估值不完整，无法判定仓位约束"}
+        limit = Decimal(limit_bps) / Decimal(10_000)
+        deviations = [(timestamp, ratio) for timestamp, ratio in ratios if ratio > limit]
+        points = [{"time": timestamp, "ratio": format(ratio, "f")} for timestamp, ratio in ratios]
+        return {
+            **base,
+            "period_start": ratios[0][0],
+            "period_end": ratios[-1][0],
+            "latest_ratio": format(ratios[-1][1], "f"),
+            "peak_ratio": format(max(ratio for _, ratio in ratios), "f"),
+            "deviation_count": len(deviations),
+            "first_deviation_at": deviations[0][0] if deviations else None,
+            "points": points,
+            "status": "deviation" if deviations else "normal",
+            "reason": None,
+        }
 
     def _run_view(self, connection, row):
         last = connection.execute(
@@ -936,14 +997,40 @@ class StrategyRuntimeStore:
         result["return_rate"] = last["return_rate"] if last else "0.00000000"
         result["mark_price"] = last["mark_price"] if last else None
         result["position_value"] = last["position_value"] if last else "0.00000000"
+        result["valuation_at"] = last["bar_time"] if last else None
         incomplete_fee = connection.execute(
             "SELECT 1 FROM strategy_external_fills WHERE run_id=? AND fee<>'0' "
             "AND fee_currency NOT IN ('USDT',?) LIMIT 1",
             (row["id"], row["symbol"].split("-")[0]),
         ).fetchone()
-        result["valuation_complete"] = not bool(incomplete_fee)
+        snapshot_valid = last is not None
+        if last is not None:
+            try:
+                equity = Decimal(str(last["equity"]))
+                position_value = Decimal(str(last["position_value"]))
+                snapshot_valid = (
+                    equity.is_finite()
+                    and position_value.is_finite()
+                    and equity > 0
+                    and position_value >= 0
+                )
+            except (ArithmeticError, TypeError, ValueError):
+                snapshot_valid = False
+        result["valuation_complete"] = (
+            None if last is None else snapshot_valid and not bool(incomplete_fee)
+        )
         if incomplete_fee:
             result["latest_error"] = "存在尚未折算的第三币种手续费，净收益和收益率暂不可完整计算"
+        elif last is not None and not snapshot_valid and not result.get("latest_error"):
+            result["latest_error"] = "最新估值快照无效，净收益和收益率暂不可完整计算"
+        if last is None:
+            result["valuation_status"] = "missing"
+        elif not result["valuation_complete"]:
+            result["valuation_status"] = "incomplete"
+        elif row["status"] == "error" or result.get("latest_error"):
+            result["valuation_status"] = "update_failed"
+        else:
+            result["valuation_status"] = "recorded"
         return result
 
     def get_run(self, owner: str, identifier: str, detail: bool = False):
@@ -1015,6 +1102,9 @@ class StrategyRuntimeStore:
                         (identifier,),
                     )
                 ]
+                result["behavior_check"] = self._behavior_check(
+                    result, result["curve"], result["valuation_complete"]
+                )
             return result
 
     def list_runs(self, owner: str, market: str | None = None, environment: str | None = None):
@@ -1673,7 +1763,10 @@ class StrategyRuntimeStore:
                     "valuation_complete": True,
                 },
             )
-            bucket["valuation_complete"] &= run["valuation_complete"]
+            if bucket["valuation_complete"] is False or run["valuation_complete"] is False:
+                bucket["valuation_complete"] = False
+            elif bucket["valuation_complete"] is None or run["valuation_complete"] is None:
+                bucket["valuation_complete"] = None
             bucket["equity"] += _decimal(run["equity"])
             bucket["cash"] += _decimal(run["cash"])
             bucket["profit"] += _decimal(run["equity"]) - _decimal(run["initial_cash"])

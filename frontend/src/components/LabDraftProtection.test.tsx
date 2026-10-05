@@ -122,7 +122,7 @@ describe('rule drafts', () => {
     await act(async () => save.resolve(rule))
     expect(screen.getByDisplayValue('保存期间的新规则')).toBeTruthy()
     expect(screen.getByText('规则草稿 · 未保存')).toBeTruthy()
-    expect(screen.getByRole('status').textContent).toContain('新修改仍未保存')
+    expect(screen.getByText(/新修改仍未保存/)).toBeTruthy()
     expect(onDraftChange).toHaveBeenLastCalledWith(true)
   })
 })

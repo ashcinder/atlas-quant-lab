@@ -18,10 +18,10 @@ export default function StrategyRadar({ agent, peers }: { agent: QuantAgent; pee
   const series = [{ values: scores, name: agent.name, color: '#087e78' }, ...(other ? [{ values: otherScores, name: other.name, color: '#b56528' }] : [])]
   const report = agent.latest_report
   const comparable = !other || (report?.report_type === other.latest_report?.report_type && report?.period_start === other.latest_report?.period_start && report?.period_end === other.latest_report?.period_end)
-  return <section className="strategy-radar" aria-label="策略六维评分">
-    <header><div><small>STRATEGY PROFILE · V1</small><h3>六维策略画像</h3></div><span>{agent.is_demo ? '演示样本' : '报告指标换算'}</span></header>
+  return <section className="strategy-radar" aria-label="策略六项指标画像">
+    <header><div><small>STRATEGY PROFILE · V1</small><h3>六项指标画像</h3></div><span>{agent.is_demo ? '演示样本' : '报告指标换算'}</span></header>
     <label className="radar-compare">叠加比较<select aria-label="选择对比策略" value={other?.id ?? ''} onChange={(event) => setComparison(event.target.value)}><option value="">仅查看当前策略</option>{peers.filter((item) => item.id !== agent.id).map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_demo ? ' · 演示' : ''}</option>)}</select></label>
-    <svg viewBox="0 0 300 260" role="img" aria-label={`${agent.name}六维评分图，详细分数见下方表格`}>
+    <svg viewBox="0 0 300 260" role="img" aria-label={`${agent.name}六项指标画像图，详细分数见下方表格`}>
       {[25, 50, 75, 100].map((score) => <polygon key={score} points={labels.map((_, i) => point(i, score).join(',')).join(' ')} fill="none" stroke="#d6e2e5" />)}
       {labels.map((label, i) => { const [x, y] = point(i, 100, 113); return <g key={label}><line x1="150" y1="128" x2={point(i, 100)[0]} y2={point(i, 100)[1]} stroke="#d6e2e5" /><text x={x} y={y} textAnchor="middle" dominantBaseline="middle">{label}</text></g> })}
       {series.map((item) => <g key={item.name}>{item.values.every((v) => v !== null) ? <polygon points={item.values.map((v, i) => point(i, v!).join(',')).join(' ')} fill={item.color} fillOpacity=".10" stroke={item.color} strokeWidth="2" /> : item.values.map((v,i)=>{const next=(i+1)%6;const n=item.values[next];return v===null||n===null?null:<line data-radar-segment key={i} x1={point(i,v)[0]} y1={point(i,v)[1]} x2={point(next,n)[0]} y2={point(next,n)[1]} stroke={item.color} strokeWidth="2"/>})}{item.values.map((v, i) => v === null ? null : <circle key={i} cx={point(i, v)[0]} cy={point(i, v)[1]} r="3" fill={item.color} />)}</g>)}
@@ -29,6 +29,6 @@ export default function StrategyRadar({ agent, peers }: { agent: QuantAgent; pee
     <div className="radar-legend">{series.map((item) => <span key={item.name}><i style={{ background: item.color }} />{item.name}</span>)}</div>
     <table><thead><tr><th>维度 / 100</th><th>当前策略</th>{other ? <th>对比策略</th> : null}</tr></thead><tbody>{labels.map((label, i) => <tr key={label}><th>{label}</th><td>{scores[i] ?? '待评估'}</td>{other ? <td>{otherScores[i] ?? '待评估'}</td> : null}</tr>)}</tbody></table>
     {!comparable ? <p>两份报告的期间或类型不同，分数仅供并列查看，不代表同条件排名。</p> : null}
-    <details><summary>评分口径与数据范围</summary><p>固定线性刻度，超出范围截断至 0–100；相邻有效指标连线；缺失指标不补零、不绘制完整面积。观察长度只表示时间覆盖，不表示盈利能力。六维分数不是已验证业绩或未来收益承诺。</p><ul>{rules.map((rule, i) => <li key={rule}>{labels[i]}：{rule}</li>)}</ul><p>零回撤时收益回撤比待评估。报告：{report ? `${report.report_type === 'backtest' ? '回测' : '实盘类'} · ${report.period_start} — ${report.period_end}` : '尚未提交'}。证据是否通过验证，请查看下方证据护照。</p></details>
+    <details><summary>评分口径与数据范围</summary><p>固定线性刻度，超出范围截断至 0–100；相邻有效指标连线；缺失指标不补零、不绘制完整面积。观察长度只表示时间覆盖，不表示盈利能力。当前为六项报告指标换算，尚非完整六维评价；分数不是已验证业绩或未来收益承诺。</p><ul>{rules.map((rule, i) => <li key={rule}>{labels[i]}：{rule}</li>)}</ul><p>零回撤时收益回撤比待评估。报告：{report ? `${report.report_type === 'backtest' ? '回测' : '实盘类'} · ${report.period_start} — ${report.period_end}` : '尚未提交'}。证据是否通过验证，请查看下方证据护照。</p></details>
   </section>
 }

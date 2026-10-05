@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from app.strategy_runtime import ReleaseCreate, RunCreate, StrategyRuntimeStore
 
@@ -112,6 +113,184 @@ def test_owner_must_subscribe_to_another_users_release(runtime):
             RunCreate(release_id=published["id"], market="US", symbol="AAPL", initial_cash="10000"),
         )
     assert error.value.status_code == 403
+
+
+def test_position_constraint_monitoring_is_decimal_and_only_for_platform_candles(runtime):
+    store, _ = runtime
+    published = release(store)
+    run = store.create_run(
+        "alice",
+        RunCreate(
+            release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100",
+            behavior_position_limit_bps=6000,
+        ),
+    )
+    # The second ratio is exactly 60% and stays normal; the third is strictly
+    # above it and must be the first deviation.
+    with store._connect() as connection:
+        for time, equity, position in ((1, "100", "50"), (2, "100", "60"), (3, "100", "60.00000001")):
+            connection.execute(
+                "INSERT INTO strategy_equity VALUES (?,?,?,?,?,?,?,?,?)",
+                (run["id"], "alice", time, equity, equity, position, "1", "0", "now"),
+            )
+    detail = store.get_run("alice", run["id"], True)
+    check = detail["behavior_check"]
+    assert set(check) == {
+        "rule_version", "limit_bps", "period_start", "period_end", "snapshot_count",
+        "latest_ratio", "peak_ratio", "deviation_count", "first_deviation_at", "points",
+        "status", "reason",
+    }
+    assert detail["valuation_at"] == 3
+    assert detail["valuation_status"] == "recorded"
+    assert check["status"] == "deviation"
+    assert check["deviation_count"] == 1
+    assert check["first_deviation_at"] == 3
+    assert check["points"][1]["ratio"] == "0.6"
+    assert check["points"][2]["ratio"] == "0.6000000001"
+    assert all(set(point) == {"time", "ratio"} for point in check["points"])
+
+    with pytest.raises(HTTPException) as error:
+        store.create_run(
+            "alice",
+            RunCreate(
+                release_id=published["id"], market="CRYPTO", environment="exchange_test",
+                symbol="BTC-USD", initial_cash="100", behavior_position_limit_bps=6000,
+            ),
+        )
+    assert error.value.status_code == 422
+    with pytest.raises(HTTPException) as error:
+        store.get_run("bob", run["id"], True)
+    assert error.value.status_code == 404
+
+
+def test_position_monitoring_handles_no_snapshot_invalid_curves_and_migration(runtime):
+    store, _ = runtime
+    # Reopening an existing database repeats the additive migration safely.
+    StrategyRuntimeStore(store.data_service, store.path)
+    with store._connect() as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(strategy_runs)")}
+    assert "behavior_position_limit_bps" in columns
+
+    published = release(store)
+    run = store.create_run(
+        "alice",
+        RunCreate(
+            release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100",
+            behavior_position_limit_bps=5000,
+        ),
+    )
+    detail = store.get_run("alice", run["id"], True)
+    assert detail["valuation_at"] is None
+    assert detail["valuation_complete"] is None
+    assert detail["valuation_status"] == "missing"
+    assert detail["behavior_check"]["status"] == "insufficient_data"
+
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO strategy_equity VALUES (?,?,?,?,?,?,?,?,?)",
+            (run["id"], "alice", 1, "0", "100", "1", "1", "0", "now"),
+        )
+    detail = store.get_run("alice", run["id"], True)
+    assert detail["behavior_check"]["status"] == "insufficient_data"
+    assert detail["valuation_status"] == "incomplete"
+
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE strategy_equity SET equity='100', position_value='1' WHERE run_id=?", (run["id"],)
+        )
+        connection.execute("UPDATE strategy_runs SET status='error', latest_error='行情拉取失败' WHERE id=?", (run["id"],))
+    assert store.get_run("alice", run["id"])["valuation_status"] == "update_failed"
+
+
+def test_position_limit_bounds_old_database_migration_and_persistence(runtime):
+    store, data = runtime
+    published = release(store)
+    with store._connect() as connection:
+        connection.execute("ALTER TABLE strategy_runs DROP COLUMN behavior_position_limit_bps")
+    migrated = StrategyRuntimeStore(data, store.path)
+    with migrated._connect() as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(strategy_runs)")}
+    assert "behavior_position_limit_bps" in columns
+
+    for limit in (100, 10_000):
+        run = migrated.create_run(
+            "alice",
+            RunCreate(
+                release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100",
+                behavior_position_limit_bps=limit,
+            ),
+        )
+        restored = StrategyRuntimeStore(data, migrated.path).get_run("alice", run["id"])
+        assert restored["behavior_position_limit_bps"] == limit
+
+    base = dict(release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100")
+    for limit in (99, 10_001, 500.0, "500"):
+        with pytest.raises(ValidationError):
+            RunCreate(**base, behavior_position_limit_bps=limit)
+
+
+def test_invalid_position_snapshots_and_terminal_run_keep_valuation_context(runtime):
+    store, _ = runtime
+    published = release(store)
+    run = store.create_run(
+        "alice",
+        RunCreate(
+            release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100",
+            behavior_position_limit_bps=5000,
+        ),
+    )
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO strategy_equity VALUES (?,?,?,?,?,?,?,?,?)",
+            (run["id"], "alice", 42, "NaN", "100", "1", "1", "0", "now"),
+        )
+    invalid = store.get_run("alice", run["id"], True)
+    assert invalid["valuation_status"] == "incomplete"
+    assert invalid["behavior_check"]["status"] == "insufficient_data"
+    assert invalid["behavior_check"]["reason"] == "估值快照包含无效仓位或权益"
+
+    with store._connect() as connection:
+        connection.execute("UPDATE strategy_equity SET equity='100', position_value='-1' WHERE run_id=?", (run["id"],))
+    negative = store.get_run("alice", run["id"], True)
+    assert negative["valuation_status"] == "incomplete"
+    assert negative["behavior_check"]["status"] == "insufficient_data"
+
+    with store._connect() as connection:
+        connection.execute("UPDATE strategy_equity SET position_value='1' WHERE run_id=?", (run["id"],))
+    store.set_status("alice", run["id"], "start")
+    store.set_status("alice", run["id"], "pause")
+    paused = store.get_run("alice", run["id"])
+    assert paused["valuation_at"] == 42
+    assert paused["valuation_status"] == "recorded"
+    store.set_status("alice", run["id"], "stop")
+    stopped = store.get_run("alice", run["id"])
+    assert stopped["valuation_at"] == 42
+    assert stopped["valuation_status"] == "recorded"
+
+
+def test_position_monitoring_never_changes_candle_trade_results(runtime):
+    store, data = runtime
+    published = release(store)
+    baseline = store.create_run(
+        "alice", RunCreate(release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100")
+    )
+    monitored = store.create_run(
+        "alice",
+        RunCreate(
+            release_id=published["id"], market="CRYPTO", symbol="BTC-USD", initial_cash="100",
+            behavior_position_limit_bps=100,
+        ),
+    )
+    for run in (baseline, monitored):
+        store.set_status("alice", run["id"], "start")
+        store.tick("alice", run["id"])
+    data.frame = frame(61)
+    for run in (baseline, monitored):
+        store.tick("alice", run["id"])
+    baseline_view = store.get_run("alice", baseline["id"])
+    monitored_view = store.get_run("alice", monitored["id"])
+    for field in ("cash", "quantity", "realized_pnl", "equity", "return_rate", "last_bar_time"):
+        assert monitored_view[field] == baseline_view[field]
 
 
 def test_first_tick_only_anchors_and_next_bar_trades_once(runtime):

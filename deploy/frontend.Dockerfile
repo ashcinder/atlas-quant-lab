@@ -5,7 +5,7 @@ ENV VITE_TRINE_DEMO_MODE=$VITE_TRINE_DEMO_MODE
 ENV VITE_TRINE_TEST_PRIVATE_KEY=$VITE_TRINE_TEST_PRIVATE_KEY
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --registry=https://mirrors.cloud.tencent.com/npm/ --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 

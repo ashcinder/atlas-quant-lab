@@ -22,6 +22,7 @@ Dockerfile*
 docker-compose*
 deploy/*.sh
 deploy/*.conf
+!deploy/nginx.conf
 .dockerignore
 
 # Scripts

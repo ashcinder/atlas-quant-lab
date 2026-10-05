@@ -91,3 +91,21 @@ Python gVisor Runner, local AI configuration, Nitro attestation verification and
 ## 合并后的 OCR
 
 截图在浏览器本地识别；首次运行由 jsDelivr 加载 Tesseract worker、WASM 和语言模型。Nginx CSP 允许该域的脚本/连接、blob worker 与图片预览、WASM 编译；没有将用户截图上传到 CDN。离线首次使用仍需要预缓存模型。
+
+## 2026-09-29 HTTPS 会话整改
+
+公网 HTTPS 部署必须设置 `ATLAS_COOKIE_SECURE=true`，即使 Uvicorn 因不信任转发头而看到 HTTP，也会为注册、登录、改密及退出 Cookie 加上 Secure。`compose.yaml` 默认 false 仅用于回环 HTTP 开发，直接 HTTPS 请求仍强制 Secure。反向代理无需为此信任任意来源的 `X-Forwarded-Proto`。更新后以浏览器重新登录并检查 Cookie 属性，旧会话不会仅因修改配置而自动重发。
+
+## 本机 Supervisor 开发链
+
+`./start.sh` 使用项目内 `contracts/supervisor-src` 的已脱敏、加固版本，经 `contracts/isolated-supervisor/scripts/run-validation.sh` 创建独立 MySQL、验证签名交易与重启，然后让本机 API 连接回环 RPC `127.0.0.1:42519`。需要 Go、Node、`/usr/local/mysql/bin/mysqld`、后端虚拟环境和前端依赖。每次启动都是新的测试创世块和测试余额，退出时停止本轮启动的进程；受限临时目录保留诊断资料。若8000端口已有API，脚本直接报错，避免把旧API误称为连上新链。
+
+这条开发链不能用于恢复绑定另一创世哈希的已付款订单。正式Compose仍只运行API/Web，不自动部署或挂载Supervisor；生产RPC接入需单独审查和配置，且本机测试链通过并不证明跨MySQL/trie/block的崩溃原子性。
+
+### 当前 CI 范围更正（2026-09-30）
+
+上文三 job / Actions #34077168667 属历史版本记录，不适用于当前工作树。当前新增 `.github/workflows/ci.yml` 执行前端零警告 lint、测试、构建，以及 Python 3.12/3.14 后端完整 pytest 和锁定依赖检查；尚未提交触发远端 Actions。后端全库 Ruff 不属于本轮已通过门禁，未声明已通过。容器 smoke 仍由 `python deploy/smoke.py` 手动执行：构建需要未入库的 Linux zkVM 可执行文件，干净 GitHub runner 未配备该制品，所以本工作流不能冒充镜像构建或容器验收。候选镜像必须另留构建来源、二进制哈希和 smoke 证据。
+
+## 决赛升级发布
+
+当前部署行为、镜像来源、数据迁移及回退边界见 [FINAL_UPGRADE.md](FINAL_UPGRADE.md)。GitHub CI仅覆盖源码测试，不代替依赖固定验证器制品的容器发布验收。

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useRef } from 'react'
-import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp } from 'lucide-react'
+import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp, ShieldCheck } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
 
@@ -11,14 +11,14 @@ const JournalWorkspace = lazy(() => import('./journal/components/investment-app'
 type Session = { authenticated: boolean; registrationEnabled: boolean; email: string | null; userId?: string }
 const workspaceFromHash = () => window.location.hash.startsWith('#/trading') ? 'trading' : window.location.hash.startsWith('#/journal') ? 'journal' : 'quant'
 const titleFromHash = () => {
-  if (window.location.hash.startsWith('#/proof')) return 'Proof 验证 · Trine'
-  if (window.location.hash.startsWith('#/trading')) return '策略交易 · Trine'
+  if (window.location.hash.startsWith('#/proof')) return 'Proof 验证 · Atlas'
+  if (window.location.hash.startsWith('#/trading')) return '策略交易 · Atlas'
   if (window.location.hash.startsWith('#/journal')) {
     const tab = window.location.hash.split('/')[2]?.split('?')[0] ?? 'overview'
-    return `${({ overview: '资产总览', accounts: '我的账户', records: '投资记录', plans: '定投计划', analysis: '收益分析', trading: '自动交易账本' } as Record<string, string>)[tab] ?? '资产总览'} · Trine`
+    return `${({ overview: '资产总览', accounts: '我的账户', records: '投资记录', plans: '定投计划', analysis: '收益分析', trading: '自动交易账本' } as Record<string, string>)[tab] ?? '资产总览'} · Atlas`
   }
   const route = window.location.hash.slice(1).split('?')[0]
-  return `${({ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' } as Record<string, string>)[route] ?? '行情与回测'} · Trine`
+  return `${({ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' } as Record<string, string>)[route] ?? '行情与回测'} · Atlas`
 }
 
 export default function AtlasShell() {
@@ -50,7 +50,7 @@ export default function AtlasShell() {
   async function refreshSession() {
     const requestId = ++sessionRequest.current
     const response = await fetch('/api/session', { credentials: 'same-origin', cache: 'no-store' })
-    if (!response.ok) throw new Error('无法连接 Trine，请检查后端服务后重试。')
+    if (!response.ok) throw new Error('无法连接 Atlas，请检查后端服务后重试。')
     const next = await response.json() as Session
     if (requestId !== sessionRequest.current) return
     setStorageUser(next.authenticated ? next.userId ?? next.email ?? '' : '')
@@ -71,7 +71,7 @@ export default function AtlasShell() {
     const hash = () => {
       setProofId(proofRoute())
       const next = workspaceFromHash()
-      if (next === 'quant') setQuantHref(window.location.hash || '#single')
+      if (next === 'quant' && proofRoute() === null) setQuantHref(window.location.hash || '#single')
       setWorkspace(next)
       setVisited((current) => current[next] ? current : { ...current, [next]: true })
     }
@@ -114,18 +114,19 @@ export default function AtlasShell() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : '退出失败') }
     finally { setBusy(false) }
   }
-  if (!session) return <main className="atlas-connecting"><ChartCandlestick size={30} /><h1>Trine</h1><p role="status">{error || '正在连接你的工作台…'}</p>{error && <button onClick={() => void refreshSession().catch((cause: Error) => setError(cause.message))}>重新连接</button>}</main>
+  if (!session) return <main className="atlas-connecting"><ChartCandlestick size={30} /><h1>Atlas</h1><p role="status">{error || '正在连接你的工作台…'}</p>{error && <button onClick={() => void refreshSession().catch((cause: Error) => setError(cause.message))}>重新连接</button>}</main>
   if (!session.authenticated) return <div className="journal-root atlas-auth"><LoginScreen busy={busy} error={error} registrationEnabled={session.registrationEnabled} onAuthenticate={authenticate} /></div>
   return <div className="atlas-shell" key={session.userId ?? session.email}>
     <header className="atlas-header">
       <details ref={switcher} className="workspace-switcher"><summary><Wallet size={17} /><span>切换工作区</span><ChevronUp size={14} /></summary>
       <button className="workspace-switcher-close" onClick={() => { if (switcher.current) switcher.current.open = false }} aria-label="收起工作区切换"><X size={16} />收起</button>
       <nav className="atlas-workspaces" aria-label="主导航">
-        <a href={quantHref} aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略中心</a>
+        <a href={quantHref} aria-current={workspace === 'quant' && proofId === null ? 'page' : undefined}><ChartCandlestick size={17} />策略中心</a>
+        <a href="#/proof" aria-current={proofId !== null ? 'page' : undefined}><ShieldCheck size={17} />Proof 验证</a>
         <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />策略交易</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产总览</a>
       </nav>
-      <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Trine"><LogOut size={16} /><span>退出</span></button></div>
+      <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
       </details>
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}

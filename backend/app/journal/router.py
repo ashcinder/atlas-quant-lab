@@ -20,7 +20,7 @@ from app.auth import (
     valid_password,
     verify_password,
 )
-from app.config import ALLOW_REGISTRATION, ALLOWED_ORIGINS, AUTH_ENABLED, SESSION_SECONDS
+from app.config import ALLOW_REGISTRATION, ALLOWED_ORIGINS, AUTH_ENABLED, COOKIE_SECURE, SESSION_SECONDS
 from app.journal.domain import clear_ledger, empty_ledger, materialize_automatic, validate_ledger
 from app.journal.store import JournalStore
 
@@ -149,7 +149,7 @@ async def login(request: Request):
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=COOKIE_SECURE or request.url.scheme == "https",
     )
     return response
 
@@ -180,7 +180,7 @@ async def register(request: Request):
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=COOKIE_SECURE or request.url.scheme == "https",
     )
     return response
 
@@ -190,7 +190,10 @@ def logout(request: Request):
     if not _origin_ok(request):
         return error(403, "来源不被允许")
     response = JSONResponse({"authenticated": False})
-    response.delete_cookie(COOKIE_NAME, httponly=True, samesite="strict")
+    response.delete_cookie(
+        COOKIE_NAME, httponly=True, samesite="strict",
+        secure=COOKIE_SECURE or request.url.scheme == "https",
+    )
     return response
 
 
@@ -220,7 +223,7 @@ async def change_password(request: Request):
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=COOKIE_SECURE or request.url.scheme == "https",
     )
     return response
 

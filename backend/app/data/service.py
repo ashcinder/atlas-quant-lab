@@ -117,6 +117,8 @@ class MarketDataService:
         adjustment: str = "auto",
         source: str = "auto",
         refresh: bool = False,
+        *,
+        minimum_bars: int | None = None,
     ) -> DataBundle:
         asset = find_asset(symbol, asset_class)
         if asset.asset_class == "unknown":
@@ -131,7 +133,10 @@ class MarketDataService:
                 candidates = ["sina", "yahoo"]
         errors: list[str] = []
         stale_fallbacks: list[DataBundle] = []
-        minimum_bars = 8 if asset.exchange == "HKEX" and interval == "4h" else 30
+        if minimum_bars is None:
+            minimum_bars = 8 if asset.exchange == "HKEX" and interval == "4h" else 30
+        if minimum_bars < 1:
+            raise ValueError("minimum_bars must be positive")
         for provider_name in candidates:
             provider = self.providers[provider_name]
             if provider_name == "demo":

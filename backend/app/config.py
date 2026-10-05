@@ -2,7 +2,7 @@ import os
 import secrets
 from pathlib import Path
 
-APP_NAME = "Trine API"
+APP_NAME = "Atlas API"
 APP_VERSION = "0.3.0"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = Path(os.environ.get("ATLAS_DATA_DIR", ROOT_DIR / ".data")).expanduser()
@@ -19,6 +19,8 @@ ALLOW_REGISTRATION = os.environ.get("ATLAS_ALLOW_REGISTRATION", "true").lower() 
 SESSION_SECRET = os.environ.get("ATLAS_SESSION_SECRET", "")
 AUTH_ENABLED = True
 SESSION_SECONDS = 7 * 24 * 60 * 60
+# Explicit HTTPS deployments remain secure behind a TLS-terminating proxy.
+COOKIE_SECURE = os.environ.get("ATLAS_COOKIE_SECURE", "false").lower() == "true"
 
 for directory in (DATA_DIR, CACHE_DIR):
     directory.mkdir(parents=True, exist_ok=True)

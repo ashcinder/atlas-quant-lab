@@ -14,8 +14,8 @@ export function WorkspaceNavigation({ mode, onMode, collapsed, onCollapse }: {
   mode: WorkspaceMode; onMode: (mode: WorkspaceMode) => void; collapsed: boolean; onCollapse: () => void
 }) {
   return <aside className="workspace-navigation">
-    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Trine 首页">
-      <span className="workspace-monogram">T<span>↗</span></span><span><strong>Trine</strong></span>
+    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Atlas 首页">
+      <span className="workspace-monogram">A<span>↗</span></span><span><strong>Atlas</strong></span>
     </a>
     <nav aria-label="工作模式">{destinations.map(({ id, label, detail, icon: Icon }) => <button key={id} aria-label={label} data-tooltip={collapsed ? label : undefined} title={`${label} · ${detail}`} aria-current={mode === id ? 'page' : undefined} onClick={() => onMode(id)}>
       <Icon size={20} /><span><strong>{label}</strong></span>

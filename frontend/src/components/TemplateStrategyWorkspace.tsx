@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { api } from '../api'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
-import type { ExecutionPipeline } from './ExecutionPipelinePanel'
+import type { ExecutionPipeline } from './executionPipeline'
 
 interface Preset { name: string; strategy_id: string; params: Record<string, unknown> }
 export function TemplateStrategyWorkspace({ pipeline, storageKey, ...props }: ResearchWorkspaceProps & { pipeline: ExecutionPipeline; storageKey: string }) {

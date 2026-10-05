@@ -66,7 +66,7 @@ class BkcStore:
 
     def config(self):
         status, genesis = self.network()
-        return {'chain_id': CHAIN_ID, 'chain_name': os.getenv('TRINE_SUPERVISOR_NETWORK_LABEL','Trine Supervisor'), 'currency': 'BKC',
+        return {'chain_id': CHAIN_ID, 'chain_name': os.getenv('TRINE_SUPERVISOR_NETWORK_LABEL','Atlas Supervisor'), 'currency': 'BKC',
                 'rpc_url': os.getenv('ATLAS_WALLET_RPC_URL', self.client.rpc_url),
                 'genesis_hash': genesis, 'block_number': status.block_number}
 

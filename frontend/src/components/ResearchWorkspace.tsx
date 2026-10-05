@@ -7,7 +7,7 @@ import { api } from '../api'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import { formatNumber, formatPercent } from '../format'
 import { LabConfirmDialog } from './LabConfirmDialog'
-import type { ExecutionPipeline } from './ExecutionPipelinePanel'
+import type { ExecutionPipeline } from './executionPipeline'
 import type {
   Asset,
   BacktestResult,

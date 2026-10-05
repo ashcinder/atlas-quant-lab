@@ -1,0 +1,4 @@
+
+# Vendored MIT source retains upstream whitespace.
+contracts/supervisor-src/** -whitespace
+contracts/isolated-supervisor/patches/*.patch -whitespace

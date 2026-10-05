@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import { TemplateStrategyWorkspace } from './TemplateStrategyWorkspace'
-import { defaultPipeline } from './ExecutionPipelinePanel'
+import { defaultPipeline } from './executionPipeline'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 
 const request = vi.hoisted(() => vi.fn())

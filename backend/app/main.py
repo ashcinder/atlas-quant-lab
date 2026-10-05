@@ -589,7 +589,8 @@ def create_zkp_market_dataset(
         from app.zkp_dataset import validate_period, closed_frame
         validate_period(start, end)
         bundle = data_service.fetch(
-            symbol, asset_class, interval, start, end, adjustment, source, refresh
+            symbol, asset_class, interval, start, end, adjustment, source, refresh,
+            minimum_bars=3
         )
         frame = closed_frame(bundle.frame, interval, start, end)
         dataset = make_market_dataset(

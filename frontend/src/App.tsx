@@ -1,4 +1,4 @@
-import type { ExecutionPipeline } from './components/ExecutionPipelinePanel'
+import type { ExecutionPipeline } from './components/executionPipeline'
 import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
 import { retainChartHistory } from './backtestChart'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
@@ -169,8 +169,10 @@ export default function App() {
   }, [setMode])
 
   useEffect(() => {
+    // The shell owns Proof, trading and journal routes even when this workspace mounts hidden.
+    if (window.location.hash.startsWith('#/')) return
     if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
-    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Trine`
+    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
   }, [mode])
 
   const loadMarket = useCallback((

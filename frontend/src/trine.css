@@ -257,3 +257,14 @@
 .quant-workspace .qj-proof-box{padding:16px;margin:16px}.quant-workspace .qj-proof-node{padding:12px;min-height:64px}.quant-workspace .qj-proof-node small{font-size:11px;line-height:1.6}.quant-workspace .qj-detail .qj-proof-link{display:block;margin:16px;font-size:13px}.quant-workspace .qj-agent-row{cursor:pointer}.quant-workspace .qj-agent-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .trine-chain-card{display:grid;gap:12px;padding-top:16px;border-top:1px solid var(--border);min-width:0}.trine-chain-card h4{margin:0;font-size:13px}.trine-chain-card p,.trine-chain-card small{font-size:11px;line-height:1.7;color:var(--muted)}.trine-chain-card details{border:1px solid var(--border);border-radius:6px;padding:10px;font-size:12px}.trine-chain-card summary{cursor:pointer}.trine-chain-card code{overflow-wrap:anywhere;font-size:10px}.trine-chain-card pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:10px}
 .quant-workspace .qj-agent-name>.qj-agent-evidence{justify-self:start;justify-content:flex-start;margin-left:0}.trine-release-detail{background:var(--surface-1,#fff)}.trine-chain-card>button{padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel-raised);color:var(--text);font-size:12px}
+
+/* Keep the final ranking readable as cards on narrow screens. */
+@media(max-width:760px){
+  .quant-workspace .qj-table-head { display:none; }
+  .quant-workspace .qj-market { grid-template-rows:auto minmax(0,1fr); }
+  .quant-workspace .qj-agent-row { min-width:0; grid-template-columns:minmax(0,1fr) minmax(0,1fr) 94px; grid-template-rows:auto auto; }
+  .quant-workspace .qj-agent-row>.qj-sparkline,.quant-workspace .qj-agent-row>strong:nth-of-type(3) { display:none; }
+  .quant-workspace .qj-agent-row>strong::before { display:block; }
+  .quant-workspace .qj-agent-row>strong:nth-of-type(1)::before { content:'区间总收益'; }
+  .quant-workspace .qj-agent-row>strong:nth-of-type(2)::before { content:'最大回撤'; }
+}

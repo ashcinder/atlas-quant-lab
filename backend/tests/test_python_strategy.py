@@ -1,3 +1,4 @@
+from tests.test_strategy_runtime import record_confirmed_payment
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -96,6 +97,7 @@ def test_code_release_subscription_runtime_pause_and_resume(tmp_path, monkeypatc
             markets=["CRYPTO"],
         ),
     )
+    record_confirmed_payment(store, "bob", release["id"])
     sub = store.subscribe("bob", release["id"])
     public = store.list_releases("bob", False)[0]
     assert "python_source" not in public and "python_program" not in public

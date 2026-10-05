@@ -10,7 +10,7 @@ import './theme.css'
 import './terminal-density.css'
 import './workspace-unified.css'
 import './trine.css'
-import { applyAppearance } from './components/AppearanceSettings'
+import { applyAppearance } from './components/appearance'
 
 applyAppearance()
 

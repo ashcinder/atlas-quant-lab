@@ -28,8 +28,8 @@ export function ReleaseMarketDetail({release,compact=false}:{release:StrategyRel
  <StrategyAnchorPanel releaseId={release.id} owned={release.owned} hasProof={!!release.proof_id}/>{error&&<p role="alert">{error}</p>}</section>
 }
 export function ProofReleaseDetail({proofId}:{proofId?:string|null}) {
- const [release,setRelease]=useState<StrategyRelease|null>(null)
- const [error,setError]=useState('')
- useEffect(()=>{let active=true;setRelease(null);if(proofId)void request<StrategyRelease[]>('/strategy-releases').then(rows=>{if(active)setRelease(rows.find(r=>r.proof_id===proofId)||null)}).catch(e=>{if(active)setError(e.message)});return()=>{active=false}},[proofId])
- return release?<ReleaseMarketDetail compact key={release.id} release={release}/>:<p className="trine-no-report">{error||'此报告尚未关联可订阅的运行版本。'}</p>
+ const [result,setResult]=useState<{proofId:string;release:StrategyRelease|null;error:string}|null>(null)
+ useEffect(()=>{let active=true;if(proofId)void request<StrategyRelease[]>('/strategy-releases').then(rows=>{if(active)setResult({proofId,release:rows.find(r=>r.proof_id===proofId)||null,error:''})}).catch(e=>{if(active)setResult({proofId,release:null,error:e.message})});return()=>{active=false}},[proofId])
+ const current=result?.proofId===proofId?result:null
+ return current?.release?<ReleaseMarketDetail compact key={current.release.id} release={current.release}/>:<p className="trine-no-report">{current?.error||'此报告尚未关联可订阅的运行版本。'}</p>
 }

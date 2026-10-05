@@ -1,0 +1,471 @@
+diff --git a/chain/blockchain.go b/chain/blockchain.go
+--- a/chain/blockchain.go
++++ b/chain/blockchain.go
+@@ -353,6 +353,7 @@
+ 				Value:           tx.Value.Text(16),
+ 				Res:             res.Err.Error(),
+ 				TransactionHash: UUID,
++                Nonce: tx.Nonce,
+ 				ContractAddress: "",
+ 				GasUsed:         strconv.FormatUint(res.UsedGas, 16),
+ 				From:            tx.Sender,
+@@ -373,7 +374,12 @@
+ 			db.DB.Model(invoke).Create(&invoke)
+ 		} else {
+ 
+-			TX.Commit()
++			updated := TX.Table("account_nonce").Where("addr = ? AND nonce = ?",tx.Sender,tx.Nonce).Update("nonce",tx.Nonce+1)
++            if updated.Error != nil || updated.RowsAffected != 1 {
++                TX.Rollback(); statedb.RevertToSnapshot(snap)
++                return common.Hash{},0,errors.New("account nonce update failed"),nil
++            }
++
+ 			if res.ContractAddr != zeroAddr {
+ 				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ContractAddr[:]))
+ 				invoke := db.ContractInvoke{
+@@ -381,6 +387,7 @@
+ 					Value:           tx.Value.Text(16),
+ 					Res:             hex.EncodeToString(res.ReturnData),
+ 					TransactionHash: UUID,
++                Nonce: tx.Nonce,
+ 					ContractAddress: hex.EncodeToString(res.ContractAddr[:]),
+ 					GasUsed:         strconv.FormatUint(res.UsedGas, 16),
+ 					From:            tx.Sender,
+@@ -398,7 +405,7 @@
+ 				} else {
+ 					invoke.Type = "eth_sendtransaction"
+ 				}
+-				db.DB.Model(invoke).Create(&invoke)
++				if saveError := TX.Model(invoke).Create(&invoke).Error; saveError != nil { TX.Rollback(); statedb.RevertToSnapshot(snap); return common.Hash{},0,saveError,nil }
+ 				//bc.Storage.AddContractRes(UUID, res.ContractAddr[:])
+ 			} else {
+ 				invoke := db.ContractInvoke{
+@@ -406,6 +413,7 @@
+ 					Value:           tx.Value.Text(16),
+ 					Res:             hex.EncodeToString(res.ReturnData),
+ 					TransactionHash: UUID,
++                Nonce: tx.Nonce,
+ 					//ContractAddress: hex.EncodeToString(res.ContractAddr[:]),
+ 					ContractAddress: "",
+ 					GasUsed:         strconv.FormatUint(res.UsedGas, 16),
+@@ -425,7 +433,7 @@
+ 					invoke.Type = "eth_sendtransaction"
+ 				}
+ 				fmt.Println("UUID为" + UUID + ",执行结果为" + hex.EncodeToString(res.ReturnData))
+-				db.DB.Model(invoke).Create(&invoke)
++				if saveError := TX.Model(invoke).Create(&invoke).Error; saveError != nil { TX.Rollback(); statedb.RevertToSnapshot(snap); return common.Hash{},0,saveError,nil }
+ 				//bc.Storage.AddContractRes(UUID, res.ReturnData)
+ 			}
+ 		}
+@@ -437,6 +445,7 @@
+ 			Value:           tx.Value.Text(16),
+ 			Res:             err.Error(),
+ 			TransactionHash: UUID,
++                Nonce: tx.Nonce,
+ 			ContractAddress: "",
+ 			//GasUsed: strconv.FormatUint(res.UsedGas, 16),
+ 			GasUsed:      strconv.FormatUint(0, 16),
+@@ -457,6 +466,8 @@
+ 		}
+ 		db.DB.Model(invoke).Create(&invoke)
+ 	}
++
++ if res != nil && res.Err == nil && err == nil { if commitError := TX.Commit().Error; commitError != nil { statedb.RevertToSnapshot(snap); return common.Hash{},0,commitError,nil } }
+ 
+ 	//bc.Storage.DataBase.Sync()
+ 	if err != nil {
+@@ -724,6 +735,7 @@
+ func (bc *BlockChain) NewGenisisBlock2(txs []*core.Transaction, hash common.Hash) *core.Block {
+ 	bh := &core.BlockHeader{
+ 		Number: 0,
++		Time:   time.Now().UTC(),
+ 	}
+ 	bh.StateRoot = hash.Bytes()
+ 	bh.TxRoot = GetTxTreeRoot(txs)
+@@ -738,6 +750,7 @@
+ 	body := make([]*core.Transaction, 0)
+ 	bh := &core.BlockHeader{
+ 		Number: 0,
++		Time:   time.Now().UTC(),
+ 	}
+ 	statusTrie := trie.NewEmpty(bc.triedb)
+ 
+diff --git a/supervisor/eth_rpc.go b/supervisor/eth_rpc.go
+--- a/supervisor/eth_rpc.go
++++ b/supervisor/eth_rpc.go
+@@ -17,7 +17,9 @@
+ 	"log"
+ 	"math/big"
+ 	"math/rand"
++	"os"
+ 	"net/http"
++ "net"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+@@ -44,7 +46,10 @@
+ 	if err := r.SetTrustedProxies([]string{"127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+ 		log.Fatal(err)
+ 	}
+-	r.Use(CorsConfig())
++	r.Use(func(c *gin.Context) {
++  if c.GetHeader("Origin") != "" { c.AbortWithStatus(http.StatusForbidden); return }
++  c.Next()
++ })
+ 
+ 	// 每sec 30 次请求
+ 	rate, _ := limiter.NewRateFromFormatted("30-S")
+@@ -90,7 +95,6 @@
+ 			Jsonrpc: "2.0",
+ 			Id:      request.Id,
+ 		}
+-		log.Printf("method: %v, req : %v \n", request.Method, request.Params)
+ 		switch request.Method {
+ 		case "eth_gasPrice":
+ 			response.Result = d.eth_gasPrice(request)
+@@ -123,7 +127,7 @@
+ 		case "eth_sendRawTransaction":
+ 			aaa, e3 := d.eth_sendRawTransaction(request)
+ 			if e3 != nil {
+-				response.Error = aaa
++				response.Error = map[string]interface{}{"code": -32000, "message": e3.Error()}
+ 			} else {
+ 				response.Result = aaa
+ 			}
+@@ -131,7 +135,15 @@
+ 		c.JSON(http.StatusOK, response)
+ 		return
+ 	})
+-	err := http.ListenAndServe(":42515", r)
++	addr := os.Getenv("ATLAS_SUPERVISOR_RPC_ADDR")
++	if addr == "" {
++		addr = "127.0.0.1:42515"
++	}
++	host, _, addressError := net.SplitHostPort(addr)
++ if addressError != nil || (host != "127.0.0.1" && host != "::1") {
++  log.Fatal("isolated RPC requires an explicit loopback address")
++ }
++ err := http.ListenAndServe(addr, r)
+ 	if err != nil {
+ 		log.Println(err)
+ 	}
+@@ -274,23 +286,12 @@
+ }
+ 
+ func (d *Supervisor) eth_getTransactionCount(request RpcRequest) interface{} {
+-	from, ok := request.Params[0].(string)
+-	if !ok {
+-		return nil
+-	}
+-	height, ok := request.Params[1].(string)
+-	if !ok {
+-		return nil
+-	}
+-	var count int64
+-	err := db.DB.Model(&TX{}).Where("`from` = ?", from[2:]).Count(&count).Error
+-	if err != nil {
+-		log.Printf("eth_getTransactionCount err : %v \n", err)
+-		return nil
+-	}
+-	cnt := fmt.Sprintf("0x%x", count)
+-	log.Printf("from %v, height: %v count : %v \n", from, height, cnt)
+-	return cnt
++ if len(request.Params) < 1 { return nil }
++ from, ok := request.Params[0].(string)
++ if !ok || !common.IsHexAddress(from) { return nil }
++ var row AccountNonce
++ if db.DB.Where("addr = ?", strings.ToLower(strings.TrimPrefix(from,"0x"))).First(&row).Error != nil { return "0x0" }
++ return fmt.Sprintf("0x%x", row.Nonce)
+ }
+ 
+ func (d *Supervisor) net_version(request RpcRequest) interface{} {
+@@ -506,7 +507,7 @@
+ 		GasPrice:         "0x" + contractInvoke.GasPrice,
+ 		Hash:             "0x" + contractInvoke.TransactionHash,
+ 		Input:            "0x" + contractInvoke.Input,
+-		Nonce:            "0x" + fmt.Sprintf("%x", contractInvoke.BlockNumber),
++		Nonce:            "0x" + fmt.Sprintf("%x", contractInvoke.Nonce),
+ 		To:               "0x" + contractInvoke.To,
+ 		TransactionIndex: "0x0",
+ 		Value:            "0x" + contractInvoke.Value,
+@@ -519,113 +520,22 @@
+ }
+ 
+ func (d *Supervisor) eth_call(request RpcRequest) interface{} {
+-	obj := request.Params[0].(map[string]interface{})
+-
+-	log.Printf("eth_call from : %+v \n", obj)
+-	to := ""
+-	if obj["to"] != nil {
+-		to = obj["to"].(string)
+-	}
+-	value := ""
+-	if obj["value"] != nil {
+-		value = obj["value"].(string)
+-	}
+-	input1 := ""
+-	if obj["data"] != nil {
+-		input1 = obj["data"].(string)
+-	} else if obj["input"] != nil {
+-		input1 = obj["input"].(string)
+-	}
+-
+-	addr := ""
+-	if obj["from"] != nil {
+-		addr = obj["from"].(string)
+-	}
+-	if len(addr) > 2 && addr[:2] == "0x" {
+-		addr = addr[2:]
+-	}
+-
+-	req := CallContractReq{
+-		To:    to,
+-		Data:  input1,
+-		Value: value,
+-	}
+-	if !checkaccexist2(addr) {
+-		return nil
+-	}
+-	IP := ""
+-
+-	Lock.Lock()
+-	defer Lock.Unlock()
+-
+-	log.Printf("eth_call from : %+v \n", req)
+-
+-	var acc1 Account
+-	if err := db.DB.Model(acc1).Where("addr = ?", addr).Find(&acc1).Error; err != nil {
+-		return nil
+-	}
+-
+-	if req.To != "" && strings.HasPrefix(req.To, "0x") {
+-		req.To = req.To[2:]
+-	} else {
+-
+-	}
+-	val := new(big.Int)
+-	if strings.HasPrefix(req.Value, "0x") {
+-		req.Value = req.Value[2:]
+-	}
+-	_, success := val.SetString(req.Value, 16)
+-	if !success {
+-		return nil
+-	}
+-	inp := []byte{}
+-	if strings.HasPrefix(req.Data, "0x") {
+-		inp, _ = hex.DecodeString(req.Data[2:])
+-	}
+-	con := Config{}
+-	db.DB.Model(con).Where("config = ?", "roothash").Find(&con)
+-	root, _ := hex.DecodeString(con.Value)
+-	var (
+-		gp         = new(vm.GasPool).AddGas(2000000)
+-		statedb, _ = state.New(common.Hash(root), d.Statedb)
+-	)
+-
+-	tx := core.NewTransaction2(addr, req.To, val, 0, time.Now(), inp)
+-	tx.Data = inp
+-	randomBytes := make([]byte, 32)
+-	_, _ = rand.Read(randomBytes)
+-	hexString := hex.EncodeToString(randomBytes)
+-
+-	tx1 := db.DB.Begin()
+-
+-	hash, _, _, _ := chain.ExeTx(tx, statedb, d.CurChain.CurrentBlock.Header, d.CurChain, 0, gp, hexString, tx1, false, true, IP)
+-
+-	d.Root = hash
+-	err2 := d.Triedb.Commit(hash, false)
+-	if err2 != nil {
+-		log.Printf("d.Triedb.Commit(hash, false): %v", err2)
+-	}
+-	conf := Config{}
+-	db.DB.Model(conf).Where("config = ?", "roothash").Find(&conf)
+-	conf.Value = hex.EncodeToString(hash[:])
+-	db.DB.Model(conf).Where("id = ?", conf.Id).Update(&conf)
+-
+-	txs := make([]*core.Transaction, 0)
+-	txs = append(txs, tx)
+-	block := d.CurChain.GenerateBlock2(txs, hash)
+-	d.CurChain.AddBlock2(block)
+-
+-	var invoke2 db.ContractInvoke
+-	if db.DB.Model(invoke2).Order("id DESC").First(&invoke2).Error == nil {
+-		invoke2.BlockHash = hex.EncodeToString(block.Hash)
+-		invoke2.BlockNumber = int(block.Header.Number)
+-		db.DB.Model(invoke2).Where("id = ?", invoke2.Id).Update(&invoke2)
+-	}
+-
+-	invoke := db.ContractInvoke{}
+-	db.DB.Model(invoke).Where("hash = ?", hexString).Find(&invoke)
+-	log.Printf("invoke: %+v \n", invoke)
+-	return "0x" + invoke.Res
++ if len(request.Params) < 1 { return nil }
++ obj, ok := request.Params[0].(map[string]interface{}); if !ok { return nil }
++ from, _ := obj["from"].(string); to, _ := obj["to"].(string)
++ if !common.IsHexAddress(from) || !common.IsHexAddress(to) { return nil }
++ value, _ := obj["value"].(string); if value == "" { value = "0x0" }
++ val, valid := new(big.Int).SetString(strings.TrimPrefix(value,"0x"),16); if !valid { return nil }
++ data, _ := obj["data"].(string); if data == "" { data, _ = obj["input"].(string) }
++ input, err := hex.DecodeString(strings.TrimPrefix(data,"0x")); if err != nil { return nil }
++ Lock.Lock(); defer Lock.Unlock()
++ con := Config{}; if db.DB.Where("config = ?", "roothash").First(&con).Error != nil { return nil }
++ root, err := hex.DecodeString(con.Value); if err != nil { return nil }
++ statedb, err := state.New(common.Hash(root),d.Statedb); if err != nil { return nil }
++ tx := core.NewTransaction2(strings.ToLower(strings.TrimPrefix(from,"0x")),strings.ToLower(strings.TrimPrefix(to,"0x")),val,0,time.Now(),input)
++ result, err := chain.IsolatedReadOnlyCall(tx,statedb,d.CurChain.CurrentBlock.Header,d.CurChain)
++ if err != nil { return nil }
++ return "0x"+hex.EncodeToString(result)
+ }
+ 
+ func (d *Supervisor) eth_sendRawTransaction(request RpcRequest) (interface{}, error) {
+@@ -636,7 +546,6 @@
+ 		log.Printf("rawTx.UnmarshalBinary(common.FromHex(rawHex)): %v", err)
+ 		return nil, errors.New("rawTx.UnmarshalBinary(common.FromHex(rawHex))")
+ 	}
+-	log.Printf("rawHex: %v, rawTx: %+v \n", rawHex, rawTx)
+ 	var to string
+ 	if rawTx.To() == nil {
+ 		to = ""
+@@ -667,8 +576,22 @@
+ 	}
+ 	log.Printf("eth_sendRawTransaction from : %+v \n", req)
+ 	IP := ""
+-	d.Lock.RLock()
+-	defer d.Lock.RUnlock()
++	if rawTx.Type() != types.LegacyTxType { return nil, errors.New("only legacy transactions supported") }
++ if rawTx.ChainId().Cmp(big.NewInt(1051)) != 0 {
++		return nil, errors.New("unexpected chain ID")
++	}
++	rawHash := strings.TrimPrefix(rawTx.Hash().Hex(), "0x")
++	Lock.Lock()
++	defer Lock.Unlock()
++	var known db.ContractInvoke
++	if db.DB.Where("hash = ?", rawHash).First(&known).Error == nil {
++		return "0x" + rawHash, nil
++	}
++	var nonce AccountNonce
++ if err := db.DB.Where("addr = ?", addr).First(&nonce).Error; err != nil { return nil, err }
++ if rawTx.Nonce() != nonce.Nonce { return nil, errors.New("unexpected account nonce") }
++ d.Lock.RLock()
++ defer d.Lock.RUnlock()
+ 
+ 	var acc1 Account
+ 	if err := db.DB.Model(acc1).Where("addr = ?", addr).Find(&acc1).Error; err != nil {
+@@ -706,13 +629,14 @@
+ 	conf1 := Config{}
+ 	db.DB.Model(conf1).Where("config = ?", "gasprice").Find(&conf1)
+ 
+-	gasp, _ := new(big.Int).SetString(conf1.Value, 10)
++	gasp, validGasPrice := new(big.Int).SetString(conf1.Value, 10)
++ if !validGasPrice || rawTx.GasPrice().Cmp(gasp) != 0 { return nil, errors.New("unexpected gas price") }
+ 	mgval := new(big.Int).SetUint64(rawTx.Gas())
+ 	mgval.Mul(mgval, gasp)
+ 	bigInt := new(big.Int)
+ 	bigInt.SetString(acc1.Value, 10)
+ 
+-	if bigInt.Cmp(mgval) < 0 {
++	if bigInt.Cmp(new(big.Int).Add(mgval,val)) < 0 {
+ 		return nil, errors.New("not have enough token")
+ 	}
+ 
+@@ -724,17 +648,16 @@
+ 		gp         = new(vm.GasPool).AddGas(rawTx.Gas())
+ 		statedb, _ = state.New(common.Hash(root), d.Statedb)
+ 	)
+-	tx := core.NewTransaction2(addr, req.To, val, 0, time.Now(), inp)
++	tx := core.NewTransaction2(addr, req.To, val, rawTx.Nonce(), time.Now(), inp)
+ 	tx.Data = inp
+ 	tx.SC = true
+-	randomBytes := make([]byte, 32)
+-	_, _ = rand.Read(randomBytes)
+-	hexString := hex.EncodeToString(randomBytes)
++	hexString := rawHash
+ 
+ 	tx1 := db.DB.Begin()
+ 	blockHeader := d.CurChain.GenerateBlockHeader()
+ 	log.Printf("run tx : %+v \n", tx)
+ 	hash, _, eee, clpatxs := chain.ExeTx(tx, statedb, blockHeader, d.CurChain, 0, gp, hexString, tx1, false, false, IP)
++ if eee != nil { return nil, eee }
+ 	if clpatxs != nil && len(clpatxs) > 0 {
+ 		for _, arr := range clpatxs {
+ 			go func() {
+@@ -805,7 +728,7 @@
+ 	}
+ 	if eee != nil {
+ 		log.Printf("eee: %v", eee)
+-		return nil, err
++		return nil, eee
+ 	}
+ 	return "0x" + hexString, nil
+ }
+diff --git a/supervisor/supervisor.go b/supervisor/supervisor.go
+--- a/supervisor/supervisor.go
++++ b/supervisor/supervisor.go
+@@ -187,7 +187,10 @@
+ 
+ 
+ func (d *Supervisor) BuildBlockChain() {
+-	fp := "./expTest2"
++	fp := os.Getenv("ATLAS_SUPERVISOR_LEVELDB_DIR")
++	if fp == "" {
++		fp = "./expTest2"
++	}
+ 	exist := true
+ 	if _, err := os.Stat(fp); err != nil {
+ 		exist = false
+diff --git a/db/db.go b/db/db.go
+--- a/db/db.go
++++ b/db/db.go
+@@ -73,19 +73,20 @@
+ 	return "contract"
+ }
+ type ContractInvoke struct {
++ Nonce uint64 `gorm:"column:nonce;type:bigint unsigned"`
+ 	Id              uint64    `gorm:"primary_key;column:id;AUTO_INCREMENT" json:"id,omitempty"`
+ 	Success         int       `gorm:"column:success;type:int" json:"success,omitempty"`
+-	Value           string    `gorm:"column:value;type:string" json:"value,omitempty"`
++	Value           string    `gorm:"column:value;type:varchar(255)" json:"value,omitempty"`
+ 	TransactionHash string    `gorm:"column:hash;type:varchar(255)" json:"transaction_hash,omitempty"`
+ 	ContractAddress string    `gorm:"column:contract_address;type:varchar(255)" json:"contract_address,omitempty"`
+ 	GasUsed         string    `gorm:"column:gas_used" json:"gas_used,omitempty"`
+ 	From            string    `gorm:"column:from" json:"from,omitempty"`
+ 	To              string    `gorm:"column:to" json:"to,omitempty"`
+-	Input           string    `gorm:"column:input" json:"input,omitempty"`
+-	DecodedInput    string    `gorm:"column:decoded_input" json:"decoded_input,omitempty"`
++	Input           string    `gorm:"column:input;type:longtext" json:"input,omitempty"`
++	DecodedInput    string    `gorm:"column:decoded_input;type:longtext" json:"decoded_input,omitempty"`
+ 	Type            string    `gorm:"column:type" json:"type,omitempty"`
+ 	GasPrice        string    `gorm:"column:gas_price" json:"gas_price,omitempty"`
+-	Res             string    `gorm:"column:res" json:"res,omitempty"`
++	Res             string    `gorm:"column:res;type:longtext" json:"res,omitempty"`
+ 	Time            int       `gorm:"column:time" json:"time,omitempty"`
+ 	BlockNumber     int       `gorm:"column:block_number" json:"block_number,omitempty"`
+ 	Timestamp       time.Time `gorm:"column:timestamp" json:"timestamp"`
+@@ -101,11 +102,11 @@
+ //	GasUsed string `gorm:"column:gas_used"`
+ //	From string `gorm:"column:from"`
+ //	To string `gorm:"column:to"`
+-//	Input string `gorm:"column:input"`
+-//	DecodedInput string `gorm:"column:decoded_input"`
++//	Input string `gorm:"column:input;type:longtext"`
++//	DecodedInput string `gorm:"column:decoded_input;type:longtext"`
+ //	Type string `gorm:"column:type"`
+ //	GasPrice string `gorm:"column:gas_price"`
+-//	Res string `gorm:"column:res"`
++//	Res string `gorm:"column:res;type:longtext"`
+ //	Time int `gorm:"column:time"`
+ //	BlockNumber int `gorm:"column:block_number"`
+ //	Timestamp time.Time `gorm:"column:timestamp"`
+diff --git a/supervisor/model.go b/supervisor/model.go
+--- a/supervisor/model.go
++++ b/supervisor/model.go
+@@ -303,3 +303,9 @@
+ func (*Beat) TableName() string {
+ 	return "beat"
+ }
++// Isolated RPC nonce persisted separately from transaction ledger rows.
++type AccountNonce struct {
++ Addr string `gorm:"column:addr;type:varchar(40);primary_key"`
++ Nonce uint64 `gorm:"column:nonce;type:bigint unsigned"`
++}
++func (*AccountNonce) TableName() string { return "account_nonce" }

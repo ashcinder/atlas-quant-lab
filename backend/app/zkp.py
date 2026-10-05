@@ -250,6 +250,13 @@ class ZkProofStore:
                     ON qj_zk_proofs(agent_id, created_at DESC);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_qj_zk_proofs_report
                     ON qj_zk_proofs(report_id) WHERE report_id IS NOT NULL;
+                CREATE TABLE IF NOT EXISTS qj_proof_imports (
+                    proof_id TEXT PRIMARY KEY REFERENCES qj_zk_proofs(id) ON DELETE CASCADE,
+                    origin_kind TEXT NOT NULL CHECK(origin_kind = 'local_isolated_proof'),
+                    payment_scope TEXT NOT NULL CHECK(payment_scope = 'test_chain_only'),
+                    source_proof_hash TEXT NOT NULL UNIQUE,
+                    imported_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS qj_market_datasets (
                     market_data_hash TEXT PRIMARY KEY,
                     source TEXT NOT NULL,
@@ -522,9 +529,31 @@ class ZkProofStore:
             row = connection.execute(
                 "SELECT * FROM qj_zk_proofs WHERE id = ?", (proof_id,)
             ).fetchone()
+            origin = connection.execute(
+                "SELECT origin_kind, payment_scope, imported_at FROM qj_proof_imports WHERE proof_id = ?",
+                (proof_id,),
+            ).fetchone()
         if row is None:
             raise KeyError(proof_id)
-        return self._public(row)
+        result = self._public(row)
+        result["import_origin"] = dict(origin) if origin else None
+        return result
+
+    def list_imported(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT p.*, i.origin_kind, i.payment_scope, i.imported_at "
+                "FROM qj_proof_imports i JOIN qj_zk_proofs p ON p.id = i.proof_id "
+                "WHERE p.status = 'verified' ORDER BY i.imported_at DESC"
+            ).fetchall()
+        return [
+            {**self._public(row), "import_origin": {
+                "origin_kind": row["origin_kind"],
+                "payment_scope": row["payment_scope"],
+                "imported_at": row["imported_at"],
+            }}
+            for row in rows
+        ]
 
     def get_verified_for_agent(self, proof_id: str, agent_id: str) -> sqlite3.Row:
         with self._connect() as connection:

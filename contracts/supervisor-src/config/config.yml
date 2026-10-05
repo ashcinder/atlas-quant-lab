@@ -1,0 +1,8 @@
+db:
+  host: 127.0.0.1
+  port: 3306
+  database: atlas_supervisor_example
+  user: atlas_supervisor
+
+  passwd: ""
+  log_mod: 1

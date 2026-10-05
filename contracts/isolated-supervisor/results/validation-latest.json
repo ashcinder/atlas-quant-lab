@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-30T02:22:06.001Z",
+  "network": {
+    "isolated": true,
+    "loopbackOnly": true,
+    "chainId": 1051
+  },
+  "beforeRestart": {
+    "phase": "before_restart",
+    "checkedSecurity": {
+      "wrongNonceRejected": true,
+      "wrongChainRejected": true,
+      "wrongGasRejected": true,
+      "insufficientBalanceRejected": true,
+      "ethCallReadOnly": true,
+      "browserOriginRejected": true,
+      "staleNonceRejected": true
+    },
+    "chainId": 1051,
+    "genesis": {
+      "hash": "0x541736cad1df8d8a61718647583357d2952cf68464eaf2c029f1c2e68769d8b5",
+      "timestamp": "0x6abc724a"
+    },
+    "transactionHash": "0x6116284f17fa094eb1d72973569b3154835f67b5c220cd53b6d0e24af6c1a610",
+    "receipt": {
+      "status": "0x1",
+      "blockHash": "0x552e2d8d124d02bab5fc3e54faf50ad2a8367507c60c6f0755dd85ca99c431be",
+      "blockNumber": "0x1"
+    },
+    "latest": {
+      "hash": "0x552e2d8d124d02bab5fc3e54faf50ad2a8367507c60c6f0755dd85ca99c431be",
+      "number": "0x1",
+      "timestamp": "0x6abc724c"
+    },
+    "addresses": {
+      "payer": "0xe60AaAaB0bA094eF7F9E05Ef68Dce6fA1B1875b6",
+      "recipient": "0xEE28ca8268004d3b95b53547f49032257Ccc770d",
+      "feeSink": "0x1CF73835e52fF1C37178BF491718cCf4CBF976A5"
+    },
+    "balances": {
+      "payer": "999999998909367999987712",
+      "recipient": "1000000000000000"
+    },
+    "duplicateSubmission": {
+      "hash": "0x6116284f17fa094eb1d72973569b3154835f67b5c220cd53b6d0e24af6c1a610",
+      "blockNumber": "0x1"
+    }
+  },
+  "afterRestart": {
+    "genesis": {
+      "hash": "0x541736cad1df8d8a61718647583357d2952cf68464eaf2c029f1c2e68769d8b5",
+      "timestamp": "0x6abc724a"
+    },
+    "latest": {
+      "hash": "0x552e2d8d124d02bab5fc3e54faf50ad2a8367507c60c6f0755dd85ca99c431be",
+      "number": "0x1",
+      "timestamp": "0x6abc724c"
+    },
+    "transactionHash": "0x6116284f17fa094eb1d72973569b3154835f67b5c220cd53b6d0e24af6c1a610",
+    "receipt": {
+      "status": "0x1",
+      "blockHash": "0x552e2d8d124d02bab5fc3e54faf50ad2a8367507c60c6f0755dd85ca99c431be",
+      "blockNumber": "0x1"
+    },
+    "balances": {
+      "payer": "999999998909367999987712",
+      "recipient": "1000000000000000"
+    }
+  },
+  "assertions": {
+    "wrongNonceRejected": true,
+    "wrongChainRejected": true,
+    "wrongGasRejected": true,
+    "insufficientBalanceRejected": true,
+    "ethCallReadOnly": true,
+    "browserOriginRejected": true,
+    "staleNonceRejected": true,
+    "noncePersistedAcrossRestart": true,
+    "cleanDatabaseBootstrapped": true,
+    "genesisTimestampPositive": true,
+    "canonicalSignedTransactionHash": true,
+    "duplicateSubmissionIdempotent": true,
+    "recipientBalanceUpdated": true,
+    "longOrderPayloadAccepted": true,
+    "statePersistedAcrossRestart": true
+  }
+}
