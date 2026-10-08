@@ -76,6 +76,8 @@ describe('QuantJudge evidence and navigation', () => {
   it('never treats the presence of a signature as a completed verification', async () => {
     await openMarket()
     expect(screen.getByText('业绩证据待验证')).toBeTruthy()
+    expect(screen.queryByText('已确认于区块 #42')).toBeNull()
+    expect(screen.getByText('自报 LIVE 类报告（含演示）')).toBeTruthy()
     expect(screen.queryByText('平台业绩已复核')).toBeNull()
     vi.mocked(api.verifyQuantReport).mockResolvedValue(verified)
     fireEvent.click(screen.getByRole('button', { name: '验证证据' }))
@@ -83,6 +85,14 @@ describe('QuantJudge evidence and navigation', () => {
     // A fresh failed chain check must override a previously cached confirmation.
     expect(screen.queryByText('已确认于区块 #42')).toBeNull()
     expect(screen.getByText('平台业绩已复核')).toBeTruthy()
+  })
+
+  it('shows legacy anchors as awaiting network identity and never confirms mismatched payloads', async () => {
+    await openMarket()
+    vi.mocked(api.verifyQuantReport).mockResolvedValue({ ...verified, chain: { status: 'network_identity_pending', transaction_hash: 'tx', block_number: 42 } })
+    fireEvent.click(screen.getByRole('button', { name: '验证证据' }))
+    await screen.findByText('网络身份待确认')
+    expect(screen.queryByText('已确认于区块 #42')).toBeNull()
   })
 
   it('discards a late verification after selecting another strategy', async () => {

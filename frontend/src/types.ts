@@ -385,7 +385,7 @@ export interface QuantReport {
   zk_proof_id?: string | null
   evidence_level?: 'platform_attested' | 'zk_verified'
   chain_tx_hash: string | null
-  chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable'
+  chain_status: 'not_anchored' | 'submitted' | 'confirmed' | 'failed' | 'unreachable' | 'network_identity_pending' | 'wrong_chain' | 'network_mismatch' | 'transaction_mismatch' | 'receipt_mismatch' | 'payload_mismatch' | 'block_mismatch' | 'noncanonical'
   chain_block_number: number | null
   score: number
   score_version?: 'legacy_evidence_v1'
@@ -461,7 +461,7 @@ export interface QuantVerification {
   evidence_level?: string
   proof_file_integrity_valid?: boolean | null
   proof_cryptographic_valid?: boolean | null
-  chain: { status: string; transaction_hash: string | null; block_number: number | null; error?: string; payload_matches?: boolean }
+  chain: { status: string; transaction_hash: string | null; block_number: number | null; error?: string; payload_matches?: boolean; stored_status?: string; chain_id?: number | null; genesis_hash?: string | null; block_hash?: string | null; network_identity_matches?: boolean | null; canonical_block_matches?: boolean; confirmation?: string }
   proof_scope: string[]
   limitations: string[]
 }

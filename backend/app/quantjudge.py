@@ -234,7 +234,10 @@ class QuantJudgeStore:
                     external_proof_json TEXT,
                     chain_tx_hash TEXT,
                     chain_status TEXT NOT NULL DEFAULT 'not_anchored',
+                    chain_id INTEGER,
+                    chain_genesis_hash TEXT,
                     chain_block_number INTEGER,
+                    chain_block_hash TEXT,
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_qj_reports_agent_created
@@ -266,6 +269,20 @@ class QuantJudgeStore:
                     "ALTER TABLE qj_reports ADD COLUMN evidence_level TEXT NOT NULL "
                     "DEFAULT 'platform_attested'"
                 )
+            if "chain_id" not in columns:
+                connection.execute("ALTER TABLE qj_reports ADD COLUMN chain_id INTEGER")
+            if "chain_genesis_hash" not in columns:
+                connection.execute("ALTER TABLE qj_reports ADD COLUMN chain_genesis_hash TEXT")
+            if "chain_block_hash" not in columns:
+                connection.execute("ALTER TABLE qj_reports ADD COLUMN chain_block_hash TEXT")
+            # Existing anchors predate network identity binding. Preserve their
+            # transaction evidence, but never keep presenting them as confirmed.
+            connection.execute(
+                """UPDATE qj_reports
+                   SET chain_status = 'network_identity_pending'
+                   WHERE chain_tx_hash IS NOT NULL
+                     AND (chain_id IS NULL OR chain_genesis_hash IS NULL)"""
+            )
             subscription_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(qj_subscriptions)")
@@ -301,6 +318,39 @@ class QuantJudgeStore:
             raise PermissionError("演示 Agent 为只读样本")
         if not hmac.compare_digest(row["developer_token_hash"], self._token_hash(token)):
             raise PermissionError("开发者凭证无效")
+        return row
+
+    def _assert_anchor_token(self, report_id: str, token: str | None) -> sqlite3.Row:
+        """Allow an imported isolated demo to anchor, without making it generally writable."""
+        if not token:
+            raise PermissionError("缺少开发者凭证")
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT a.*, r.zk_proof_id AS report_zk_proof_id
+                   FROM qj_reports r JOIN qj_agents a ON a.id = r.agent_id
+                   WHERE r.id = ?""",
+                (report_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(report_id)
+            if not hmac.compare_digest(
+                row["developer_token_hash"], self._token_hash(token)
+            ):
+                raise PermissionError("开发者凭证无效")
+            if row["is_demo"]:
+                imports_table = connection.execute(
+                    """SELECT 1 FROM sqlite_master
+                       WHERE type = 'table' AND name = 'qj_proof_imports'"""
+                ).fetchone()
+                imported = None
+                if imports_table and row["report_zk_proof_id"]:
+                    imported = connection.execute(
+                        """SELECT origin_kind FROM qj_proof_imports
+                           WHERE proof_id = ?""",
+                        (row["report_zk_proof_id"],),
+                    ).fetchone()
+                if imported is None or imported["origin_kind"] != "local_isolated_proof":
+                    raise PermissionError("演示 Agent 为只读样本")
         return row
 
     def create_agent(self, request: QuantAgentCreate) -> dict[str, Any]:
@@ -408,6 +458,9 @@ class QuantJudgeStore:
         metrics = payload.get("metrics", {}) if receipt_integrity else {}
         external = payload.get("external_proof") if receipt_integrity else None
         zk_verified = bool(row["zk_proof_id"]) and row["evidence_level"] == "zk_verified"
+        chain_status = row["chain_status"]
+        if row["chain_tx_hash"] and (row["chain_id"] is None or not row["chain_genesis_hash"]):
+            chain_status = "network_identity_pending"
         performance_score = self._performance_score(
             metrics, receipt_integrity and curve_integrity is not False
         )
@@ -429,9 +482,12 @@ class QuantJudgeStore:
             "zk_proof_id": row["zk_proof_id"],
             "evidence_level": row["evidence_level"],
             "chain_tx_hash": row["chain_tx_hash"],
-            "chain_status": row["chain_status"],
+            "chain_status": chain_status,
+            "chain_id": row["chain_id"],
+            "chain_genesis_hash": row["chain_genesis_hash"],
             "chain_block_number": row["chain_block_number"],
-            "score": self._score(metrics, row["report_type"], row["chain_status"], zk_verified)
+            "chain_block_hash": row["chain_block_hash"],
+            "score": self._score(metrics, row["report_type"], chain_status, zk_verified)
             if receipt_integrity
             else 0,
             "score_version": "legacy_evidence_v1",
@@ -767,51 +823,193 @@ class QuantJudgeStore:
             ]
         )
         curve_integrity_valid = self._curve_integrity(row, payload)
+        stored_chain_status = row["chain_status"]
+        if row["chain_tx_hash"] and (row["chain_id"] is None or not row["chain_genesis_hash"]):
+            stored_chain_status = "network_identity_pending"
         chain_result: dict[str, Any] = {
-            "status": row["chain_status"],
+            "status": stored_chain_status,
+            "stored_status": stored_chain_status,
             "transaction_hash": row["chain_tx_hash"],
+            "chain_id": row["chain_id"],
+            "genesis_hash": row["chain_genesis_hash"],
             "block_number": row["chain_block_number"],
+            "block_hash": row["chain_block_hash"],
+            "network_identity": (
+                "bound"
+                if row["chain_id"] is not None and row["chain_genesis_hash"]
+                else "pending"
+            ),
+            "network_identity_matches": None,
         }
+        if not refresh_chain and row["chain_tx_hash"] and stored_chain_status != "network_identity_pending":
+            chain_result["status"] = "not_checked_this_session"
         if refresh_chain and row["chain_tx_hash"]:
-            try:
-                supervisor_status = self.supervisor.status()
-                if not supervisor_status.connected:
-                    raise SupervisorRPCError(supervisor_status.error or "Supervisor RPC 不可用")
-                if supervisor_status.chain_id != 1051:
-                    chain_result.update(
-                        status="wrong_chain",
-                        observed_chain_id=supervisor_status.chain_id,
-                    )
-                    raise SupervisorRPCError(
-                        f"Supervisor 链 ID 不匹配: {supervisor_status.chain_id}, 期望 1051"
-                    )
-                receipt = self.supervisor.transaction_receipt(row["chain_tx_hash"])
-                transaction = self.supervisor.transaction(row["chain_tx_hash"])
-                expected_input = self._expected_anchor_input(row)
-                input_matches = (
-                    bool(transaction)
-                    and str(transaction.get("input", "")).lower() == expected_input
-                )
-                chain_result["payload_matches"] = input_matches
-                chain_result["expected_input"] = expected_input
-                if receipt and receipt.get("status") == "0x1" and input_matches:
-                    block = int(receipt.get("blockNumber", "0x0"), 16)
-                    chain_result.update(status="confirmed", block_number=block)
-                    with self._connect() as connection:
-                        connection.execute(
-                            """UPDATE qj_reports
-                               SET chain_status = 'confirmed', chain_block_number = ?
-                               WHERE id = ?""",
-                            (block, report_id),
+            if row["chain_id"] is None or not row["chain_genesis_hash"]:
+                chain_result["status"] = "network_identity_pending"
+            else:
+                try:
+                    supervisor_status = self.supervisor.status()
+                    if not supervisor_status.connected:
+                        raise SupervisorRPCError(supervisor_status.error or "Supervisor RPC 不可用")
+                    observed_chain_id = supervisor_status.chain_id
+                    chain_result["observed_chain_id"] = observed_chain_id
+                    if observed_chain_id != row["chain_id"]:
+                        chain_result.update(
+                            status="wrong_chain",
+                            network_identity="mismatch",
+                            network_identity_matches=False,
                         )
-                elif receipt and receipt.get("status") == "0x1":
-                    chain_result["status"] = "payload_mismatch"
-                elif receipt:
-                    chain_result["status"] = "failed"
-            except (SupervisorRPCError, ValueError) as exc:
-                if chain_result["status"] != "wrong_chain":
-                    chain_result["status"] = "unreachable"
-                chain_result["error"] = str(exc)
+                    else:
+                        observed_genesis_hash = self.supervisor.genesis_hash()
+                        chain_result["observed_genesis_hash"] = observed_genesis_hash
+                        if not hmac.compare_digest(
+                            observed_genesis_hash, str(row["chain_genesis_hash"]).lower()
+                        ):
+                            chain_result.update(
+                                status="network_mismatch",
+                                network_identity="mismatch",
+                                network_identity_matches=False,
+                            )
+                        else:
+                            chain_result.update(
+                                network_identity="verified", network_identity_matches=True
+                            )
+                    if chain_result["network_identity"] == "verified":
+                        transaction_hash = str(row["chain_tx_hash"]).lower()
+                        receipt = self.supervisor.transaction_receipt(transaction_hash)
+                        transaction = self.supervisor.transaction(transaction_hash)
+                        expected_input = self._expected_anchor_input(row).lower()
+                        transaction_matches = bool(transaction) and hmac.compare_digest(
+                            str(transaction.get("hash", "")).lower(), transaction_hash
+                        )
+                        receipt_matches = bool(receipt) and hmac.compare_digest(
+                            str(receipt.get("transactionHash", "")).lower(), transaction_hash
+                        )
+                        input_matches = bool(transaction) and hmac.compare_digest(
+                            str(transaction.get("input", "")).lower(), expected_input
+                        )
+                        chain_result.update(
+                            transaction_matches=transaction_matches,
+                            receipt_matches=receipt_matches,
+                            payload_matches=input_matches,
+                            expected_input=expected_input,
+                        )
+                        if transaction is None and receipt is None:
+                            chain_result["status"] = "submitted"
+                        elif not transaction_matches:
+                            chain_result["status"] = "transaction_mismatch"
+                        elif receipt is None:
+                            chain_result["status"] = "submitted"
+                        elif not receipt_matches:
+                            chain_result["status"] = "receipt_mismatch"
+                        elif receipt.get("status") != "0x1":
+                            chain_result["status"] = "failed"
+                        elif not input_matches:
+                            chain_result["status"] = "payload_mismatch"
+                        else:
+                            receipt_block = SupervisorClient._hex_int(receipt.get("blockNumber"))
+                            transaction_block = SupervisorClient._hex_int(
+                                transaction.get("blockNumber")
+                            )
+                            receipt_block_hash = str(receipt.get("blockHash", "")).lower()
+                            transaction_block_hash = str(transaction.get("blockHash", "")).lower()
+                            block_matches = (
+                                receipt_block == transaction_block
+                                and len(receipt_block_hash) == 66
+                                and receipt_block_hash.startswith("0x")
+                                and hmac.compare_digest(receipt_block_hash, transaction_block_hash)
+                                and (
+                                    row["chain_block_number"] is None
+                                    or row["chain_block_number"] == receipt_block
+                                )
+                                and (
+                                    not row["chain_block_hash"]
+                                    or hmac.compare_digest(
+                                        str(row["chain_block_hash"]).lower(), receipt_block_hash
+                                    )
+                                )
+                            )
+                            chain_result["block_matches"] = block_matches
+                            if not block_matches:
+                                chain_result["status"] = "block_mismatch"
+                            else:
+                                canonical = self.supervisor.block_by_number(receipt_block)
+                                canonical_hash = str(canonical.get("hash", "")).lower() if canonical else ""
+                                canonical_matches = bool(canonical) and hmac.compare_digest(
+                                    canonical_hash, receipt_block_hash
+                                )
+                                chain_result.update(
+                                    canonical_block_matches=canonical_matches,
+                                    observed_canonical_block_hash=canonical_hash or None,
+                                )
+                                if (
+                                    not canonical_matches
+                                    or supervisor_status.block_number is None
+                                    or supervisor_status.block_number < receipt_block
+                                ):
+                                    chain_result["status"] = "noncanonical"
+                                else:
+                                    closing_status = self.supervisor.status()
+                                    if not closing_status.connected:
+                                        raise SupervisorRPCError(
+                                            closing_status.error or "Supervisor RPC 不可用"
+                                        )
+                                    chain_result["closing_observed_chain_id"] = (
+                                        closing_status.chain_id
+                                    )
+                                    network_stable = (
+                                        closing_status.chain_id == observed_chain_id
+                                        and closing_status.chain_id == row["chain_id"]
+                                    )
+                                    closing_genesis_hash = None
+                                    if network_stable:
+                                        closing_genesis_hash = self.supervisor.genesis_hash()
+                                        chain_result["closing_observed_genesis_hash"] = (
+                                            closing_genesis_hash
+                                        )
+                                        network_stable = (
+                                            hmac.compare_digest(
+                                                closing_genesis_hash, observed_genesis_hash
+                                            )
+                                            and hmac.compare_digest(
+                                                closing_genesis_hash,
+                                                str(row["chain_genesis_hash"]).lower(),
+                                            )
+                                        )
+                                    if not network_stable:
+                                        chain_result.update(
+                                            status="network_mismatch",
+                                            network_identity="mismatch",
+                                            network_identity_matches=False,
+                                        )
+                                    elif (
+                                        closing_status.block_number is None
+                                        or closing_status.block_number < receipt_block
+                                    ):
+                                        chain_result["status"] = "noncanonical"
+                                    else:
+                                        chain_result.update(
+                                            status="confirmed",
+                                            block_number=receipt_block,
+                                            block_hash=receipt_block_hash,
+                                            confirmation="single_canonical_block",
+                                        )
+                except (SupervisorRPCError, ValueError, TypeError) as exc:
+                    chain_result.update(status="unreachable", error=str(exc))
+
+            with self._connect() as connection:
+                if chain_result["status"] == "confirmed":
+                    connection.execute(
+                        """UPDATE qj_reports
+                           SET chain_status = 'confirmed', chain_block_number = ?, chain_block_hash = ?
+                           WHERE id = ?""",
+                        (chain_result["block_number"], chain_result["block_hash"], report_id),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE qj_reports SET chain_status = ? WHERE id = ?",
+                        (chain_result["status"], report_id),
+                    )
         external = json.loads(row["external_proof_json"]) if row["external_proof_json"] else None
         proof_record_valid = False
         proof_file_valid = False
@@ -901,7 +1099,8 @@ class QuantJudgeStore:
                 "ZKP 报告由登记的固定 zkVM 程序执行并验证 receipt；传统报告仍由平台重算",
                 "策略源码、Agent 参数、提示词与原始决策未公开且未持久化",
                 "决策 Merkle 根可证明后续披露的决策属于当时提交集合",
-                "只有 chain.status=confirmed 时才表示回执哈希已在 Supervisor 链确认",
+                "只有 chain.status=confirmed 时才表示当前 RPC 返回的单个规范块与锚定记录匹配；"
+                "不代表最终不可逆",
             ],
             "limitations": [
                 "只有 evidence_level=zk_verified 且 external_proof_verified=true "
@@ -919,36 +1118,39 @@ class QuantJudgeStore:
         signed_raw_transaction: str,
         developer_token: str | None,
     ) -> dict[str, Any]:
-        with self._connect() as connection:
-            report = connection.execute(
-                "SELECT agent_id FROM qj_reports WHERE id = ?", (report_id,)
-            ).fetchone()
-        if report is None:
-            raise KeyError(report_id)
-        self._assert_token(report["agent_id"], developer_token)
+        self._assert_anchor_token(report_id, developer_token)
         status = self.supervisor.status()
         if not status.connected:
             raise SupervisorRPCError(status.error or "Supervisor RPC 不可用")
         if status.chain_id != 1051:
             raise SupervisorRPCError(f"Supervisor 链 ID 不匹配: {status.chain_id}, 期望 1051")
+        genesis_hash = self.supervisor.genesis_hash()
         transaction_hash = self.supervisor.submit_signed_transaction(signed_raw_transaction)
         with self._connect() as connection:
             connection.execute(
-                "UPDATE qj_reports SET chain_tx_hash = ?, chain_status = 'submitted' WHERE id = ?",
-                (transaction_hash, report_id),
+                """UPDATE qj_reports
+                   SET chain_tx_hash = ?, chain_status = 'submitted', chain_id = ?,
+                       chain_genesis_hash = ?, chain_block_number = NULL, chain_block_hash = NULL
+                   WHERE id = ?""",
+                (transaction_hash.lower(), status.chain_id, genesis_hash, report_id),
             )
         return self.verify_report(report_id)
 
     def attach_transaction(self, report_id: str, transaction_hash: str, developer_token: str | None) -> dict[str, Any]:
-        with self._connect() as connection:
-            report = connection.execute("SELECT agent_id FROM qj_reports WHERE id = ?", (report_id,)).fetchone()
-        if report is None:
-            raise KeyError(report_id)
-        self._assert_token(report["agent_id"], developer_token)
+        self._assert_anchor_token(report_id, developer_token)
+        status = self.supervisor.status()
+        if not status.connected:
+            raise SupervisorRPCError(status.error or "Supervisor RPC 不可用")
+        if status.chain_id != 1051:
+            raise SupervisorRPCError(f"Supervisor 链 ID 不匹配: {status.chain_id}, 期望 1051")
+        genesis_hash = self.supervisor.genesis_hash()
         with self._connect() as connection:
             connection.execute(
-                "UPDATE qj_reports SET chain_tx_hash = ?, chain_status = 'submitted' WHERE id = ?",
-                (transaction_hash.lower(), report_id),
+                """UPDATE qj_reports
+                   SET chain_tx_hash = ?, chain_status = 'submitted', chain_id = ?,
+                       chain_genesis_hash = ?, chain_block_number = NULL, chain_block_hash = NULL
+                   WHERE id = ?""",
+                (transaction_hash.lower(), status.chain_id, genesis_hash, report_id),
             )
         return self.verify_report(report_id)
 
@@ -1024,7 +1226,13 @@ class QuantJudgeStore:
         with self._connect() as connection:
             reports = connection.execute("SELECT COUNT(*) FROM qj_reports").fetchone()[0]
             live_reports = connection.execute("SELECT COUNT(*) FROM qj_reports WHERE report_type = 'live'").fetchone()[0]
-            confirmed = connection.execute("SELECT COUNT(*) FROM qj_reports WHERE chain_status = 'confirmed'").fetchone()[0]
+            confirmed = connection.execute(
+                """SELECT COUNT(*) FROM qj_reports
+                   WHERE chain_status = 'confirmed'
+                     AND chain_id IS NOT NULL
+                     AND chain_genesis_hash IS NOT NULL
+                     AND chain_block_hash IS NOT NULL"""
+            ).fetchone()[0]
             subscribers = connection.execute("SELECT COUNT(*) FROM qj_subscriptions WHERE status = 'active'").fetchone()[0]
         scores = [agent["latest_report"]["score"] for agent in agents if agent["latest_report"]]
         performance_scores = [

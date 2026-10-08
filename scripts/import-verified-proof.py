@@ -15,13 +15,40 @@ import tempfile
 from zipfile import ZipFile
 
 
+def persist_author_credential(path, agent_id, token):
+    """Fail before Agent creation if its only credential cannot be persisted."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            json.dump({'agent_id': agent_id, 'developer_token': token, 'test_only': True}, output)
+            output.flush()
+            os.fsync(output.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', type=Path, required=True)
     parser.add_argument('--expected-receipt-sha256', required=True)
     parser.add_argument('--data-dir', type=Path)
     parser.add_argument('--verifier', type=Path)
+    parser.add_argument('--author-file', type=Path, help='Optional private author credential for a new isolated import; never include in public bundles')
     args = parser.parse_args()
+    if args.author_file:
+        repository = Path(__file__).resolve().parents[1]
+        if not args.data_dir or args.author_file.exists():
+            parser.error('--author-file requires an explicit isolated --data-dir and a new file')
+        private_root = args.data_dir.resolve().parent
+        author_path = args.author_file.resolve()
+        marker = private_root / 'demo.json'
+        if (repository == author_path or repository in author_path.parents
+                or author_path.parent != private_root / 'secrets'
+                or not marker.is_file() or json.loads(marker.read_text()).get('test_only') is not True):
+            parser.error('Author credentials must stay in the dedicated test-only demo root secrets directory outside the repository')
+
     if args.data_dir:
         os.environ['ATLAS_DATA_DIR'] = str(args.data_dir.resolve())
     expected_hash = args.expected_receipt_sha256.lower()
@@ -131,6 +158,8 @@ def main():
     if registered['market_data_hash'] != statement.market_data_hash:
         raise ZkProofError('Market registration does not match the receipt')
     token = 'qjt_' + secrets.token_urlsafe(32)
+    if args.author_file:
+        persist_author_credential(args.author_file, statement.agent_id, token)
     now = datetime.now(UTC).isoformat()
     with quant._connect() as connection:
         connection.execute(

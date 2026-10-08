@@ -72,7 +72,9 @@ function Sparkline({ report }: { report: QuantReport | null }) {
 function ProofRail({ report, verification, chain }: { report: QuantReport | null; verification: QuantVerification | null; chain: QuantChainStatus | null }) {
   const signed = verification?.calculation_verified ?? false
   const zkVerified = report?.evidence_level === 'zk_verified' && (verification?.external_proof_verified ?? false)
-  const anchored = verification ? verification.chain.status === 'confirmed' : report?.chain_status === 'confirmed'
+  const anchored = verification?.chain.status === 'confirmed' && verification.chain.payload_matches === true
+  const anchorStatus = verification?.chain.status
+  const anchorNote = anchorStatus === 'network_identity_pending' ? '网络身份待确认' : anchorStatus === 'unreachable' ? 'RPC 不可用，无法核验' : anchorStatus === 'wrong_chain' || anchorStatus === 'network_mismatch' ? '网络身份不匹配' : anchorStatus === 'reorged' || anchorStatus === 'noncanonical' ? '原区块已失效，等待重新确认' : '尚未完成本次链记录核验'
   return (
     <div className="qj-proof-rail">
       <div className="qj-proof-node is-ok">
@@ -84,7 +86,7 @@ function ProofRail({ report, verification, chain }: { report: QuantReport | null
       </div>
       <i />
       <div className={`qj-proof-node ${anchored ? 'is-ok' : 'is-pending'}`}>
-        <span><Link2 size={15} /></span><div><strong>报告合约登记</strong><small>{anchored ? `已确认于区块 #${verification?.chain.block_number ?? report?.chain_block_number}` : chain?.compatible ? '尚无报告合约登记；Proof 摘要存证见链上记录' : chain?.connected ? `链 ID ${chain.chain_id} 不匹配` : 'Supervisor 当前未连接'}</small></div><em>{anchored ? '已确认' : '待锚定'}</em>
+        <span><Link2 size={15} /></span><div><strong>报告摘要存证</strong><small>{anchored ? `已确认于区块 #${verification?.chain.block_number ?? report?.chain_block_number}` : verification ? anchorNote : chain?.compatible ? anchorNote : chain?.connected ? `链 ID ${chain.chain_id} 不匹配` : 'Supervisor 当前未连接'}</small></div><em>{anchored ? '已确认' : anchorStatus === 'network_identity_pending' ? '身份待确认' : '待核验'}</em>
       </div>
     </div>
   )
@@ -241,7 +243,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
         <div className="qj-title"><span><Sparkles size={18} /></span><div><em>QUANTJUDGE</em><strong>发现策略，读懂证据。</strong><small>比较收益、风险与验证等级；演示样本单独标注。</small></div></div>
         <div className="qj-kpis">
           <span><small>收录策略（含演示）</small><strong>{overview?.agents ?? '—'}</strong><em>个</em></span>
-          <span><small>实盘类报告（含演示）</small><strong>{overview?.live_reports ?? '—'}</strong><em>份</em></span>
+          <span><small>自报 LIVE 类报告（含演示）</small><strong>{overview?.live_reports ?? '—'}</strong><em>份</em></span>
           <span><small>表现分中位数</small><strong>{overview?.performance_median_score?.toFixed(1) ?? '—'}</strong><em>/ 100</em></span>
         </div>
         <div className="qj-command-actions">
@@ -288,8 +290,8 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
 
           <aside className="qj-detail">
             {selectedRelease ? <ReleaseMarketDetail key={selectedRelease.id} release={selectedRelease}/> : selected && visibleAgents.some((agent) => agent.id === selected.id) ? <>
-              <header><div className="qj-avatar">{selected.agent_type === 'ai_agent' ? <Bot size={21} /> : <Activity size={21} />}</div><div className="qj-detail-identity"><span><em>{selected.latest_report ? (selected.latest_report.report_type === 'live' ? 'LIVE' : 'BACKTEST') : '待评测'}</em>{selected.is_demo ? <i>DEMO</i> : null}</span><strong>{selected.name}</strong><small>{selected.developer_alias} · {selected.subscriber_count} 位订阅者</small></div><div className="qj-detail-score"><small>表现分</small><strong>{report?.performance_score?.toFixed(1) ?? '—'}</strong><em>{scoreLabel(report?.performance_score)}</em></div></header>
-              <p>{selected.description}</p>
+              <header><div className="qj-avatar">{selected.agent_type === 'ai_agent' ? <Bot size={21} /> : <Activity size={21} />}</div><div className="qj-detail-identity"><span><em>{selected.latest_report ? (selected.latest_report.report_type === 'live' ? '自报 LIVE' : '历史回测') : '待评测'}</em>{selected.is_demo ? <i>DEMO</i> : null}</span><strong>{selected.name}</strong><small>{selected.developer_alias} · {selected.subscriber_count} 位订阅者</small></div><div className="qj-detail-score"><small>表现分</small><strong>{report?.performance_score?.toFixed(1) ?? '—'}</strong><em>{scoreLabel(report?.performance_score)}</em></div></header>
+              <p>{selected.description}</p>{report && <p className="qj-disclaimer">数据类型：{report.report_type === 'live' ? '开发者自报 LIVE 类报告，不代表外部成交已认证' : '历史回测'}{selected.is_demo ? ' · 演示或隔离测试样本' : ''}。行情来源未获密码学认证。表现分是实验性指标换算，跨市场、周期与成本条件不宜直接比较。</p>}
               <div className="qj-detail-tags"><span>{categoryLabel[selected.category]}</span><span className={`risk-${selected.risk_level}`}>{riskLabel[selected.risk_level]}</span>{selected.asset_classes.map((item) => <span key={item}>{assetLabel[item] ?? item}</span>)}</div>
               <div className="qj-detail-metrics">
                 <Metric label="总收益" value={pct(metrics?.total_return, 4)} tone={(metrics?.total_return ?? 0) >= 0 ? 'positive' : 'negative'} />
@@ -302,7 +304,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
               <a className="qj-proof-link" href={report?.zk_proof_id ? `#/proof/${report.zk_proof_id}` : '#/proof'}>Proof · 打开零知识验证页面</a><section className="qj-proof-box"><div className="qj-section-title"><span><ShieldCheck size={15} /><span><strong>证据护照</strong><small>{report?.evidence_level === 'zk_verified' ? '零知识执行证明' : '平台签名与业绩复核'}</small></span></span><button disabled={verifying || !report} onClick={verify}>{verifying ? '正在验证…' : verification ? '再次验证' : '验证证据'}</button></div><ProofRail report={report} verification={verification} chain={chain} /></section>
               {verification ? <div className={`qj-verified-note ${verification.calculation_verified ? '' : 'is-error'}`}>{verification.calculation_verified ? <Check size={14} /> : <X size={14} />}<span><strong>{verification.calculation_verified ? (report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? 'zkVM 证明与公开结果均已验证' : '平台回执验算通过') : '展示记录完整性异常'}</strong>{verification.calculation_verified ? `${report?.evidence_level === 'zk_verified' && verification.external_proof_verified ? '固定 image 的 RISC Zero receipt、公开 journal、报告绑定与 Ed25519 平台回执有效。' : '回执哈希、展示记录与 Ed25519 签名有效；该证据等级不是 ZKP。'}${verification.chain.status !== 'confirmed' ? '尚未获得 Supervisor 链上确认。' : '已获得链上确认。'}` : '请勿依赖当前展示数据；回执与数据库公开字段不一致。'}</span></div> : null}
               <details className="qj-ledger"><summary><span><Fingerprint size={14} />公开证明指纹</span><small>3 项可核验记录</small><ChevronRight size={15} /></summary><div className="qj-ledger-body"><div><span>策略承诺</span><code>{shortHash(selected.strategy_commitment)}</code><button title="复制策略承诺" onClick={() => navigator.clipboard.writeText(selected.strategy_commitment)}><Copy size={13} /></button></div><div><span>决策 Merkle 根</span><code>{shortHash(report?.decision_merkle_root)}</code><em>{report?.decision_count ?? 0} 次决策</em></div><div><span>证明回执</span><code>{shortHash(report?.receipt_hash)}</code><em>{report?.attestation_key_id}</em></div></div></details>
-              <small className="qj-disclaimer">跑分不构成投资建议。演示样本未上链；仅当证据节点显示“已确认”时，才代表 Supervisor 链回执校验成功。
+              <small className="qj-disclaimer">跑分不构成投资建议。演示与隔离测试样本不代表实盘收益；仅当本次核验显示“已确认”时，才代表摘要在所绑定网络的当前规范区块中匹配，不代表最终不可逆或链上执行 ZKP 验证。
               </small>
             </> : <div className="qj-empty"><DatabaseZap size={26} /><span>选择一个策略查看证据。</span></div>}
           </aside>

@@ -43,7 +43,9 @@ def main():
         if not args.author_file:
             parser.error('提交需要作者本地身份文件；不要把令牌或私钥粘贴到聊天')
         author = json.loads(args.author_file.read_text())
-        if author['agent_id'] != quant.get_report(args.report)['agent_id']:
+        with quant._connect() as connection:
+            report_agent = connection.execute('SELECT agent_id FROM qj_reports WHERE id=?', (args.report,)).fetchone()
+        if report_agent is None or author['agent_id'] != report_agent['agent_id']:
             raise ValueError('作者身份与报告不一致')
         raw = args.signed_transaction.read_text().strip()
         # The chain validates the signed transaction. Report verification then

@@ -6,7 +6,7 @@ Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人�
 
 > 新增：[隔离执行、AI / TEE 与程序 ZKP 的实际能力和部署说明](docs/EXECUTION_TRUST.md)。支持有界整数策略程序的真实 ZKP，不等于任意 Python 或 AI 已可证明；TEE 尚无真实硬件端到端验收。
 
-> 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。
+> 本项目用于策略研究、历史模拟与可信计算验证。平台模拟与账户所有者逐笔人工确认的交易接口分开，实盘默认关闭；不构成投资建议。
 
 > `QuantJudge` 分支新增测试账户自动执行、真实规则测试样例与账户估值；操作和未完成项见 [模拟交易验收说明](docs/QUANTJUDGE_DEMO_ACCEPTANCE.md)。
 
@@ -63,7 +63,7 @@ backend/       FastAPI API、行情、回测、研究任务与本地数据
 frontend/      React + TypeScript 交易与策略实验室界面
 strategy/      策略 SDK、示例、打包工具和 RISC Zero ZKP 工程
 docs/          产品、架构、策略开发与证明协议文档
-Supervisor/    用户配置的外部链监督节点，只读且不纳入本仓库
+contracts/supervisor-src/  受检 MIT Supervisor 源码，仅用于本机隔离测试链
 .artifacts/    本地测试截图等临时产物，不纳入 Git
 ```
 
@@ -95,9 +95,9 @@ npm run dev
 
 ```
 
-建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。依赖安装后也可在仓库根目录运行 `bash scripts/dev.sh` 同时启动两个服务。
+建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。依赖安装后也可在仓库根目录运行 `./start.sh` 启动前端、后端和全新隔离 Supervisor 测试链（需本机 MySQL 与 Go）。
 
-安装完成后，也可在项目根目录运行 `./scripts/dev.sh` 同时启动前后端。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
+安装完成后，也可在项目根目录运行 `./start.sh` 启动前端、后端和全新隔离 Supervisor 测试链。此命令每次创建新链，不恢复旧订单或比赛固定链；比赛环境使用下方独立入口。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
 
 ## 测试
 
@@ -155,3 +155,7 @@ cd ../backend
 ```
 
 环境变量：`ATLAS_DATA_DIR` 指定存储目录；`ATLAS_STATIC_DIR` 指定前端构建目录；`ATLAS_ALLOWED_ORIGINS` 是逗号分隔的前端来源。对外服务请配置 HTTPS，并只信任实际反向代理传入的转发头。
+
+## 决赛固定本机演示
+
+参见 [决赛演示操作手册](docs/competition/README.md)。比赛使用独立数据目录、测试币与固定 Supervisor 创世块；不连接正式数据。摘要存证只证明承诺在绑定网络的当前规范区块中被记录，不代表去中心化共识验收、来源认证或链上执行 ZKP。现有真实 receipt 的计算范围与行情来源真实性分别说明。服务器 Compose 发布流程继续按部署文档执行；本机演示不构成生产镜像构建验收。

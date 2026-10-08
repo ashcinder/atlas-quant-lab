@@ -84,6 +84,29 @@ class SupervisorClient:
             raise SupervisorRPCError("链端返回了无效的交易")
         return result
 
+    def block_by_number(self, block_number: int) -> dict[str, Any] | None:
+        result = self._call("eth_getBlockByNumber", [hex(block_number), False])
+        if result in (None, "0x"):
+            return None
+        if not isinstance(result, dict):
+            raise SupervisorRPCError("链端返回了无效的区块")
+        return result
+
+    def genesis_hash(self) -> str:
+        block = self.block_by_number(0)
+        block_hash = block.get("hash") if block else None
+        if (
+            not isinstance(block_hash, str)
+            or len(block_hash) != 66
+            or not block_hash.startswith("0x")
+        ):
+            raise SupervisorRPCError("链端未返回有效创世块哈希")
+        try:
+            int(block_hash[2:], 16)
+        except ValueError as exc:
+            raise SupervisorRPCError("链端未返回有效创世块哈希") from exc
+        return block_hash.lower()
+
     def submit_signed_transaction(self, signed_raw_transaction: str) -> str:
         """Submit bytes signed by an external wallet. This service never holds private keys."""
         result = self._call("eth_sendRawTransaction", [signed_raw_transaction])

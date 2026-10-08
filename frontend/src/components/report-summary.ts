@@ -13,7 +13,7 @@ export function reportSummary(agent: QuantAgent, report: QuantReport, verificati
       receipt_integrity_valid: report.receipt_integrity_valid, public_curve_integrity_valid: report.public_curve_integrity_valid,
       verified_this_session: verification?.calculation_verified ?? false,
       external_proof_verified: verification?.external_proof_verified ?? false,
-      chain_status: verification?.chain.status ?? report.chain_status,
+      chain_status: verification?.chain.status ?? 'not_checked_this_session',
       source_authenticated: false, full_account_coverage_verified: false },
     proof_url: report.zk_proof_id ? `${window.location.origin}${window.location.pathname}#/proof/${encodeURIComponent(report.zk_proof_id)}` : null,
     limitations: ['报告类型不等于来源认证；表现分是实验性指标换算。', '新增仓位偏离规则不在现有 ZKP 范围内。', '未记录的信息为 null，不从其他报告补齐。'],

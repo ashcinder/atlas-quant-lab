@@ -10,15 +10,51 @@ from app.supervisor_client import SupervisorStatus
 
 class FakeSupervisor:
     expected_hash = ""
+    expected_input = None
+    mode = "ok"
+    genesis = "0x" + "01" * 32
+    block_hash = "0x" + "34" * 32
 
     def status(self):
+        if self.mode == "unreachable":
+            return SupervisorStatus(False, "http://supervisor.test", error="offline")
+        if self.mode == "wrong_chain":
+            return SupervisorStatus(True, "http://supervisor.test", 1052, 2048)
         return SupervisorStatus(True, "http://supervisor.test", 1051, 2048)
 
-    def transaction_receipt(self, _transaction_hash: str):
-        return {"status": "0x1", "blockNumber": "0x800"}
+    def genesis_hash(self):
+        return "0x" + "02" * 32 if self.mode == "network_changed" else self.genesis
 
-    def transaction(self, _transaction_hash: str):
-        return {"input": "0x" + b"ATLASQJ1".hex() + self.expected_hash}
+    def block_by_number(self, block_number: int):
+        if block_number == 0:
+            return {"hash": self.genesis_hash()}
+        block_hash = "0x" + "56" * 32 if self.mode == "noncanonical" else self.block_hash
+        return {"hash": block_hash}
+
+    def transaction_receipt(self, transaction_hash: str):
+        if self.mode == "missing_receipt":
+            return None
+        return {
+            "transactionHash": (
+                "0x" + "78" * 32 if self.mode == "receipt_mismatch" else transaction_hash
+            ),
+            "status": "0x1",
+            "blockNumber": "0x800",
+            "blockHash": self.block_hash,
+        }
+
+    def transaction(self, transaction_hash: str):
+        return {
+            "hash": "0x" + "90" * 32 if self.mode == "transaction_mismatch" else transaction_hash,
+            "input": (
+                "0x00"
+                if self.mode == "payload_mismatch"
+                else self.expected_input
+                or "0x" + b"ATLASQJ1".hex() + self.expected_hash
+            ),
+            "blockNumber": "0x801" if self.mode == "block_mismatch" else "0x800",
+            "blockHash": self.block_hash,
+        }
 
     def submit_signed_transaction(self, _raw: str):
         return "0x" + "ab" * 32
@@ -99,6 +135,202 @@ def test_developer_token_and_chain_confirmation_boundaries(tmp_path):
     )
     assert attached["chain"]["status"] == "confirmed"
     assert attached["chain"]["block_number"] == 2048
+    assert attached["chain"]["block_hash"] == FakeSupervisor.block_hash
+    assert attached["chain"]["chain_id"] == 1051
+    assert attached["chain"]["genesis_hash"] == FakeSupervisor.genesis
+    assert attached["chain"]["network_identity_matches"] is True
+    assert attached["chain"]["transaction_matches"] is True
+    assert attached["chain"]["receipt_matches"] is True
+    assert attached["chain"]["canonical_block_matches"] is True
+    assert attached["chain"]["confirmation"] == "single_canonical_block"
+
+
+def test_submit_anchor_binds_network_before_broadcast(tmp_path):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    store.supervisor.expected_hash = report["receipt_hash"]  # type: ignore[attr-defined]
+
+    submitted = store.submit_anchor(report["id"], "0x01", created["developer_token"])
+
+    assert submitted["chain"]["status"] == "confirmed"
+    public = store.get_report(report["id"])
+    assert public["chain_id"] == 1051
+    assert public["chain_genesis_hash"] == FakeSupervisor.genesis
+    assert public["chain_block_hash"] == FakeSupervisor.block_hash
+
+
+def test_imported_isolated_demo_requires_its_valid_token_to_anchor(tmp_path):
+    from test_zkp import setup as zkp_setup
+
+    store, proofs, created, _verifier = zkp_setup(tmp_path)
+    store.supervisor = FakeSupervisor()  # type: ignore[assignment]
+    proof = proofs.register_receipt(
+        created["agent"]["id"],
+        "atlas_sma_backtest_risc0_v1",
+        b"imported isolated receipt",
+        created["developer_token"],
+    )
+    report = store.publish_zk_report(
+        created["agent"]["id"], proof["id"], created["developer_token"]
+    )
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO qj_proof_imports
+               (proof_id, origin_kind, payment_scope, source_proof_hash, imported_at)
+               VALUES (?, 'local_isolated_proof', 'test_chain_only', ?, ?)""",
+            (proof["id"], proof["proof_hash"], datetime.now(UTC).isoformat()),
+        )
+        connection.execute(
+            "UPDATE qj_agents SET is_demo = 1 WHERE id = ?", (created["agent"]["id"],)
+        )
+        row = connection.execute(
+            "SELECT * FROM qj_reports WHERE id = ?", (report["id"],)
+        ).fetchone()
+    store.supervisor.expected_input = store._expected_anchor_input(row)  # type: ignore[attr-defined]
+
+    with pytest.raises(PermissionError, match="缺少开发者凭证"):
+        store.attach_transaction(report["id"], "0x" + "12" * 32, None)
+    with pytest.raises(PermissionError, match="开发者凭证无效"):
+        store.attach_transaction(report["id"], "0x" + "12" * 32, "wrong-token")
+    with pytest.raises(PermissionError, match="演示 Agent 为只读样本"):
+        store.publish_report(created["agent"]["id"], make_report(), created["developer_token"])
+
+    anchored = store.attach_transaction(
+        report["id"], "0x" + "12" * 32, created["developer_token"]
+    )
+    assert anchored["chain"]["status"] == "confirmed"
+
+
+def test_ordinary_demo_cannot_anchor_even_with_valid_token(tmp_path):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE qj_agents SET is_demo = 1 WHERE id = ?", (created["agent"]["id"],)
+        )
+
+    with pytest.raises(PermissionError, match="演示 Agent 为只读样本"):
+        store.submit_anchor(report["id"], "0x01", created["developer_token"])
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_status"),
+    [
+        ("wrong_chain", "wrong_chain"),
+        ("network_changed", "network_mismatch"),
+        ("transaction_mismatch", "transaction_mismatch"),
+        ("receipt_mismatch", "receipt_mismatch"),
+        ("payload_mismatch", "payload_mismatch"),
+        ("block_mismatch", "block_mismatch"),
+        ("noncanonical", "noncanonical"),
+        ("unreachable", "unreachable"),
+    ],
+)
+def test_chain_revalidation_revokes_confirmation(tmp_path, mode, expected_status):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    store.supervisor.expected_hash = report["receipt_hash"]  # type: ignore[attr-defined]
+    confirmed = store.attach_transaction(
+        report["id"], "0x" + "12" * 32, created["developer_token"]
+    )
+    assert confirmed["chain"]["status"] == "confirmed"
+
+    store.supervisor.mode = mode  # type: ignore[attr-defined]
+    verification = store.verify_report(report["id"])
+
+    assert verification["chain"]["status"] == expected_status
+    assert verification["verification_claims"]["anchor_confirmed_by_rpc"] is False
+    assert store.get_report(report["id"])["chain_status"] == expected_status
+
+
+def test_mid_request_network_switch_cannot_confirm_cached_anchor(tmp_path):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    store.supervisor.expected_hash = report["receipt_hash"]  # type: ignore[attr-defined]
+    confirmed = store.attach_transaction(
+        report["id"], "0x" + "12" * 32, created["developer_token"]
+    )
+    assert confirmed["chain"]["status"] == "confirmed"
+
+    calls = 0
+
+    def switching_genesis():
+        nonlocal calls
+        calls += 1
+        return FakeSupervisor.genesis if calls == 1 else "0x" + "02" * 32
+
+    store.supervisor.genesis_hash = switching_genesis  # type: ignore[method-assign]
+    verification = store.verify_report(report["id"])
+
+    assert verification["chain"]["status"] == "network_mismatch"
+    assert verification["chain"]["network_identity_matches"] is False
+    assert verification["verification_claims"]["anchor_confirmed_by_rpc"] is False
+    assert store.get_report(report["id"])["chain_status"] == "network_mismatch"
+
+
+def test_refresh_disabled_never_returns_cached_confirmation_as_current(tmp_path):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    store.supervisor.expected_hash = report["receipt_hash"]  # type: ignore[attr-defined]
+    confirmed = store.attach_transaction(
+        report["id"], "0x" + "12" * 32, created["developer_token"]
+    )
+    assert confirmed["chain"]["status"] == "confirmed"
+
+    not_checked = store.verify_report(report["id"], refresh_chain=False)
+
+    assert not_checked["chain"]["status"] == "not_checked_this_session"
+    assert not_checked["chain"]["stored_status"] == "confirmed"
+    assert not_checked["verification_claims"]["anchor_confirmed_by_rpc"] is False
+    assert store.get_report(report["id"])["chain_status"] == "confirmed"
+
+
+def test_legacy_anchor_without_network_identity_is_never_confirmed(tmp_path):
+    store = make_store(tmp_path)
+    created = create_agent(store)
+    report = store.publish_report(
+        created["agent"]["id"], make_report(), created["developer_token"]
+    )
+    with store._connect() as connection:
+        connection.execute(
+            """UPDATE qj_reports
+               SET chain_tx_hash = ?, chain_status = 'confirmed', chain_block_number = ?
+               WHERE id = ?""",
+            ("0x" + "12" * 32, 2048, report["id"]),
+        )
+
+    # Read-only paths must not trust a historical confirmed flag when the
+    # record has no bound chain id and genesis hash.
+    not_refreshed = store.verify_report(report["id"], refresh_chain=False)
+    assert not_refreshed["chain"]["status"] == "network_identity_pending"
+    assert not_refreshed["verification_claims"]["anchor_confirmed_by_rpc"] is False
+    assert store.get_report(report["id"])["chain_status"] == "network_identity_pending"
+    assert store.overview()["chain_confirmed_reports"] == 0
+
+    migrated = make_store(tmp_path)
+    verification = migrated.verify_report(report["id"])
+
+    assert verification["chain"]["status"] == "network_identity_pending"
+    assert verification["chain"]["network_identity"] == "pending"
+    assert verification["chain"]["network_identity_matches"] is None
+    assert verification["verification_claims"]["anchor_confirmed_by_rpc"] is False
+    assert migrated.get_report(report["id"])["chain_status"] == "network_identity_pending"
+    assert migrated.overview()["chain_confirmed_reports"] == 0
 
 
 def test_score_market_and_overview_are_public_only(tmp_path):
@@ -124,7 +356,13 @@ def test_performance_score_excludes_evidence_and_requires_valid_metrics(tmp_path
     # Proof and chain attributes change the legacy score but never the
     # performance-only calculation used for comparison.
     with store._connect() as connection:
-        connection.execute("UPDATE qj_reports SET chain_status='confirmed' WHERE id=?", (report["id"],))
+        connection.execute(
+            """UPDATE qj_reports
+               SET chain_status='confirmed', chain_id=1051,
+                   chain_genesis_hash=?, chain_block_hash=?
+               WHERE id=?""",
+            (FakeSupervisor.genesis, FakeSupervisor.block_hash, report["id"]),
+        )
     after = store.get_agent(created["agent"]["id"])["latest_report"]
     assert store._score({"sharpe": 0, "annualized_return": 0, "max_drawdown": 0}, "backtest", "confirmed", False) > store._score({"sharpe": 0, "annualized_return": 0, "max_drawdown": 0}, "backtest", "pending", False)
     assert after["performance_score"] == before["performance_score"]
@@ -173,7 +411,13 @@ def test_zk_proof_and_chain_states_do_not_change_performance_score(tmp_path):
     report = store.publish_zk_report(created["agent"]["id"], proof["id"], created["developer_token"])
     before = store.get_report(report["id"])
     with store._connect() as connection:
-        connection.execute("UPDATE qj_reports SET chain_status='confirmed' WHERE id=?", (report["id"],))
+        connection.execute(
+            """UPDATE qj_reports
+               SET chain_status='confirmed', chain_id=1051,
+                   chain_genesis_hash=?, chain_block_hash=?
+               WHERE id=?""",
+            (FakeSupervisor.genesis, FakeSupervisor.block_hash, report["id"]),
+        )
     after = store.get_report(report["id"])
     assert before["zk_proof_id"] == proof["id"]
     assert before["evidence_level"] == "zk_verified"

@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 
-def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=None):
+def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=None, verifier=None, verifier_sha256=None):
     folder, repository = Path(folder).resolve(), Path(repository).resolve()
     sys.path.insert(0, str(repository / 'backend'))
     from app.zkp import market_commitment
@@ -24,7 +24,9 @@ def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=N
     receipt = folder / 'proof.r0'
     if hashlib.sha256(receipt.read_bytes()).hexdigest() != manifest['proof_hash']:
         raise ValueError('receipt 文件已改变')
-    binary = repository / 'strategy/zkvm/target/release/atlas-zkvm'
+    binary = Path(verifier).resolve() if verifier else repository / 'strategy/zkvm/target/release/atlas-zkvm'
+    if verifier and (not verifier_sha256 or hashlib.sha256(binary.read_bytes()).hexdigest() != verifier_sha256):
+        raise ValueError('外部验证器必须与独立固定的 SHA-256 相符')
     environment = {'PATH': os.environ.get('PATH', ''), 'RISC0_DEV_MODE': '0'}
     def invoke(arguments):
         process = subprocess.run([str(binary), *arguments], capture_output=True, text=True, env=environment, timeout=60)
@@ -65,9 +67,11 @@ if __name__ == '__main__':
     parser.add_argument('--repository', type=Path, required=True)
     parser.add_argument('--expected-agent')
     parser.add_argument('--expected-return-ppm', type=int)
+    parser.add_argument('--verifier', type=Path)
+    parser.add_argument('--expected-verifier-sha256')
     args = parser.parse_args()
     try:
-        result = verify_bundle(args.bundle, args.repository, args.expected_agent, args.expected_return_ppm)
+        result = verify_bundle(args.bundle, args.repository, args.expected_agent, args.expected_return_ppm, args.verifier, args.expected_verifier_sha256)
     except (ValueError, KeyError, OSError, subprocess.TimeoutExpired) as error:
         raise SystemExit(f'验证失败：{error}') from error
     print(json.dumps(result, ensure_ascii=False))
