@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, useRef } from 'react'
-import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp, ShieldCheck } from 'lucide-react'
+import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
 
@@ -37,7 +37,7 @@ export default function AtlasShell() {
   const [proofId, setProofId] = useState(proofRoute)
   const [workspace, setWorkspace] = useState(workspaceFromHash)
   const [quantHref, setQuantHref] = useState(() =>
-    workspaceFromHash() === 'quant' ? window.location.hash || '#single' : '#single',
+    proofRoute() !== null ? '#quantjudge' : workspaceFromHash() === 'quant' ? window.location.hash || '#single' : '#single',
   )
   const [visited, setVisited] = useState<Record<'quant' | 'trading' | 'journal', boolean>>(() => {
     const initial = workspaceFromHash()
@@ -121,8 +121,7 @@ export default function AtlasShell() {
       <details ref={switcher} className="workspace-switcher"><summary><Wallet size={17} /><span>切换工作区</span><ChevronUp size={14} /></summary>
       <button className="workspace-switcher-close" onClick={() => { if (switcher.current) switcher.current.open = false }} aria-label="收起工作区切换"><X size={16} />收起</button>
       <nav className="atlas-workspaces" aria-label="主导航">
-        <a href={quantHref} aria-current={workspace === 'quant' && proofId === null ? 'page' : undefined}><ChartCandlestick size={17} />策略中心</a>
-        <a href="#/proof" aria-current={proofId !== null ? 'page' : undefined}><ShieldCheck size={17} />Proof 验证</a>
+        <a href={quantHref} aria-current={workspace === 'quant' ? 'page' : undefined}><ChartCandlestick size={17} />策略中心</a>
         <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />策略交易</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产总览</a>
       </nav>
