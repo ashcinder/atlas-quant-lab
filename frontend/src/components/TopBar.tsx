@@ -12,7 +12,7 @@ interface Props {
   interval: Interval
   source: DataSource
   chartType: 'candles' | 'line'
-  mode: 'single' | 'portfolio' | 'research' | 'quantjudge'
+  mode: 'single' | 'portfolio' | 'research' | 'quantjudge' | 'style-review'
   loading: boolean
   baseCurrency: BaseCurrency
   adjustment: Adjustment
@@ -41,8 +41,8 @@ export function TopBar(props: Props) {
   return (
     <header className="topbar">
       <div className="symbol-block">
-        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
-        <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 开发 / 验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
+        <strong>{props.mode === 'style-review' ? '监管辅助' : props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
+        <span>{props.mode === 'style-review' ? '版本 · 证据 · 复核' : props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 开发 / 验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
         {props.mode === 'single' || props.mode === 'portfolio' ? <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em> : null}
       </div>
       <div className="toolbar-spacer" />
@@ -67,7 +67,7 @@ export function TopBar(props: Props) {
           </div>
         </>
       ) : null}
-      {props.mode !== 'quantjudge' ? <label className="source-select">
+      {props.mode !== 'quantjudge' && props.mode !== 'style-review' ? <label className="source-select">
         <span>数据</span>
         <select aria-label="行情数据源" value={props.source} onChange={(event) => props.onSource(event.target.value as DataSource)}>
           <option value="auto">自动真实数据</option>
@@ -76,10 +76,10 @@ export function TopBar(props: Props) {
           <option value="demo">演示数据</option>
         </select>
       </label> : null}
-      {props.mode !== 'quantjudge' ? <><button className="icon-button" aria-label="回测历史" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
+      {props.mode !== 'quantjudge' && props.mode !== 'style-review' ? <><button className="icon-button" aria-label="回测历史" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
       <button className="icon-button alert-button" aria-label={`提醒中心${props.unreadAlerts > 0 ? `，${props.unreadAlerts} 条未读` : ''}`} onClick={props.onAlerts} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button></> : null}
       <button className="icon-button" aria-label="本地设置" title="外观与 AI 设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button>
-      {props.mode !== 'research' && props.mode !== 'quantjudge' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
+      {props.mode !== 'research' && props.mode !== 'quantjudge' && props.mode !== 'style-review' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
         {props.loading ? <Clock3 size={15} className="spin" /> : <Play size={15} fill="currentColor" />}
         {props.loading ? '计算中' : '运行回测'}
       </button> : null}

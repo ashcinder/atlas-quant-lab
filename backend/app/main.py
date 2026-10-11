@@ -11,6 +11,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.demo_accounts_api import router as demo_accounts_router
+from app.style_review import router as style_review_router
+from app.disclosure_review import router as disclosure_review_router
 from app.auth import parse_session
 from app.exchange_accounts import router as exchange_account_router
 from fastapi.exceptions import RequestValidationError
@@ -148,6 +150,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(journal_router)
+app.include_router(style_review_router)
+app.include_router(disclosure_review_router)
 
 
 @app.exception_handler(json.JSONDecodeError)

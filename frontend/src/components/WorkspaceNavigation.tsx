@@ -1,9 +1,10 @@
 import './research-controls.css'
 import { ArrowUpRight, CandlestickChart, FlaskConical, Gavel, Layers3, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
-export type WorkspaceMode = 'single' | 'portfolio' | 'research' | 'quantjudge'
+export type WorkspaceMode = 'single' | 'portfolio' | 'research' | 'quantjudge' | 'style-review'
 
 const destinations = [
+  { id: 'style-review', label: '监管辅助', detail: '风格监管与披露核验', icon: Gavel },
   { id: 'single', label: '行情与回测', detail: '单标的研究', icon: CandlestickChart },
   { id: 'portfolio', label: '投资组合', detail: '多资产配置', icon: Layers3 },
   { id: 'research', label: '策略实验室', detail: '开发与验证', icon: FlaskConical },

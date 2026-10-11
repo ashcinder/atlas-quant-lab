@@ -1,0 +1,37 @@
+.style-review { padding: 28px; overflow: auto; min-width: 0; color: var(--text-primary, inherit); }
+.style-review h1 { font-size: 30px; margin: 6px 0; }
+.style-review h2 { font-size: 18px; margin: 0 0 16px; }
+.style-review p { line-height: 1.7; overflow-wrap: anywhere; }
+.sr-heading,.sr-actions,.sr-tabs { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.sr-heading { justify-content:space-between; }
+.sr-eyebrow { color:#2da69a; font-size:12px; letter-spacing:.08em; }
+.sr-boundary { border-left:3px solid #d49a38; padding:8px 14px; background:rgba(212,154,56,.08); }
+.sr-tabs { margin:20px 0; }
+.style-review button { border:1px solid #71809655; background:transparent; color:inherit; border-radius:8px; padding:10px 16px; cursor:pointer; }
+.style-review button:disabled { opacity:.5; cursor:wait; }
+.style-review button:focus-visible,.style-review input:focus-visible,.style-review textarea:focus-visible { outline:2px solid #2da69a; outline-offset:2px; }
+.sr-tabs button[aria-pressed=true],.style-review .sr-primary { background:#177b72; color:white; border-color:#177b72; }
+.sr-card { border:1px solid #71809644; border-radius:12px; padding:22px; margin-bottom:18px; min-width:0; }
+.sr-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; }
+.style-review label { display:flex; flex-direction:column; gap:8px; margin:10px 0; font-size:14px; }
+.style-review input:not([type=checkbox]),.style-review textarea,.style-review select { width:100%; box-sizing:border-box; padding:10px; border-radius:6px; border:1px solid #71809666; background:var(--bg-panel, transparent); color:inherit; }
+.style-review textarea { min-height:85px; resize:vertical; }
+.style-review .sr-csv { min-height:150px; font-family:monospace; }
+.style-review .sr-check { flex-direction:row; align-items:center; }
+.sr-columns { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.sr-metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin:20px 0; }
+.sr-metrics article,.sr-comparison article { display:flex; flex-direction:column; gap:12px; }
+.sr-metrics strong,.sr-comparison strong { font-size:28px; font-variant-numeric:tabular-nums; }
+.sr-comparison { display:flex; align-items:center; gap:40px; }
+.sr-callout { padding:14px; background:#2da69a12; border-left:3px solid #2da69a; }
+.sr-table-wrap { overflow:auto; }
+.style-review table { width:100%; border-collapse:collapse; text-align:left; }
+.style-review td,.style-review th { padding:12px; border-bottom:1px solid #71809633; min-width:90px; }
+.style-review small { display:block; opacity:.7; overflow-wrap:anywhere; }
+.style-review .sr-history { display:flex; flex-direction:column; gap:8px; text-align:left; width:100%; margin:10px 0; }
+.sr-note { padding:14px; border-left:3px solid #2da69a; margin:18px 0; }
+.sr-hash { font-family:monospace; font-size:12px; }
+.sr-error { color:#c95845; border:1px solid currentColor; padding:12px; }
+.sr-empty { text-align:center; padding:65px 20px; }
+.sr-empty button { margin:10px; }
+@media(max-width:850px) { .sr-columns { grid-template-columns:1fr; } .sr-metrics { grid-template-columns:1fr 1fr; } .style-review { padding:16px; } }

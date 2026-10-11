@@ -22,11 +22,12 @@ import type { Asset, BacktestResult, DataSource, FundamentalsResponse, Interval,
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
 const StrategyLabWorkspace = lazy(() => import('./components/StrategyLabWorkspace').then((module) => ({ default: module.StrategyLabWorkspace })))
 const QuantJudgeWorkspace = lazy(() => import('./components/QuantJudgeWorkspace').then((module) => ({ default: module.QuantJudgeWorkspace })))
+const StyleReviewWorkspace = lazy(() => import('./components/RegulatoryWorkspace'))
 const EMPTY_TRADES: BacktestResult['trades'] = []
 
 function initialMode(): WorkspaceMode {
   const route = window.location.hash.slice(1)
-  return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
+  return route === 'portfolio' || route === 'research' || route === 'quantjudge' || route === 'style-review' ? route : 'single'
 }
 
 function defaultsFor(strategy: Strategy | undefined): Record<string, number | string | boolean> {
@@ -162,7 +163,7 @@ export default function App() {
   useEffect(() => {
     const onHash = () => {
       const route = window.location.hash.slice(1)
-      if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge') setMode(route)
+      if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge' || route === 'style-review') setMode(route)
     }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
@@ -172,7 +173,7 @@ export default function App() {
     // The shell owns Proof, trading and journal routes even when this workspace mounts hidden.
     if (window.location.hash.startsWith('#/')) return
     if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
-    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
+    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场', 'style-review': '监管辅助' }[mode]} · Atlas`
   }, [mode])
 
   const loadMarket = useCallback((
@@ -400,7 +401,7 @@ export default function App() {
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
+      {mode === 'style-review' ? <div className="qj-global-rail"><strong>辅助核验</strong><span>用户提供数据 · 不作违规认定</span></div> : mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
       {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? <WorkspaceErrorBoundary>
@@ -422,6 +423,7 @@ export default function App() {
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
       {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('style-review') ? <div className="retained-workspace" hidden={mode !== 'style-review'} inert={mode !== 'style-review'}><WorkspaceErrorBoundary><Suspense fallback={<p>加载监管辅助…</p>}><StyleReviewWorkspace /></Suspense></WorkspaceErrorBoundary></div> : null}
       {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />
