@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
@@ -56,6 +57,14 @@ class YahooProvider(MarketDataProvider):
     INTERVAL_MAP = {"15m": "15m", "1h": "1h", "4h": "1h", "1d": "1d", "1wk": "1wk"}
     DEFAULT_PERIOD = {"15m": "60d", "1h": "2y", "4h": "2y", "1d": "10y", "1wk": "max"}
 
+    def __init__(self) -> None:
+        self.session = None
+        proxy = os.environ.get("ATLAS_MARKET_PROXY", "").strip()
+        if proxy:
+            from curl_cffi.requests import Session
+
+            self.session = Session(impersonate="chrome", proxy=proxy, trust_env=False)
+
     def fetch_bars(
         self,
         asset: Asset,
@@ -80,6 +89,7 @@ class YahooProvider(MarketDataProvider):
                 group_by="column",
                 threads=False,
                 timeout=12,
+                session=self.session,
             )
         except Exception as exc:  # provider-specific failures are normalized
             raise ProviderError(f"Yahoo 行情请求失败: {exc}") from exc

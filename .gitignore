@@ -24,8 +24,3 @@ output/playwright/
 atlas-backup-*/
 deploy/nitro/nsm/target/
 *.nitro-package.json
-
-# Private local demo credentials (public evidence is exported by allowlist)
-**/secrets/
-*.private.json
-*.raw
