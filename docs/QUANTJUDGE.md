@@ -1,6 +1,6 @@
 # QuantJudge 证明与 Supervisor 接入
 
-QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。它把证据分为平台验算与真正的 zkVM 执行证明，UI 和 API 不把两者混为一谈。
+QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。说明于2026-10-29按 `672e8b8` 核对。证据需区分平台验算、真正的zkVM执行证明与链上存证。当前界面仍有 `LIVE/实盘类报告` 标签，它来自报告自报分类，不是交易所来源或真实收益已验证的保证；应以实际核验结论为准。
 
 ## 隐私层级
 
@@ -18,7 +18,9 @@ QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订�
 2. **zkVM 已验证**：RISC Zero receipt 对固定 image ID 验证通过，journal 与 Agent、行情、成本、指标、曲线和回执链完全绑定。
 3. **Supervisor 已锚定**：链、交易状态和 input 精确匹配。ZKP 报告锚定 receipt、proof、public-input 与 nullifier 四个哈希。
 
-跑分只给真正的 `evidence_level=zk_verified` 证明加 ZK 证据分。用户提交的 proof 类型说明或外部摘要不能影响该字段。
+当前榜单使用 `performance_score` 业绩分，证据等级单列，不因ZKP/链上存证而增加业绩。旧 `score`（`legacy_evidence_v1`）保留兼容算法，其中ZK加分仅识别真正的 `evidence_level=zk_verified`，不是当前业绩排名依据。用户填写proof类型或外部摘要不能制造该字段。
+
+`report_type=live` 仅为报告类型，核验并不证明交易所数据来源或完整实盘收益；`verification_claims`、receipt完整性、具体profile和链状态必须分别查看。
 
 ## ZKP API
 
@@ -36,22 +38,23 @@ QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订�
 
 ## Supervisor 适配边界
 
-- `Supervisor/` 被根目录 `.gitignore` 排除；Atlas 不导入、修改或复制其代码与配置。
+- 项目已包含 `contracts/supervisor-src/` 的脱敏加固源码与隔离链runner；旧外部 `Supervisor/` 目录不是当前交付入口。API通过JSON-RPC访问独立链进程。
 - 默认 RPC 为 `http://127.0.0.1:42515`，环境变量为 `QUANTJUDGE_SUPERVISOR_RPC_URL`。
 - 期望链 ID 为 `1051` (`0x41b`)。
 - 只读取 `eth_chainId`、`eth_blockNumber`、交易和回执；写入只转发外部钱包签名的原始交易。
-- Atlas 不生成、导入或保管链上私钥。
+- 浏览器钱包签名，后端不保管钱包私钥；本机账户生成工具仅用于隔离测试。BKC订单额外绑定创世哈希，持久链与一次性开发链不可混用，见 [部署指南](DEPLOYMENT.md#supervisor与付款恢复)。
 
-传统报告沿用 `ATLASQJ1 || receipt_hash`。ZKP 报告使用版本化的 `ATLASZK2` payload；具体字段见 [ZKP.md](ZKP.md)。Supervisor 当前负责不可篡改锚定，不在链上执行 RISC Zero verifier。
+传统报告沿用 `ATLASQJ1 || receipt_hash`。ZKP 报告使用版本化的 `ATLASZK2` payload；具体字段见 [ZKP.md](ZKP.md)。当前版本/报告摘要存证流程不执行RISC Zero链上验证。历史隔离42516链另有真实Groth16合约验收，见 [合约说明](../contracts/README.md)；不能推为所有网络或现有BKC存证交易均执行了该合约。链确认也不等于来源认证或去中心化共识已验收。
 
 ## 其他 QuantJudge API
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
+| GET | `/api/v1/quantjudge/subscriptions` | 只读查看旧Agent订阅历史 |
 | GET / POST | `/api/v1/quantjudge/agents` | 查询 / 发布 Agent |
 | POST | `/api/v1/quantjudge/agents/{id}/reports` | 发布平台验算报告（非 ZKP） |
 | GET | `/api/v1/quantjudge/reports/{id}/verify` | 验证展示、平台签名、ZKP 文件绑定与链状态 |
-| POST | `/api/v1/quantjudge/agents/{id}/subscriptions` | 建立沙盒或外部支付引用订阅 |
+| POST | `/api/v1/quantjudge/agents/{id}/subscriptions` | 已停用，固定410；当前具体版本需BKC授权 |
 | GET | `/api/v1/quantjudge/chain/status` | Supervisor 连接、链 ID 与区块高度 |
 | GET / POST | `/api/v1/quantjudge/agents/{id}/packages` | 查询 / 上传加密 `.qstrategy` 包 |
 | POST | `/api/v1/quantjudge/studio/workflows/validate` | 验证 AI 权限、DAG、审计路径与硬风控 |

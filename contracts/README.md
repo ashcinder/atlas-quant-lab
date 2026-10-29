@@ -14,16 +14,18 @@ Registry固定guest image，校验原始journal摘要，记录已验证digest并
 
 ## 构建和验证
 
+下述地址和回执属于原42516隔离验收链，不随新安装恢复；根启动器的新42519链不能复用它们。准备Node依赖后，从仓库根目录进入contracts构建；只读复核需要原链仍可达且网络身份已确认：
+
 ```bash
 cd contracts
 npm ci
 npm run compile
-ATLAS_SUPERVISOR_HTTP=http://127.0.0.1:56742 node scripts/supervisor-account.mjs
-ATLAS_SUPERVISOR_RPC=http://127.0.0.1:42516 node scripts/deploy-supervisor.mjs
-ATLAS_SUPERVISOR_RPC=http://127.0.0.1:42516 node scripts/verify-supervisor.mjs artifacts/atlas-groth16.json
+node scripts/check-deployment.mjs
 ```
 
-本次验收的公开Groth16输入保存为 `contracts/atlas-acceptance-groth16.json`。已有部署可用 `node scripts/check-deployment.mjs` 再次核对字节码哈希、成功回执、精确调用内容和登记状态，无需私钥，不重新提交交易。
+本次验收的公开Groth16输入保存为 `contracts/atlas-acceptance-groth16.json`，从contracts目录读取时为 `atlas-acceptance-groth16.json`。上述只读工具从已发布部署记录读取RPC，核对字节码哈希、成功回执、精确调用内容和登记状态，无需私钥，不重新提交交易。它不是新链部署工具；原链不可达时不能标成复验成功。
+
+新链部署和新journal提交需要另行准备测试账户、测试币及下文导出的新Groth16文件，再使用 `scripts/deploy-supervisor.mjs` / `scripts/verify-supervisor.mjs`；后者的文件参数应为你实际导出的新文件，不能使用不存在的 `artifacts/atlas-groth16.json`。这些命令发送真实交易，不作为安装时自动执行的检查。
 
 领币只执行一次，日额度耗尽不能绕过。`verify-supervisor`适用于尚未提交的journal；重复运行会按预期拒绝，不能重复生成成功报告。
 

@@ -9,7 +9,7 @@ Atlas Strategy Lab is the unified development and validation plane behind QuantJ
 | Python SDK | research teams and full portfolio logic | isolated runner | Native Atlas format; typed event and portfolio contracts |
 | JSON rule DSL | no-code and simple technical rules | safe interpreter | No arbitrary code; easiest to inspect and reproduce |
 | Remote Runner contract | proprietary or C++/Rust/institutional systems | signed HTTPS/gRPC adapter | Source never reaches Atlas; only signed inputs and decisions cross the boundary |
-| ZK-native profile | privacy-preserving, publicly scored strategies | fixed reviewed zkVM guest | Phase 1 supports deterministic long-only SMA only; every new family needs a new image ID |
+| ZK-native profile | privacy-preserving, publicly scored strategies | fixed reviewed zkVM guest | Fixed SMA v1 and bounded integer program v2 (strict Python subset); arbitrary Python and external AI are not proved |
 | Pine Script | TradingView prototypes | importer/converter | Import target, not the production runtime |
 | Jupyter Notebook | exploration and reports | research attachment | Not deterministic enough to be a live strategy artifact |
 | MQL/other broker scripts | existing broker strategies | adapter/converter | Convert signals or expose a private Runner |
@@ -109,7 +109,7 @@ The project API uses optimistic concurrency. Every mutation must send the curren
 
 ### ZKP promotion path
 
-The ZKP path is deliberately narrower than the general Strategy Lab. A normal visual rule, Python package or AI workflow can be researched and platform-attested, but it is not automatically a zero-knowledge program. To receive the `zk_verified` evidence level, select a registered ZK-native profile, generate its witness locally, prove it with the fixed guest, upload only the receipt, and publish the server-verified journal. The first profile proves long-only SMA crossover semantics; unsupported nodes and deployment modes are blocked rather than relabelled as ZKP.
+The ZKP path is deliberately narrower than the general Strategy Lab. A normal visual rule, Python package or AI workflow can be researched and platform-attested, but it is not automatically a zero-knowledge program. To receive the `zk_verified` evidence level, select a registered profile, generate its witness locally, prove it with the fixed guest, upload only the receipt, and publish the server-verified journal. Registered profiles are `atlas_sma_backtest_risc0_v1` (fixed long-only SMA) and `atlas_program_backtest_risc0_v2` (bounded integer programs, including the strict Python subset). The latter proves the compiled program, not CPython, compiler correctness or external AI inference. Unsupported semantics are blocked rather than relabelled as ZKP. Build and profile checks are in [the author workflow](CODE_TO_PROOF_WALKTHROUGH.md).
 
 See [ZKP.md](ZKP.md) for the exact public/private boundary, threat model, Supervisor payload and extension requirements.
 
@@ -131,7 +131,7 @@ Implement `BaseStrategy.generate_targets(context)`. `StrategyContext` provides c
 
 ## 受限 Python 持续运行（2026-09-14）
 
-策略实验室的模板、图形、代码入口现在都可保存当前编辑快照为私有运行版本并免费订阅；后续修改不会改变已有运行。代码入口的“载入持续运行模板”使用 `target_bps(index, close, sma)`，并可用当前标的、费用和风控参数回测，再配置持续运行。
+策略实验室的模板、图形、代码入口都可保存当前编辑快照为私有运行版本；后续修改不会改变已有运行。2026-10-29按 `672e8b8` 更正：作者自用不另付费，新用户授权需版本BKC付款确认，旧免费授权不追溯扣款。代码入口的“载入持续运行模板”使用 `target_bps(index, close, sma)`，并可用当前标的、费用和风控参数回测，再配置持续运行。
 
 这是已有整数编译器支持的受限语言，不是任意 Python SDK 执行。只允许常量、有限行情访问、整数运算、比较及条件表达式；不允许导入、循环、文件或网络调用。返回0—9500基点目标仓位，仍受实例仓位和成交规则限制。价格以百万分之一计，`close(0)` 表示最新收盘，缺失历史返回0；`index` 是当前输入历史条数，不是持久化交易计数。均线策略应显式设置预热条件。最多256条指令、64层栈、20000根K线，数值绝对值上限10^18；越界失败，不执行任意源码。
 

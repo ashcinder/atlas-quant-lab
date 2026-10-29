@@ -93,7 +93,7 @@ bar[t+1] 开盘
 
 - `qj_agents` 只保存公开元数据、加盐策略承诺和开发者凭证哈希，不保存源码、提示词或参数。
 - `qj_reports` 保存平台重算指标、降采样公开收益、决策 Merkle 根、前序回执哈希、Ed25519 签名和可选链上交易定位。原始净值和决策列表不入库。
-- `qj_subscriptions` 是授权账本，沙盒与外部支付引用状态明确分离，未配置支付时不会产生真实扣款。
+- `qj_subscriptions` 仅保留旧版Agent订阅历史。旧创建接口固定返回410；当前运行版本授权使用 `strategy-subscriptions`，非作者需要已确认的版本BKC订单，配置缺失时拒绝，不产生假扣款或免费回退。
 
 ### qj_strategy_packages / qj_workflows / qj_workflow_revisions
 
@@ -109,7 +109,7 @@ bar[t+1] 开盘
 - 更新采用 revision 乐观锁，过期写入返回 `409`；冻结版本生成覆盖项目定义与制品哈希的承诺值。
 - 修改研究上下文会使旧研究失效，修改冻结项目会解除冻结，防止结果与实际发布版本漂移。
 
-Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它交互，不导入或修改其源码。交易确认必须同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷精确匹配。
+Supervisor 是独立进程边界：API通过JSON-RPC交互；仓库同时维护脱敏加固的 `contracts/supervisor-src/` 与隔离runner，不再以旧外部Supervisor目录为交付入口。普通报告交易确认需同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷匹配；ZKP和BKC使用各自版本化载荷。BKC订单还绑定创世哈希，一次性开发链不能恢复旧订单，见 [部署指南](DEPLOYMENT.md#supervisor与付款恢复)。
 
 ## 5. API
 
@@ -135,7 +135,10 @@ Supervisor 是运行时外部边界：Atlas 只通过 JSON-RPC 适配器与它�
 - `GET /api/v1/quantjudge/reports/{id}/verify`
 - `POST /api/v1/quantjudge/reports/{id}/anchor`
 - `PUT /api/v1/quantjudge/reports/{id}/chain-transaction`
-- `GET|POST /api/v1/quantjudge/subscriptions`
+- `GET /api/v1/quantjudge/subscriptions`：查看旧Agent订阅历史
+- `POST /api/v1/quantjudge/agents/{id}/subscriptions`：已停用，固定410
+- `GET|POST /api/v1/strategy-subscriptions`：当前版本授权，非作者需confirmed BKC订单
+- `POST /api/v1/strategy-releases/{id}/bkc-order`：创建当前版本BKC订阅订单
 - `GET /api/v1/quantjudge/chain/status`
 - `GET /api/v1/quantjudge/studio/spec`
 - `GET /api/v1/quantjudge/studio/templates`

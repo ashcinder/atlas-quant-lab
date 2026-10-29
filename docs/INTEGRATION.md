@@ -1,6 +1,6 @@
 # Clarity → Atlas 功能整合
 
-> 本文保留同学在 `main/b7e06dc` 上的原始整合记录。当前 `QuantJudge` 的启动、依赖和部署方式以 [MAIN_MERGE.md](MAIN_MERGE.md) 为准：使用 pnpm、api/web 双容器，保留策略实验室及 ZKP；下文 npm/单容器说明不再适用于合并后的分支。
+> 历史整合记录：对应 `main/b7e06dc`、2026-09-07。以下命令与验收数字保留当时证据，不作为当前安装步骤。当前使用npm及API/Web双服务，入口见 [README](../README.md) 与 [部署指南](DEPLOYMENT.md)；[MAIN_MERGE.md](MAIN_MERGE.md) 的当前导航已同步。
 
 验收日期：2026-09-07。目标应用位于 `atlas-quant-lab-main`；`clarity-investment-journal-main` 保留原样。
 

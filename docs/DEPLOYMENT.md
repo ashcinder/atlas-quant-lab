@@ -1,19 +1,41 @@
 # 私有部署与运维
 
-本指南对应 2026-09-07 的工作空间重构。部署目标是**单用户本机或受控私网研究环境**，不是可直接向公众开放的 SaaS。
+更新：2026-10-29；当前操作说明按 QuantJudge `672e8b8` 核对。目标为本机或受控私网研究环境，虽然已有账号隔离，也不能直接视为公网多租户生产就绪。源码分享见 [DEPLOY](../DEPLOY.md)，本地开发见 [README](../README.md)。
 
 ## 当前边界
 
-- 已有邮箱登录以及账本、回测、研究、模板、提醒、策略项目和订阅的账号隔离。QuantJudge 的公开目录是共享市场，私密包/工作流仍以开发者凭证授权；高成本服务尚无完整账号配额，部署仍面向本机/受控私网。
-- 不连接真实交易账户；支付仍为沙盒。
-- 研究任务与提醒在进程内运行，后端必须只有一个 worker，不能直接水平扩容。
-- 容器提供行情、规则与组合回测、策略归档和平台签名服务。基础镜像不包含 zkVM 验证器：`verifier_ready` 会为 false，不能声称容器已完成 ZKP 验收。
-- 本机 macOS 验证器不能复制到 Linux 容器使用；需要单独构建和审计对应平台的 RISC Zero 验证器镜像，核对 profile/image ID，并跑有效与篡改 receipt 测试。
-- Supervisor 不挂载、不启动、不修改。默认 RPC 指向容器自己的回环地址，明确不可用。即使接入节点，链连接成功也不表示报告已上链。
+- API/Web 双服务共用来源，后端使用一个 worker；研究、提醒和定投调度在进程内，不能直接水平扩容。
+- 已有账号、个人账本和策略资源隔离。交易所测试网可按实例显式开启自动执行，实盘接口默认关闭且要求所有者逐笔确认，见 [交易指南](TRADING.md)。BKC依赖真实链回执，不是通用沙盒支付；人民币支付未实现。
+- Compose不启动Supervisor、模型、gVisor或真实Nitro环境；链连接、平台签名、receipt验证与链上锚定分别判断。
+- 根 `Dockerfile`、`deploy/build.sh`、`package.sh` 的旧单镜像路线未维护。`deploy/run.sh` 已停用，执行只报错退出，不删除、启动或停止容器。
+
+## 构建前置条件
+
+需要Docker Engine及支持 `--wait` 的Compose v2。干净Git克隆还缺少 `strategy/zkvm/release/linux-amd64/atlas-zkvm`，不能直接构建当前API镜像。
+
+`deploy/backend.Dockerfile`要求Linux x86-64 ELF、固定SHA-256和固定v2 image ID：
+
+- 二进制SHA-256：`b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3`。
+- v2 image ID：`02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4`。
+
+制品必须来自可追溯、已审核的Linux构建，不能使用macOS二进制。在Linux构建主机安装工程要求的Rust/RISC Zero工具链后，可按 [本地Proof工具构建与profile核对](CODE_TO_PROOF_WALKTHROUGH.md#0-准备本地证明工具) 构建。**从源码构建成功不保证得到上述固定文件哈希**；若架构、哈希或profile不匹配，应停止容器发布并另行审核制品来源，不改登记值或Dockerfile来绕过。
+
+已取得并核对候选制品后，从仓库根目录依次执行，任一步失败即停止：
+
+```bash
+# 此处假定经审核的Linux候选制品位于本地target/release；先完成上述profile核对。
+printf '%s  %s\n' \
+  b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3 \
+  strategy/zkvm/target/release/atlas-zkvm | sha256sum --check --status
+mkdir -p strategy/zkvm/release/linux-amd64
+install -m 755 strategy/zkvm/target/release/atlas-zkvm strategy/zkvm/release/linux-amd64/atlas-zkvm
+```
+
+镜像构建还会验证ELF架构和image ID。`compose.zkvm.yaml`的 `TRINE_LINUX_ZKVM_BINARY` 只控制运行时只读挂载，不能替代基础镜像所需的构建制品。没有该制品时，可使用README的双终端开发路径；不要宣称已完成容器验收。
 
 ## 运行
 
-需要已经运行的 Docker Engine / Docker Desktop 和支持 `--wait` 的 Docker Compose v2。在仓库根目录执行：
+首次部署先阅读下文的数据归属和恢复要求。需要可选配置时复制 `.env.example` 到本机 `.env` 并编辑，不能提交凭据。该示例含公开演示测试密钥和demo=true：部署前必须同时设置 `VITE_TRINE_DEMO_MODE=false`、清空 `VITE_TRINE_TEST_PRIVATE_KEY`，重建前端并检查最终配置；不能原样复制上线，也不要向公开测试账户充值。从仓库根目录执行：
 
 ```bash
 docker compose config --quiet
@@ -21,9 +43,7 @@ docker compose up --build --detach --wait --wait-timeout 180
 docker compose ps
 ```
 
-浏览器访问 `http://127.0.0.1:8080`。可选配置见根目录 `.env.example`；默认无需创建 `.env`。只有前端映射到 `127.0.0.1`，后端不发布端口，浏览器通过同源 `/api` 访问 API。不要把绑定地址改成 `0.0.0.0` 来绕过认证边界。
-
-首次创建本机账号。数据卷同时保存账本数据库和 `.session-secret` 会话密钥；容器重建后保留登录与历史数据。若调整 `ATLAS_HTTP_PORT` 或经 HTTPS 代理访问，请同时核对 `ATLAS_ALLOWED_ORIGINS`；不要无条件信任公网转发头。当前只有 `compose.yaml` 的 api/web 双服务入口，旧 `main` 根 Dockerfile 已被统一替代。
+访问 `http://127.0.0.1:8080`。只有Web映射宿主回环端口，API不发布端口，浏览器通过同源 `/api` 访问。首次注册从空账本开始，历史本机测试账号、策略、交易或Proof不会随源码生成。数据卷包含数据库和隐藏密钥；开发数据目录与Compose卷彼此独立。
 
 ```bash
 curl --fail http://127.0.0.1:8080/healthz
@@ -31,51 +51,64 @@ curl --fail http://127.0.0.1:8080/api/v1/health
 docker compose logs --tail 100 api web
 ```
 
-也可点击应用顶部“系统状态”查看后端、证明配置及链连接；这个检查不提交交易、报告或证明。
+健康检查只说明服务状态，不证明ZKP、交易所或TEE已验收。不得把绑定地址改为公网来跳过认证与部署审查。
 
-## 从投资日志版 main 升级
+## Supervisor与付款恢复
 
-新 Compose 默认项目名为 `atlas-quant`，API 的数据卷挂载点为 `/app/backend/.data`。旧单容器使用 `/data`，且项目名可能来自旧目录名。升级前停止旧服务并备份完整数据卷；明确使用原 Compose 项目名（`docker compose -p 原项目名 ...`）以保留同名 `atlas-data` 卷，或在独立测试卷恢复完整快照后切换。不要让新默认项目名悄悄创建空卷；本次代码合并没有迁移任何真实数据库。
+API默认RPC为 `http://127.0.0.1:42515`，在容器中指向容器自身；Compose没有Supervisor服务。付款部署必须设置容器实际可达的 `QUANTJUDGE_SUPERVISOR_RPC_URL`，当前浏览器keystore在本地离线签名，再由后端广播，浏览器不需要直连RPC；返回的订单与网络信息来自后端。不要把宿主机的回环地址原样当作容器地址。
 
-新增策略项目和订阅的 owner_id 列以 `local` 保留旧 QuantJudge 记录，不自动将无归属记录分配给新账号。
+订单绑定chain ID1051和创世哈希；仅chain ID相同不能换链恢复。持续服务需固定且可恢复的链状态，RPC重启必须保持网络身份。具体金额、收款、规范区块与回执检查见 [BKC工作流](TRINE_SERVICE_WORKFLOW.md)。
+
+`./start.sh` 使用入库的 `contracts/supervisor-src` 与隔离runner，需要Go、Node、本机 `/usr/local/mysql/bin/mysqld`、后端虚拟环境和前端依赖。默认RPC42519，每次新建临时目录与创世块，退出停止本轮进程；8000端口占用时拒绝启动。这是一次性开发链，不能恢复另一创世哈希的旧付款订单。它也不代表分布式共识或跨存储崩溃原子性已验收。
 
 ## 持久化、升级与停止
 
-`atlas-quant_atlas-data` 命名卷映射到 `/app/backend/.data`，同时保存数据库、行情缓存、策略包密文、加密密钥和签名密钥。**数据库与密钥必须一起保留**。仅备份 SQLite 文件不能恢复私密策略包。
+默认Compose项目为 `atlas-quant`，卷为 `atlas-quant_atlas-data`，挂载 `/app/backend/.data`。实际旧部署可能采用其他项目名、绑定目录或容器可写层，必须先核对。新默认项目名可能创建空卷，不能自动继承原数据。
+
+旧单容器升级前停止写入并备份完整实际数据目录，包括数据库、缓存、策略密文和隐藏密钥。只保留SQLite不能恢复加密策略。若旧数据尚在容器可写层，切勿先删容器；本项目不提供自动迁移或清理步骤。
+
+对已核对原项目及卷映射的双服务部署，可停止后重建，并保持同一配置：
 
 ```bash
-# 停止但保留数据
-docker compose down
-# 更新代码后重建，仍使用原数据卷
+docker compose stop
+# 确认仍使用原项目名、原卷和已核验制品后：
 docker compose up --build --detach --wait
 ```
 
-不要对正式项目执行 `docker compose down --volumes`。不要把 `.data`、备份、开发者凭证、私密策略或证明 witness 上传 GitHub。
+不要删除正式卷，不要在运行中覆盖数据库。旧无归属记录保留 `local`，不会自动归给新注册者；迁移归属需单独确认。
 
-### 一致性备份
+### 一致性备份与恢复
 
-先停止后端，防止 SQLite 和文件状态在备份过程中变化。以下命令示范导出整个数据目录；指定一个新的、明确的备份目录，不覆盖旧备份：
+在仓库外创建新的受控备份目录；下例假定已处于正确的Compose项目，备份目录通过 `mktemp` 创建，不能覆盖旧备份：
 
 ```bash
-mkdir -m 700 atlas-backup-2026-09-07
+backup_dir="$(mktemp -d "$HOME/atlas-backup-XXXXXXXX")"
+chmod 700 "$backup_dir"
 docker compose stop api
-docker compose cp api:/app/backend/.data/. ./atlas-backup-2026-09-07/
+docker compose cp api:/app/backend/.data/. "$backup_dir/"
+# 确认复制成功后再恢复写入；失败时先处理备份错误。
 docker compose start api
 ```
 
-该目录含密钥与私密资料，需使用受控、加密的离线存储，不要放进仓库。以上只是操作说明，本次没有执行实际用户数据备份。
+完整私有备份包含密钥，应加密离线保存，不随源码分享。恢复前先备份现状并停止写入，将完整快照恢复到独立新卷，在隔离项目核对 `10001:10001` 所有者、历史记录、签名身份和策略包可读后再切换。不能用新数据目录自动生成的密钥替换原密钥。本轮未执行生产备份或迁移。
 
-恢复前，先备份当前卷并停止后端；将完整快照恢复到一个独立的新卷，在隔离的 Compose 项目中确认文件所有者为 `10001:10001`，验证历史记录、签名公钥身份与策略包可读取后再切换。不要在运行中的服务上覆盖数据库，也不要让空数据目录生成的新密钥替代备份密钥。
+## 依赖与CI范围
 
-## 可复现依赖与 CI
+前端使用npm与 `package-lock.json`；后端使用精确版本锁文件，未提供依赖哈希完整性锁。基础镜像标签尚未锁定digest。当前CI执行前端lint/测试/build和Python3.12/3.14后端pytest、依赖检查，不自动部署，不包含镜像或链验收。
 
-- 前端统一使用 npm 和 `package-lock.json`，容器与 CI 使用 `npm ci`；保留原投资日志依赖及测试。
-- `backend/requirements.lock` 是测试环境的精确版本清单；`requirements-dev.lock` 补充测试工具。它们不是带哈希的供应链完整性锁。
-- 镜像使用精确版本标签，但尚未锁定 digest。镜像下载仍依赖上游仓库可用性。
-- `.github/workflows/ci.yml` 包含前端构建 / lint / 测试、隔离后端测试和容器冒烟测试。它不向服务器部署，也不推送镜像。
-- `python deploy/smoke.py` 会创建随机命名的独立测试项目，验证同源路由、非 root、离线回测及容器重建后数据库 / 密钥持久化；最后仅移除这个随机测试项目及其测试卷，不触碰正式数据卷。
+`python3 deploy/smoke.py` 是需要Docker和已核验制品的独立容器检查，使用随机临时项目与测试卷；源码CI通过不能代替它，也不能代替生产恢复演练。历史Actions数字仅对应当时提交。
 
-## 验证记录与尚未通过的检查
+## OCR、HTTPS与可选执行
+
+OCR的worker和WASM执行代码由本站构建资源提供；语言模型首次加载仍可能需要网络，离线须预缓存。图片在浏览器内识别，不上传第三方OCR服务。
+
+HTTPS代理部署应设置 `ATLAS_COOKIE_SECURE=true`；回环HTTP开发默认false。核对实际来源和Cookie属性，不无条件信任转发头。显式会话密钥至少32字符，否则保留自动生成配置。真实Nitro、AI提供方和gVisor仍需分别配置、验收，见 [执行与信任边界](EXECUTION_TRUST.md)。
+
+公开部署前仍需账号与资源限额、审计、外置任务与备份恢复等独立验收；本指南不构成公网生产就绪承诺。
+
+## 历史部署检查点（2026-09-07）
+
+以下保留原验收及失败记录，不作为当前镜像、Docker运行状态或外部服务可用性的保证：
 
 本次本地 `docker compose config --quiet` 通过。本机 Docker 守护进程未运行，且镜像仓库连接超时，因此没有在本机启动容器。
 
@@ -84,28 +117,7 @@ docker compose start api
 这项验证不覆盖本机 Docker 环境、生产数据备份恢复演练、容器 ZKP 验证器或真实 AI / TEE。不能用容器健康接口在线代替这些检查。
 
 对公网开放之前，还需要独立审查身份鉴别与租户权限，并完成 TLS、速率和资源限制、外置任务队列、可观测性、备份恢复演练、依赖安全审查，以及 AI / 通用策略 Runner / TEE 的隔离与可信执行实现。
-# Optional private execution components
 
-Python gVisor Runner, local AI configuration, Nitro attestation verification and program ZKP are separately gated. Follow [EXECUTION_TRUST.md](EXECUTION_TRUST.md); the base Compose deployment does not enable these by mounting a Docker socket or claim hardware confidentiality. Backend images include OpenSSL for strict Nitro certificate-chain validation, not a Nitro runtime.
+## 历史CI说明更正（原检查点2026-09-30）
 
-## 合并后的 OCR
-
-截图在浏览器本地识别；首次运行由 jsDelivr 加载 Tesseract worker、WASM 和语言模型。Nginx CSP 允许该域的脚本/连接、blob worker 与图片预览、WASM 编译；没有将用户截图上传到 CDN。离线首次使用仍需要预缓存模型。
-
-## 2026-09-29 HTTPS 会话整改
-
-公网 HTTPS 部署必须设置 `ATLAS_COOKIE_SECURE=true`，即使 Uvicorn 因不信任转发头而看到 HTTP，也会为注册、登录、改密及退出 Cookie 加上 Secure。`compose.yaml` 默认 false 仅用于回环 HTTP 开发，直接 HTTPS 请求仍强制 Secure。反向代理无需为此信任任意来源的 `X-Forwarded-Proto`。更新后以浏览器重新登录并检查 Cookie 属性，旧会话不会仅因修改配置而自动重发。
-
-## 本机 Supervisor 开发链
-
-`./start.sh` 使用项目内 `contracts/supervisor-src` 的已脱敏、加固版本，经 `contracts/isolated-supervisor/scripts/run-validation.sh` 创建独立 MySQL、验证签名交易与重启，然后让本机 API 连接回环 RPC `127.0.0.1:42519`。需要 Go、Node、`/usr/local/mysql/bin/mysqld`、后端虚拟环境和前端依赖。每次启动都是新的测试创世块和测试余额，退出时停止本轮启动的进程；受限临时目录保留诊断资料。若8000端口已有API，脚本直接报错，避免把旧API误称为连上新链。
-
-这条开发链不能用于恢复绑定另一创世哈希的已付款订单。正式Compose仍只运行API/Web，不自动部署或挂载Supervisor；生产RPC接入需单独审查和配置，且本机测试链通过并不证明跨MySQL/trie/block的崩溃原子性。
-
-### 当前 CI 范围更正（2026-09-30）
-
-上文三 job / Actions #34077168667 属历史版本记录，不适用于当前工作树。当前新增 `.github/workflows/ci.yml` 执行前端零警告 lint、测试、构建，以及 Python 3.12/3.14 后端完整 pytest 和锁定依赖检查；尚未提交触发远端 Actions。后端全库 Ruff 不属于本轮已通过门禁，未声明已通过。容器 smoke 仍由 `python deploy/smoke.py` 手动执行：构建需要未入库的 Linux zkVM 可执行文件，干净 GitHub runner 未配备该制品，所以本工作流不能冒充镜像构建或容器验收。候选镜像必须另留构建来源、二进制哈希和 smoke 证据。
-
-## 决赛升级发布
-
-当前部署行为、镜像来源、数据迁移及回退边界见 [FINAL_UPGRADE.md](FINAL_UPGRADE.md)。GitHub CI仅覆盖源码测试，不代替依赖固定验证器制品的容器发布验收。
+当时记录“尚未提交触发远端Actions”仅是当时检查点；后续已经发布源码提交。当前CI范围以仓库工作流和对应提交结果为准。决赛部署记录见 [历史决赛升级](FINAL_UPGRADE.md)，不等于本轮部署或容器重验。

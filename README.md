@@ -6,13 +6,25 @@ Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人�
 
 > 新增：[隔离执行、AI / TEE 与程序 ZKP 的实际能力和部署说明](docs/EXECUTION_TRUST.md)。支持有界整数策略程序的真实 ZKP，不等于任意 Python 或 AI 已可证明；TEE 尚无真实硬件端到端验收。
 
-> 本项目只用于研究和历史模拟，不连接实盘账户，也不构成投资建议。
+> 本项目以策略研究、历史模拟和可信计算验证为主，不构成投资建议。平台模拟、交易所测试网自动执行和账户所有者逐笔确认的实盘接口分别处理；实盘默认关闭，接口存在不代表已完成真实资金联调。
 
 > `QuantJudge` 分支新增测试账户自动执行、真实规则测试样例与账户估值；操作和未完成项见 [模拟交易验收说明](docs/QUANTJUDGE_DEMO_ACCEPTANCE.md)。
 
+## 当前文档入口
+
+本文是当前入口，说明按 `672e8b8` 核对，文档修订日期2026-10-29。日期或测试数字不代表外部环境已在本轮重验。
+
+| 任务 | 指南 |
+| --- | --- |
+| 安装与运行 | 本文的本地启动、[部署与源码分享](DEPLOY.md)、[部署前提与备份](docs/DEPLOYMENT.md) |
+| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略开发](docs/STRATEGY_DEVELOPMENT.md) |
+| 交易与付费 | [交易环境与人工确认](docs/TRADING.md)、[BKC与云Proof](docs/TRINE_SERVICE_WORKFLOW.md)、[测试账户准备](docs/TRINE_TEST_ACCOUNTS.md) |
+| 信任边界 | [执行与隐私](docs/EXECUTION_TRUST.md)、[证据与评分](docs/QUANTJUDGE.md)、[本地Proof流程](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
+| 历史与设计 | [原合并记录](docs/MAIN_MERGE.md)、[历史进度](docs/PROJECT_PROGRESS_20260913.md)、[未实现的实盘收益证明设计](docs/LIVE_PROFIT_PROOF_DESIGN.md) |
+
 ## 核心能力
 
-- 多资产：加密货币、A/H 股、美股、ETF、指数、外汇和商品。
+- 多资产：加密货币、A/H 股、美股、ETF、指数、外汇和商品。当前目录含20只 A 股股票（不含ETF/指数），Yahoo支持服务器代理；目录和行情扩展不代表完整A股成交规则、券商实盘或这些标的均已生成Proof。
 - 多周期：15 分钟、1 小时、4 小时、日线和周线。
 - 单标的策略：定投、网格、马丁/反马丁、均线、MACD、RSI、布林带、突破和动量。
 - 组合策略：全天候、风险平价和 60/40 再平衡。
@@ -25,7 +37,7 @@ Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人�
 - 参数化研究：每个单标的策略提供 4–5 个有实际信号影响的专属参数，并共享仓位上限、成交量参与率、止损和止盈等风控设置。
 - 策略实验室：把规则构建、AI 工作流、研究验证、私密版本包和 SDK 收敛到 `DRAFT → COMPOSE → VALIDATE → VERSION` 生命周期；切换阶段保留编辑状态，并可从 QuantJudge 一键返回开发上下文。
 - 策略验证：并行比较多个策略、受限参数网格、独立留出集、Walk-forward 滚动验证、过拟合警告和稳健性排名；任务在后端异步执行并可取消。
-- 可视化规则构建器：用指标、比较关系和 AND/OR 条件组合策略，模板持久化到本地；只执行受控 DSL，不执行用户代码。
+- 可视化规则构建器：用指标、比较关系和 AND/OR 条件组合策略，模板持久化到本地；此构建器只执行受控DSL；受限Python另走代码入口，不执行任意上传代码。
 - 历史回放：逐根推进 K 线且严格隐藏未来数据，支持播放、单步、带手续费与滑点的模拟买卖，并按标的恢复回放进度。
 - 提醒中心：支持价格、单根涨幅、RSI 和 MACD 条件；后端独立轮询、冷却去重、通知持久化，并可选浏览器桌面通知。
 - 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。
@@ -63,7 +75,7 @@ backend/       FastAPI API、行情、回测、研究任务与本地数据
 frontend/      React + TypeScript 交易与策略实验室界面
 strategy/      策略 SDK、示例、打包工具和 RISC Zero ZKP 工程
 docs/          产品、架构、策略开发与证明协议文档
-Supervisor/    用户配置的外部链监督节点，只读且不纳入本仓库
+contracts/     合约工具、受检 Supervisor 源码与隔离开发链
 .artifacts/    本地测试截图等临时产物，不纳入 Git
 ```
 
@@ -95,15 +107,15 @@ npm run dev
 
 ```
 
-建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。依赖安装后也可在仓库根目录运行 `bash scripts/dev.sh` 同时启动两个服务。
+建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。以上为两个独立终端，均从仓库根目录进入对应子目录；不需要配置链节点。
 
-安装完成后，也可在项目根目录运行 `./scripts/dev.sh` 同时启动前后端。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
+如需另带本机隔离链，可在依赖安装后运行根 `./start.sh`：还需 Go、本机 MySQL（`/usr/local/mysql/bin/mysqld`）及 Node；默认 RPC42519，每次创建新创世块，退出停止本轮进程，不能恢复旧付款订单。不要与两个终端方式重复启动。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
 
 ## 测试
 
 ```bash
 cd backend && .venv/bin/pytest
-cd frontend && pnpm test && pnpm build
+cd ../frontend && npm test && npm run lint && npm run build
 ```
 
 页面中的 K 线使用标的原始报价币种。顶部“组合基准币种”仅用于多资产组合回测的历史汇率换算。`演示数据` 必须手动选择，适合离线体验与测试，不代表真实市场。
@@ -124,13 +136,18 @@ QuantJudge 默认使用 `http://127.0.0.1:42515` 读取 Supervisor JSON-RPC，�
 
 ## 独立服务器部署
 
+先按 [部署指南的构建前置条件](docs/DEPLOYMENT.md#构建前置条件) 准备固定哈希的 Linux 验证器。干净克隆缺少该发布制品，不能直接构建；即使使用 `compose.zkvm.yaml` 运行时挂载也不能跳过基础镜像构建要求。
+
 ```bash
 cp .env.example .env
-# 编辑 .env，将 ATLAS_ALLOWED_ORIGINS 设置为实际 HTTPS 域名。
+# 编辑 .env：ATLAS_ALLOWED_ORIGINS=实际HTTPS域名，ATLAS_COOKIE_SECURE=true。
+# 必须将 VITE_TRINE_DEMO_MODE=false、VITE_TRINE_TEST_PRIVATE_KEY=（空值）后再构建。
 docker compose up -d --build
 ```
 
-Compose 使用前端 Nginx 与后端 API 两个容器，仅映射 `127.0.0.1:8080`。SQLite、行情缓存和会话/证明/包加密密钥保存在 `atlas-data` 命名卷中。后端单进程启动研究、提醒和自动定投。旧单镜像 `Dockerfile` 仍可单独构建使用。已有部署升级前请阅读 [部署指南](docs/DEPLOYMENT.md)，核对原 Compose 项目名和数据卷，避免连接空卷。
+`.env.example`保留公开演示测试密钥和demo默认值，不能原样用于部署。上面的两项VITE变量会进入前端构建；只设置demo=false而仍保留私钥也不符合安全配置。修改后重新构建，并核查最终构建配置无测试私钥；不要给公开测试账户充值或用于真实资金。
+
+Compose 使用前端 Nginx 与后端 API 两个容器，仅映射 `127.0.0.1:8080`。SQLite、行情缓存和会话/证明/包加密密钥保存在 `atlas-data` 命名卷中。后端单进程启动研究、提醒和自动定投。根 `Dockerfile` 及旧单镜像构建脚本未维护；`deploy/run.sh` 已停用，不能用作升级入口。已有部署升级前请阅读 [部署指南](docs/DEPLOYMENT.md)，核对原 Compose 项目名和数据卷，避免连接空卷。
 
 例如 Nginx 的站点 location（证书配置由服务器管理）：
 

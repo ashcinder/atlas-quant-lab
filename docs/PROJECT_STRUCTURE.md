@@ -11,12 +11,12 @@ Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链�
 | `strategy/` | 策略作者侧的 SDK、示例、打包命令以及本地 ZKP 证明工程 | 开发策略或生成证明时需要 | Atlas 开发工具链 |
 | `deploy/` | 前后端容器镜像、同源代理与隔离容器冒烟测试 | 容器部署时需要 | 仅 Atlas 私有部署，不包含 Supervisor |
 | `docs/` | 产品规格、系统架构、策略开发契约、ZKP 与 Supervisor 接入说明及文档图片 | 否 | 项目文档 |
-| `.github/workflows/` | 构建、测试和容器验收的 GitHub Actions 配置 | 否 | 自动验证，不自动部署 |
-| `Supervisor/` | 用户已经配置的外部区块链 Supervisor 节点 | 链上锚定时需要 | 外部只读工程；Atlas 不修改、不提交 |
+| `.github/workflows/` | 前端与Python3.12/3.14源码验证配置，当前不含容器验收 | 否 | 自动验证，不自动部署 |
+| `contracts/` | 合约、交易解码、脱敏加固的Supervisor源码与隔离链runner | 支付/链工具或带链开发时需要 | API通过RPC访问独立进程；临时开发链不能恢复旧订单 |
 | `.artifacts/` | Playwright 截图、策略包和视觉验收结果等可重新生成的本地产物 | 否 | 不提交 Git，可安全清理 |
 | `output/playwright/` | 工作空间重构的浏览器视觉验收截图 | 否 | 本地生成，不提交 Git |
 
-根目录中的 `README.md` 是统一入口，`compose.yaml` 编排私有部署，`.env.example` 说明可选设置。`.gitignore` 排除私密数据和生成产物；`.dockerignore` 限制镜像构建上下文，避免将数据库、密钥与 Supervisor 发送给构建器。
+根目录中的 `README.md` 是统一入口，`compose.yaml` 编排私有部署，`.env.example` 说明可选设置。构建应使用经审查的干净源码目录并单独放入审核制品；Git忽略不等于Docker上下文排除，不要将含私人数据的工作区发送给构建器。根Dockerfile及旧单镜像构建脚本保留但未维护，`deploy/run.sh` 已停用。
 
 ## `backend/`
 
@@ -94,4 +94,4 @@ strategy/
 - `backend/app/auth.py`：账号认证与签名会话；`backend/app/journal/`：账本算法、数据库、API 和定投调度。
 - `frontend/src/AtlasShell.tsx`：登录与两个工作区的统一外壳；`frontend/src/journal/`：迁入的账本界面、领域计算和 OCR。
 - `frontend/tests/`：账本算法的 Node 回归；`backend/tests/journal_fixtures/`：跨语言对照样本，仅测试使用，不会导入个人账本。
-- `scripts/dev.sh`：依赖安装后同时启动开发前后端；`docs/MAIN_MERGE.md`：当前启动和技术栈说明。
+- 根 `start.sh`：依赖安装后启动前后端和新的隔离链，另需Go与本机MySQL；只启动前后端使用README双终端方式。`docs/MAIN_MERGE.md` 保留合并历史并指向当前入口。
