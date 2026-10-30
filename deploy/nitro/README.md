@@ -1,5 +1,7 @@
 # Atlas confidential hosting — AWS Nitro deployment kit
 
+> 设计/准备材料：按4be31bf核对适用边界，设想与代码准备不等于已完成部署；已验收能力见[当前状态](../../docs/CURRENT_STATUS.md)。
+
 Status: implementation prepared; local cryptography/policy tests and Rust API compilation pass. **No real Nitro hardware, author KMS authorization, Linux worker sandbox, or end-to-end cloud run has been accepted yet.** The Docker Hub connection failed during the initial image build. Do not advertise this as an already deployed confidential service.
 
 ## What this release executes

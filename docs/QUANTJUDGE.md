@@ -1,12 +1,14 @@
 # QuantJudge 证明与 Supervisor 接入
 
-QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。说明于2026-10-29按 `672e8b8` 核对。证据需区分平台验算、真正的zkVM执行证明与链上存证。当前界面仍有 `LIVE/实盘类报告` 标签，它来自报告自报分类，不是交易所来源或真实收益已验证的保证；应以实际核验结论为准。
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
+QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。说明于2026-10-30按 `4be31bf` 核对。证据需区分平台验算、真正的zkVM执行证明与链上存证。当前界面仍有 `LIVE/实盘类报告` 标签，它来自报告自报分类，不是交易所来源或真实收益已验证的保证；应以实际核验结论为准。
 
 ## 隐私层级
 
 | 层 | 内容 | 默认状态 | ZKP 报告处理 |
 |---|---|---|---|
-| 1 | 策略源码、参数、提示词、salt | 隐藏 | 仅存在于本地 witness，服务器接收承诺 |
+| 1 | 策略源码、参数、提示词、salt | 不公开 | 作者侧证明仅上传receipt；可选服务器付费生成会经授权读取程序/witness并保存受控任务输入 |
 | 2 | 买卖、选股、择时与仓位决策 | 隐藏 | guest 计算逐条承诺并公开 Merkle 根 |
 | 3 | 收益、回撤、波动、Sharpe、降采样曲线 | 公开 | guest 输出 journal，后端验证 receipt 后直接发布 |
 
@@ -21,6 +23,10 @@ QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订�
 当前榜单使用 `performance_score` 业绩分，证据等级单列，不因ZKP/链上存证而增加业绩。旧 `score`（`legacy_evidence_v1`）保留兼容算法，其中ZK加分仅识别真正的 `evidence_level=zk_verified`，不是当前业绩排名依据。用户填写proof类型或外部摘要不能制造该字段。
 
 `report_type=live` 仅为报告类型，核验并不证明交易所数据来源或完整实盘收益；`verification_claims`、receipt完整性、具体profile和链状态必须分别查看。
+
+## 六维评价与已有警告
+
+单标的回测及市场报告展示 `evaluation_v1`：收益、Sharpe、回撤、市场适应性、回测实盘一致性、策略纯度。每项保留原始值、区间、规则版本及不可评原因；缺实盘配对、风格基线或阶段样本时不补分、不出完整总分。它与排名用的业绩分、旧兼容score和证据等级分别处理。研究已有样本外交易不足、Sharpe退化等固定规则警告，尚无自动诊断Agent。具体口径见[当前状态](CURRENT_STATUS.md#六维评价口径)。
 
 ## ZKP API
 
@@ -39,7 +45,7 @@ QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订�
 ## Supervisor 适配边界
 
 - 项目已包含 `contracts/supervisor-src/` 的脱敏加固源码与隔离链runner；旧外部 `Supervisor/` 目录不是当前交付入口。API通过JSON-RPC访问独立链进程。
-- 默认 RPC 为 `http://127.0.0.1:42515`，环境变量为 `QUANTJUDGE_SUPERVISOR_RPC_URL`。
+- 源码默认RPC为 `http://127.0.0.1:42515`；完整Docker栈API用内部 `http://supervisor:42515`，环境变量为 `QUANTJUDGE_SUPERVISOR_RPC_URL`。不公开RPC/数据库宿主端口，钱包本地离线签名。
 - 期望链 ID 为 `1051` (`0x41b`)。
 - 只读取 `eth_chainId`、`eth_blockNumber`、交易和回执；写入只转发外部钱包签名的原始交易。
 - 浏览器钱包签名，后端不保管钱包私钥；本机账户生成工具仅用于隔离测试。BKC订单额外绑定创世哈希，持久链与一次性开发链不可混用，见 [部署指南](DEPLOYMENT.md#supervisor与付款恢复)。
@@ -61,7 +67,7 @@ QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订�
 
 ## 上线前要求
 
-- 多租户公网版本仍需真实账户、MFA、组织权限、限流、审计、凭证撤销与支付对账。
+- 已有账号隔离、按账号登录限流、明确代理信任和共享计算预算；MFA、组织权限、审计及完整多租户安全/对账仍需独立验收。
 - 平台 Ed25519 私钥需迁移到 KMS/HSM 并保留轮换公钥档案。
 - 市场数据注册需要提供方签名或独立受证明的摄取流水线；当前证明只保证对已注册数据的计算正确。
 - 每个新增策略或 AI 执行环境都必须发布独立、可复现、经审查的 profile/image，不能复用 SMA profile 名义。

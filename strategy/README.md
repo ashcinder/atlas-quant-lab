@@ -1,5 +1,7 @@
 # Strategy Platform
 
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](../docs/CURRENT_STATUS.md)。
+
 `strategy/` 集中保存面向策略开发者的工具链，不承载 Web 服务或页面代码。
 
 ```text

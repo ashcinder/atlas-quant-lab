@@ -1,5 +1,7 @@
 # Isolated Supervisor bootstrap
 
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](../../docs/CURRENT_STATUS.md)。
+
 This package creates a fresh local MySQL database and an RPC-only Supervisor copy for Atlas development acceptance. It uses the sanitized, patched source in `contracts/supervisor-src` by default, copies it into a private temporary directory, never connects to any existing Supervisor database, and binds MySQL and JSON-RPC to `127.0.0.1`.
 
 The bootstrap command migrates the upstream Supervisor models plus a persistent account nonce table, seeds `roothash`, `gasprice`, `shardid`, and three test-only accounts, then starts `BuildBlockChain` plus `RunEthRpc`. It intentionally does not start the HTTP facade, schedulers, PBFT listeners, claim faucet, or 24-hour workload.
@@ -52,4 +54,4 @@ The 2026-09-30 hardened validation also exercises wrong nonce/chain/gas price, i
 
 This does **not** prove crash atomicity across MySQL, the state trie, and the block store; arbitrary process-kill recovery, contract deployment, malicious contract call behavior, and consensus remain pending. Keep this RPC isolated and use only newly generated test wallets. It is not a production chain migration.
 
-The supplied upstream security helper contains unreachable hardcoded cloud credentials. `sanitize-copy.py` removes that helper body and its unused cloud imports in the private build copy, retaining the existing immediate-true behavior. The original upstream source is not changed; its owner must revoke/rotate any real credentials. Never publish the supplied source or private diagnostic directories.
+The previously supplied upstream copy contained an unreachable credential helper. The vendored `contracts/supervisor-src` has been sanitized before publication, and the disposable-copy path sanitizes an external source before building. The upstream owner remains responsible for revoking any historical credentials. Do not publish the unsanitized original or private diagnostic directories.

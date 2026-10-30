@@ -1,4 +1,6 @@
 # BlockEmulator Handbook
+
+> 参考资料：上游手册不作为Atlas部署入口；当前实现见[版本说明](../../docs/CURRENT_STATUS.md)。
 > Atlas vendored upstream handbook; not the Atlas startup guide. See [README.ATLAS.md](README.ATLAS.md). Issue/version/FAQ documents were omitted from this trimmed source copy.
 
 This is the official handbook of **BlockEmulator** (version 1.0).

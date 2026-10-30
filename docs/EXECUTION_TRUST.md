@@ -1,17 +1,23 @@
 # 私密策略执行与证明：交付边界
 
-更新：2026-09-08。**研究执行、硬件证明和零知识证明是三条不同的能力，不可相互替代。** 当前不是“上传任意 Python 即可对平台保密并自动生成 ZKP”的产品。
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
+更新：2026-10-30，实现基线 `4be31bf`；原2026-09-08验收记录保留日期范围。**研究执行、硬件证明和零知识证明是三条不同的能力，不可相互替代。** 当前不是“上传任意 Python 即可对平台保密并自动生成 ZKP”的产品。
 
 ## 能力矩阵
 
 | 能力 | 当前实现 | 尚不包含 |
 | --- | --- | --- |
 | Python 隔离研究 | `.qstrategy` / `atlas.strategy/v1`，gVisor、只读容器、无网络、资源限制、逐根供数、平台独立记账 | 任意依赖安装、多资产、实盘、自动执行可视化 DAG、对平台运营者保密 |
-| 本地 AI | Ollama 结构化风险审查与多语言策略代码辅助；请求绑定、减仓/否决权限、失败关闭、最终硬风控 | 已验证的真实模型实例、机密推理、zkML、AI 决策正确性的保证 |
+| AI辅助 | Ollama协议适配；DeepSeek/通义会话代码辅助和单次回测审核；权限/结构校验及最终硬风控 | DeepSeek代码辅助已有真实验收；Ollama及所有提供方/节点未逐项实测，无机密推理、zkML或决策正确性保证 |
 | Nitro 验证 | AWS 根证书固定、证书链、COSE ES384、PCR、时效、nonce、绑定及一次性挑战 | 已部署的 Enclave、私密密钥交付、在 Enclave 内执行策略/模型、业绩硬件证明 |
 | 程序 ZKP v2 | 真实 RISC Zero receipt；私密有界整数程序、16 个状态寄存器、因果行情、成本后收益和公开报告绑定 | 任意 Python/LLM 证明、多资产、真实成交真实性、数据源签名 |
 
 平台签名、包哈希、沙箱成功或通过 TEE 通道验证，均不能将报告升级为 ZKP 业绩。界面和 API 分别显示这些能力。
+
+## 两种Proof隐私路径
+
+作者侧在本机准备witness并仅上传receipt，平台无需读取私密程序；服务器付费生成需作者明确授权读取程序，受控任务目录会保存输入/witness。两者不可混写为服务器始终零知晓。完整Docker测试链的新付费Proof及原付款恢复已有验收，不依赖TEE。见[BKC工作流](TRINE_SERVICE_WORKFLOW.md)和[当前状态](CURRENT_STATUS.md)。
 
 ## Python 路径
 
@@ -29,7 +35,7 @@
 仅在隔离的 Linux 研究主机启用，不把 Docker socket 挂到公网 Web 容器。当前是本机 Runner 适配器，不是已完成的跨主机队列服务；正常 Compose 默认关闭执行能力。
 
 ```bash
-# 先安装并验证 gVisor runsc；可参考 CI 中固定版本和 SHA256 的安装过程。
+# 先独立安装并验证gVisor runsc；当前源码CI不含runsc安装或Runner验收。
 docker build -f deploy/runner.Dockerfile -t atlas-runner-local .
 export ATLAS_RUNNER_ENABLED=1
 export ATLAS_RUNNER_IMAGE=$(docker image inspect atlas-runner-local --format '{{.Id}}')
@@ -46,7 +52,7 @@ export ATLAS_AI_MODEL='<本机已安装并验收的模型名>'
 export ATLAS_AI_URL='http://127.0.0.1:11434/api/chat'
 ```
 
-只允许数值回环 HTTP 地址，禁用代理继承和重定向。执行期风险审查发送风险摘要和目标仓位；策略代码助手会把用户指令和编辑器中的当前源码发送给同一本地服务，并只生成代码、不执行代码。两类内容都可能泄露策略信息。不能仅凭设置环境变量声称模型已经通过实际推理验收。现有测试验证协议、权限和失败分支，没有实际模型验收结果。
+只允许数值回环 HTTP 地址，禁用代理继承和重定向。执行期风险审查发送风险摘要和目标仓位；策略代码助手会把用户指令和编辑器中的当前源码发送给同一本地服务，并只生成代码、不执行代码。两类内容都可能泄露策略信息。不能仅凭设置环境变量声称模型已经通过实际推理验收。该Ollama路径仍需实际模型实例验收。DeepSeek云端代码辅助链路于2026-10-30通过真实联调；不能外推为本地模型或每个风险节点通过。
 
 ## TEE 路径：目前止于通道验证
 
@@ -99,18 +105,18 @@ python3 strategy/zkvm/scripts/program_witness.py --bind-existing private-draft.j
 
 ## 数据保管与泄露面
 
-- 数据库：包元数据/平台可解密包、公开数据集清单、receipt、公开 journal、固定 profile、一次性 nullifier；TEE 挑战只保存公有 nonce、绑定及消费状态。
+- 数据库和受控文件：包元数据/平台可解密包、公开数据集、receipt、公开journal、固定profile、一次性nullifier，另有服务器Proof任务输入/witness；TEE 挑战只保存公有 nonce、绑定及消费状态。
 - 本地证明者：私密程序、salt、完整 witness 和逐笔决策。避免同步盘、公共日志和源码仓库。证明不能消除公开收益曲线的推断风险。
 - Runner：宿主机暂存解密包、运行结束清理，无私密异常/容器输出日志；运营方仍可能读取内存和文件，不能承诺对其保密。
-- Supervisor：本轮未修改或写入；未来链上应只锚定公开承诺/证明引用，不上传源码、提示词、原始交易或 witness。
+- Supervisor：已纳入完整Docker测试链，可写入公开承诺/摘要。源码、提示词、原始交易明细及witness不写链；隔离链与MySQL状态和私有配置须成套备份。
 
-## 验收记录
+## 早期验收记录（2026-09-08）
 
 - 本地后端新增 witness 工具测试，合计 85 项；含不可信输出、权限、配置失败、AI 协议和 Nitro 合成 PKI 攻击用例。前端 12 文件 / 39 项测试及 lint、生产构建通过。
 - 新程序 guest 的 4 项 Rust 测试通过；原 guest 1 项通过。
 - 本机已生成真实、非 dev-mode RISC Zero receipt，并实际验证、在临时数据库注册和发布报告、重新验证；拒绝重放、字节篡改及错误 image ID，检查公共输出不含私密程序/盐。
 - Linux gVisor 集成验收已通过：[Actions #34102419565](https://github.com/ashcinder/atlas-quant-lab/actions/runs/34102419565)，对应 `7a6bee3`。`isolated-runner` 涵盖真实 SDK 策略、无网络/宿主文件/只读挂载与超时、内存、输出上限；frontend、backend、containers 也均成功。
-- 尚无真实模型推理、Nitro 硬件、机密端到端流程或通用 Python ZKP 验收。需要提供可用主机和模型信息后继续。
+- 当时未验收真实模型。后续2026-10-30已有DeepSeek真实代码生成及手动回测，详见[当前状态](CURRENT_STATUS.md)。Nitro硬件、机密端到端流程、通用Python/LLM ZKP仍未完成；历史gVisor CI也不表示本次完整Docker已启用一般Python Runner。
 
 ### 多语言代码编辑（2026-09-08）
 代码模块支持 Python、JavaScript、TypeScript、C、C++、Java、C#、Go、Rust、R、Julia、Pine Script、MQL4/MQL5 的编辑、模板、导入下载和 AI 编写。请求可携带 language，省略时为 python。只有 Python 提供静态检查；其他语言的 validate 返回422，不表示可编译或可运行。所有语言均未在此模块接入隔离回测。

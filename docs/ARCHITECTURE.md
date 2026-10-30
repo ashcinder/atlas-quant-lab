@@ -1,5 +1,7 @@
 # Atlas Quant Lab 系统架构
 
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
 ## 1. 总览
 
 ```text
@@ -20,6 +22,8 @@ FastAPI API
   ├─ Backtest Engine   下一根 K 线成交、成本、交易账本
   ├─ Portfolio Engine  再平衡、风险平价、币种归一
   ├─ Risk Analytics    收益、风险、统计和市场阶段
+  ├─ Evaluation        六维evaluation_v1、原始值与缺数原因
+  ├─ Work Limits       每账号1项/全局2项重计算预算
   ├─ Research Service  异步网格研究、留出集、Walk-forward
   ├─ Strategy Projects 假设、制品绑定、晋级门禁与不可变版本
   ├─ Custom DSL        受限指标规则树与因果信号计算
@@ -32,7 +36,7 @@ FastAPI API
              │
 Local files
   ├─ SQLite 元数据和回测结果
-  └─ 压缩 CSV 行情缓存
+  └─ SQLite 行情快照缓存（兼容旧压缩CSV读入）
 ```
 
 ## 2. 数据源策略
@@ -80,19 +84,19 @@ bar[t+1] 开盘
 - `request_json`, `result_json`
 - `created_at`, `status`, `data_source`
 
-行情使用文件缓存；首版不把大量 OHLCV 写进 SQLite。
+行情当前使用 `cache/market.sqlite3` 的按查询键快照；旧压缩CSV读入后迁入CandleStore。不能把行情缓存当作来源认证。
 
 ### research_jobs / custom_strategies / alert_rules / alert_notifications
 
 - 研究任务持久化状态、进度、请求和最终结果；进程重启会将未完成任务标记为失败，避免错误地长期显示“运行中”。
-- 单次研究最多 500 组参数、含 Walk-forward 最多 2,500 次评估，线程池有界且任务可取消。
+- 单次研究最多500组参数、含Walk-forward最多2,500次评估，线程池有界且可取消。共享预算每账号1项/全局2项，后台研究至完成/失败/取消清理才释放；状态轮询不占额度。
 - 自定义策略只保存通过 Pydantic 校验的规则树，最大 5 层、50 个节点，不接受或执行任意代码。
 - 提醒规则保存上次观测值、评估时间和触发时间，用于穿越判断与冷却去重；通知支持已读状态。
 
 ### qj_agents / qj_reports / qj_subscriptions
 
 - `qj_agents` 只保存公开元数据、加盐策略承诺和开发者凭证哈希，不保存源码、提示词或参数。
-- `qj_reports` 保存平台重算指标、降采样公开收益、决策 Merkle 根、前序回执哈希、Ed25519 签名和可选链上交易定位。原始净值和决策列表不入库。
+- `qj_reports` 保存平台重算指标、降采样公开收益、决策Merkle根、前序回执哈希、Ed25519签名和可选链定位。报告原始净值/决策不入库；可选服务器付费Proof任务另保存受控输入和witness，不可将报告表的最小存储承诺扩展到所有任务。
 - `qj_subscriptions` 仅保留旧版Agent订阅历史。旧创建接口固定返回410；当前运行版本授权使用 `strategy-subscriptions`，非作者需要已确认的版本BKC订单，配置缺失时拒绝，不产生假扣款或免费回退。
 
 ### qj_strategy_packages / qj_workflows / qj_workflow_revisions
@@ -111,6 +115,10 @@ bar[t+1] 开盘
 
 Supervisor 是独立进程边界：API通过JSON-RPC交互；仓库同时维护脱敏加固的 `contracts/supervisor-src/` 与隔离runner，不再以旧外部Supervisor目录为交付入口。普通报告交易确认需同时满足链上成功和 `ATLASQJ1 + receipt_hash` 载荷匹配；ZKP和BKC使用各自版本化载荷。BKC订单还绑定创世哈希，一次性开发链不能恢复旧订单，见 [部署指南](DEPLOYMENT.md#supervisor与付款恢复)。
 
+完整Docker通过 `compose.chain.yaml` 增加Supervisor/MySQL；API→内部RPC，Web不访问链，DB只供Supervisor，二者不发布宿主端口。创世身份锁防止地址漂移后重初始化；业务、链state、MySQL和秘密整体冷备恢复，不声称跨库崩溃原子性。
+
+云Proof队列绑定原付款与输入，原子发布receipt/JSON并重新验真；共享预算、进程组超时及半写恢复不改变profile语义。六维评价在普通回测/报告输出时计算，保留不可评原因，不篡改旧签名或证明。
+
 ## 5. API
 
 - `GET /api/v1/health`
@@ -125,8 +133,10 @@ Supervisor 是独立进程边界：API通过JSON-RPC交互；仓库同时维护�
 - `DELETE /api/v1/runs/{id}`
 - `POST /api/v1/research/jobs`
 - `GET|DELETE /api/v1/research/jobs/{id}`
-- `GET|PUT|DELETE /api/v1/custom-strategies`
-- `GET|POST|PUT|DELETE /api/v1/alerts`
+- `GET /api/v1/custom-strategies`
+- `PUT|DELETE /api/v1/custom-strategies/{strategy_id}`
+- `GET|POST /api/v1/alerts`
+- `PUT|DELETE /api/v1/alerts/{alert_id}`
 - `POST /api/v1/alerts/evaluate`
 - `GET /api/v1/notifications`
 - `POST /api/v1/notifications/read`

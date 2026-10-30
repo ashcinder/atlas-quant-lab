@@ -1,94 +1,38 @@
-# Atlas Quant Lab
+# Atlas Quant Lab · QuantJudge
 
-Atlas Quant Lab 是一个支持多用户的策略研究、历史回测与个人资产账本平台。它提供交易终端式 K 线工作台、常见策略参数化回测、交易标记、风险指标、交易明细，以及全天候、风险平价等多资产组合实验室。
+多用户量化策略研究、历史回测与资产账本平台。前端为React/TypeScript，业务后端为FastAPI/SQLite；完整实验室测试链另运行Supervisor与MySQL。
 
-> Strategy developers: see [Atlas Strategy Lab](docs/STRATEGY_DEVELOPMENT.md) for the `.qstrategy` package, Python SDK, private Runner contract, AI workflow permissions, and production safety boundary.
+当前实现基线为 [4be31bf](https://github.com/ashcinder/atlas-quant-lab/commit/4be31bf4a4457829cd5581c0463d198948f09aa9)，文档更新于2026-10-30。各指南与历史记录的适用范围见[当前版本与验收边界](docs/CURRENT_STATUS.md)和[全量文档清单](docs/DOCUMENTATION_SYNC_20261030.md)。本项目用于研究和历史模拟；实盘默认关闭，接口存在不代表真实资金联调完成。
 
-> 新增：[隔离执行、AI / TEE 与程序 ZKP 的实际能力和部署说明](docs/EXECUTION_TRUST.md)。支持有界整数策略程序的真实 ZKP，不等于任意 Python 或 AI 已可证明；TEE 尚无真实硬件端到端验收。
-
-> 本项目以策略研究、历史模拟和可信计算验证为主，不构成投资建议。平台模拟、交易所测试网自动执行和账户所有者逐笔确认的实盘接口分别处理；实盘默认关闭，接口存在不代表已完成真实资金联调。
-
-> `QuantJudge` 分支新增测试账户自动执行、真实规则测试样例与账户估值；操作和未完成项见 [模拟交易验收说明](docs/QUANTJUDGE_DEMO_ACCEPTANCE.md)。
-
-## 当前文档入口
-
-本文是当前入口，说明按 `672e8b8` 核对，文档修订日期2026-10-29。日期或测试数字不代表外部环境已在本轮重验。
+## 文档入口
 
 | 任务 | 指南 |
 | --- | --- |
-| 安装与运行 | 本文的本地启动、[部署与源码分享](DEPLOY.md)、[部署前提与备份](docs/DEPLOYMENT.md) |
-| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略开发](docs/STRATEGY_DEVELOPMENT.md) |
-| 交易与付费 | [交易环境与人工确认](docs/TRADING.md)、[BKC与云Proof](docs/TRINE_SERVICE_WORKFLOW.md)、[测试账户准备](docs/TRINE_TEST_ACCOUNTS.md) |
-| 信任边界 | [执行与隐私](docs/EXECUTION_TRUST.md)、[证据与评分](docs/QUANTJUDGE.md)、[本地Proof流程](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
-| 历史与设计 | [原合并记录](docs/MAIN_MERGE.md)、[历史进度](docs/PROJECT_PROGRESS_20260913.md)、[未实现的实盘收益证明设计](docs/LIVE_PROFIT_PROOF_DESIGN.md) |
+| 当前已完成与待验 | [统一状态](docs/CURRENT_STATUS.md) |
+| 源码运行/分享 | 下方本地启动、[DEPLOY](DEPLOY.md)、[构建前提与持久化](docs/DEPLOYMENT.md) |
+| 固定镜像交付 | [基础两镜像](docs/LAB_OFFLINE_DEPLOYMENT.md)、[完整四镜像测试链](docs/LAB_CHAIN_DEPLOYMENT.md) |
+| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md) |
+| 交易与付费 | [交易环境](docs/TRADING.md)、[BKC与Proof](docs/TRINE_SERVICE_WORKFLOW.md)、[测试账户](docs/TRINE_TEST_ACCOUNTS.md) |
+| 评分与证据 | [QuantJudge](docs/QUANTJUDGE.md)、[执行与隐私](docs/EXECUTION_TRUST.md)、[ZKP协议](docs/ZKP.md)、[本地代码到Proof](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
+| 结构与产品 | [项目结构](docs/PROJECT_STRUCTURE.md)、[架构](docs/ARCHITECTURE.md)、[产品范围](docs/PRD.md) |
 
-## 核心能力
+## 已有功能
 
-- 多资产：加密货币、A/H 股、美股、ETF、指数、外汇和商品。当前目录含20只 A 股股票（不含ETF/指数），Yahoo支持服务器代理；目录和行情扩展不代表完整A股成交规则、券商实盘或这些标的均已生成Proof。
-- 多周期：15 分钟、1 小时、4 小时、日线和周线。
-- 单标的策略：定投、网格、马丁/反马丁、均线、MACD、RSI、布林带、突破和动量。
-- 组合策略：全天候、风险平价和 60/40 再平衡。
-- 可信回测：下一根 K 线成交、手续费、滑点、价差、样本量警告、样本外与市场阶段分析。
-- 可视化：K 线、成交量、MACD、买卖标记、权益与回撤曲线、交易记录；VOL/MACD 可独立开关。
-- 真实行情：加密货币使用 Binance，美股/ETF/A 股/外汇/商品使用新浪广覆盖行情，港股使用腾讯并配置分钟线补充源，Yahoo 作为兼容备选；真实源失败时明确报错，不会伪造演示 K 线。
-- 金融指标：右侧按需查看 PE、PB、PS、PEG、EV/EBITDA、ROE/ROA、利润率、成长、偿债、现金流、分红、ETF 与市场/供给等约 60 项适用指标；显示数据源、时间、覆盖率、缓存状态和派生口径，缺失值不做估算。
-- 流畅交互：行情定时增量刷新、短时缓存、响应压缩、请求取消与图表原位更新。
-- 可调布局：左侧市场、右侧策略、底部结果均可拖动调整，价格轴保留安全宽度；回测结果可收起、还原或最大化。
-- 参数化研究：每个单标的策略提供 4–5 个有实际信号影响的专属参数，并共享仓位上限、成交量参与率、止损和止盈等风控设置。
-- 策略实验室：把规则构建、AI 工作流、研究验证、私密版本包和 SDK 收敛到 `DRAFT → COMPOSE → VALIDATE → VERSION` 生命周期；切换阶段保留编辑状态，并可从 QuantJudge 一键返回开发上下文。
-- 策略验证：并行比较多个策略、受限参数网格、独立留出集、Walk-forward 滚动验证、过拟合警告和稳健性排名；任务在后端异步执行并可取消。
-- 可视化规则构建器：用指标、比较关系和 AND/OR 条件组合策略，模板持久化到本地；此构建器只执行受控DSL；受限Python另走代码入口，不执行任意上传代码。
-- 历史回放：逐根推进 K 线且严格隐藏未来数据，支持播放、单步、带手续费与滑点的模拟买卖，并按标的恢复回放进度。
-- 提醒中心：支持价格、单根涨幅、RSI 和 MACD 条件；后端独立轮询、冷却去重、通知持久化，并可选浏览器桌面通知。
-- 统一口径：CNY、USD、USDT 基准币种与自动/前复权/后复权/不复权设置。
-- 本地优先：邮箱注册后使用独立工作区，账本、策略模板、回测历史与提醒保存在 SQLite。
+- **行情与回测**：加密货币、A/H股、美股、ETF、指数、外汇和商品，当前A股目录20只；15m/1h/4h/日/周线。提供均线、动量、网格、定投等规则及受限Python单标的回测，另有全天候/风险平价/60-40组合实验。真实源失败明确报错，演示数据需显式选择。
+- **成本与风控**：收盘生成信号、下一根开盘成交，费用、滑点、价差、仓位和参与率约束；图表、成交记录与净值使用实际引擎结果。完整A股成交规则和券商接入尚未完成。
+- **研究**：参数搜索、留出集与滚动验证、样本不足和样本外下降警告；浏览器串行穷举与后端异步研究分别管理。尚无自适应选择补充实验的回测诊断Agent。
+- **AI辅助**：自然语言生成/修改代码、预览后人工应用；模板/图形单次回测可选审核。DeepSeek已有真实本地联调，其他提供方和路径需分别验收。AI不改变确定性评分，不自动进入持续运行或实盘下单。
+- **策略与评价**：不可变版本、市场发布、具体版本的BKC授权、平台模拟及独立订单/成交/净值记录。统一六维 `evaluation_v1` 保留原始值、规则版本、区间和缺数原因；缺实盘/风格数据时不补零、不生成不完整总分。业绩榜仍用 `performance_score`，证据级别单列。
+- **证明与链**：固定RISC Zero profile的真实receipt验证、下载、离线复核及受限程序付费生成；完整栈支持测试链签名付款、订阅、版本/Proof摘要存证和原付款恢复。摘要存证不等于链上合约验真，ZKP不证明行情来源或实盘收益。
+- **个人账本**：资产/账户/流水、转账、估值、手记、预算、定投记账、OCR核对和JSON备份；按账号隔离，与运行事实记录分别展示。OCR worker/WASM为本站资源，语言模型首次加载可能需要网络。
 
-## 整合后的资产账本
-
-顶部可在“策略工作台”和“资产账本”之间切换，统一使用 Atlas 深色界面。
-
-- 资产总览、USD/CNY 汇总、资产配置、收益与历史曲线。
-- 账户、账户图片、资产管理；当前金额与本金/收益额/收益率三种录入依据。
-- 流水、账户间转账、估值、本金更正、归档、删除和筛选。
-- 多资产金额/比例定投，北京时间调度，CN/US/Crypto 交易日历，暂停、跳过与补记。
-- 投资手记、月度预算、汇率更新、手工汇率和休市日历维护。
-- 浏览器内截图 OCR，确认后原子保存；JSON 备份恢复、CSV 流水导出、两种清空模式。
-- 注册、登录、退出与改密；账本、回测、研究任务、模板、提醒和通知均按用户隔离。
-
-生产业务后端统一为 **FastAPI + SQLite**，不需要澄明 Node 服务、Cloudflare、D1 或 ChatGPT 登录。原澄明项目保留原样作为参考，整合后的应用可独立运行。
-
-新用户从空账本开始，不迁移原数据库。JSON 导入/导出仍兼容澄明 v1 账本格式。内置汇率是标有日期的历史参考值，自动更新失败时可手工维护；自动定投只记账、不执行真实交易。
-
-完整功能映射、修改位置和验证记录见 [整合说明](docs/INTEGRATION.md)。
-
-## QuantJudge 与可信策略开发
-
-策略项目和订阅按登录账号隔离；公开 Agent 与跑分可在登录后浏览，私密包和工作流还需要对应开发者凭证。
-- QuantJudge 市场：量化策略 / AI Agent 公开跑分、分类排行、证据账本、本地沙盒订阅和开发者发布流程。
-- 隐私证明：固定 RISC Zero zkVM guest 可证明私密 SMA 参数或 v2 有界整数策略程序在指定行情和成本模型上生成公开业绩；证明路径不保存 witness、参数或逐笔决策。普通 Python 上传包仍为平台可解密存储，不具备此保密性。
-- Supervisor 验证：通过独立 JSON-RPC 适配器读取链 ID、区块与交易回执；只接收外部钱包已签名交易，平台不保管链上私钥。
-
-## 项目结构
-
-```text
-backend/       FastAPI API、行情、回测、研究任务与本地数据
-frontend/      React + TypeScript 交易与策略实验室界面
-strategy/      策略 SDK、示例、打包工具和 RISC Zero ZKP 工程
-docs/          产品、架构、策略开发与证明协议文档
-contracts/     合约工具、受检 Supervisor 源码与隔离开发链
-.artifacts/    本地测试截图等临时产物，不纳入 Git
-```
-
-完整职责和维护边界见 [项目目录说明](docs/PROJECT_STRUCTURE.md)。
+普通包加密和Docker不能向策略作者保证宿主管理员不可读；服务器生成Proof须明确授权读取程序/witness。真实TEE、zkTLS/DID、任意Python或外部AI推理证明不属于已验收能力。
 
 ## 本地启动
 
-新版工作空间说明见 [UI 重构记录](docs/UI_REDESIGN.md) 和 [本轮功能与部署进度](docs/REFACTOR_PROGRESS.md)。
-容器化本机 / 私网部署见 [部署、持久化与备份指南](docs/DEPLOYMENT.md)；当前不是可直接暴露公网的多用户服务。
+### 源码开发
 
-### 后端
-
-部署锁文件针对 Python 3.14；请使用对应解释器创建虚拟环境。
+前后端使用两个独立终端。部署锁文件针对Python3.14，源码CI另测3.12；Node需要24–26。
 
 ```bash
 cd backend
@@ -98,77 +42,47 @@ pip install -r requirements.lock
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 前端
-
 ```bash
 cd frontend
 npm ci
 npm run dev
-
 ```
 
-建议访问 `http://127.0.0.1:5173`。前端默认通过 Vite 同源 `/api` 代理连接 `127.0.0.1:8000`，认证 Cookie 与账本、策略接口共用。首次点击“创建账号”；邮箱目前只是登录标识，不发送验证邮件。以上为两个独立终端，均从仓库根目录进入对应子目录；不需要配置链节点。
+访问 `http://127.0.0.1:5173`，Vite同源代理 `/api` 到8000。源码本地允许注册；邮箱仅作登录标识，不发验证邮件。无需先启动链即可研究，链付款/存证需有效持久链及测试资产。
 
-如需另带本机隔离链，可在依赖安装后运行根 `./start.sh`：还需 Go、本机 MySQL（`/usr/local/mysql/bin/mysqld`）及 Node；默认 RPC42519，每次创建新创世块，退出停止本轮进程，不能恢复旧付款订单。不要与两个终端方式重复启动。源码支持 Python 3.11+（本地验证使用 3.12）；部署锁文件与 CI 使用 Python 3.14。Node.js 需要 24–26。macOS 的 TEE 证书校验需将 OpenSSL 3 加入 PATH，不能使用系统 LibreSSL。
+根 `./start.sh` 另需Go、本机MySQL（`/usr/local/mysql/bin/mysqld`）和已安装依赖，创建RPC42519的一次性新链，退出停止本轮进程，不能恢复旧订单。不要与双终端方式重复占用端口。
 
-## 测试
+### Docker
+
+- 从源码构建：先准备[固定Linux验证器](docs/DEPLOYMENT.md#构建前置条件)，审查 `.env.example` 后 `docker compose up --build --detach --wait`；默认回环8080、Web/API两容器。
+- 固定镜像接收方：按[离线指南](docs/LAB_OFFLINE_DEPLOYMENT.md)校验和加载镜像，准备受控ENV、HTTPS及管理员账号，再使用预检启动工具，目标机不现场构建。
+- 完整测试链：使用四镜像包及[完整链配置](docs/LAB_CHAIN_DEPLOYMENT.md)，API限额6GiB，主机预检至少8GiB可用、建议12GiB以上。RPC/MySQL不暴露宿主端口。
+
+当前 `.env.example`、`.env.lab.example`、`.env.chain.lab.example` 均为无真实凭据模板，demo关闭，测试私钥不内嵌；发布默认关注册，管理员隐藏输入密码创建成员。旧根Dockerfile和单镜像脚本未维护，`deploy/run.sh`已停用。
+
+业务SQLite、缓存与签名/加密密钥保存在业务卷；完整模式还有链state、MySQL及私有链配置，必须整体停写备份。升级保留原项目/卷及创世身份，恢复到独立项目验收；不能靠重建新链恢复原付款。
+
+## 测试与验收
+
+依赖安装后在隔离数据环境执行：
 
 ```bash
 cd backend && .venv/bin/pytest
 cd ../frontend && npm test && npm run lint && npm run build
 ```
 
-页面中的 K 线使用标的原始报价币种。顶部“组合基准币种”仅用于多资产组合回测的历史汇率换算。`演示数据` 必须手动选择，适合离线体验与测试，不代表真实市场。
+4be31bf已有后端609、前端149及账本63项通过和源码CI成功；本地完整Docker、DeepSeek、测试链新付款/Proof与冷备恢复亦有记录。它们各有独立验收范围，见[统一状态](docs/CURRENT_STATUS.md#已有验收与待验证)。CI不自动构建镜像或验收真实模型/链/TEE。24小时观察及目标服务器原生/HTTPS/成员环境仍需另验，本次文档修订不宣称上线完成。
 
-金融指标页提供的是带时间戳的当前快照，用于查看和横向比较。它不会自动进入历史回测；在接入 point-in-time 财报库之前，禁止使用当前 PE、PB 等字段回填历史时点，以免产生前视偏差。
+## 运行约束
 
-研究任务和提醒监控由后端进程承载；关闭后端会停止新任务和行情轮询，但已保存的策略、任务结果、提醒规则与通知不会丢失。
+API必须单worker；重计算任务共享每账号1项、全局2项预算，超额429。后台研究和Proof生成持有额度至结束，轮询状态不占额度。前端、API代理信任地址需明确配置，HTTPS使用Secure Cookie。云模型Key只在当前会话内存最多8小时，重启需重新配置。
 
-QuantJudge 默认使用 `http://127.0.0.1:42515` 读取 Supervisor JSON-RPC，可通过 `QUANTJUDGE_SUPERVISOR_RPC_URL` 修改。未连接 Supervisor 时仍可发布和验证本地密码学回执，但界面会明确标记为“待锚定”，不会冒充链上确认。
-
-更多信息见 [产品规格](docs/PRD.md)、[系统架构](docs/ARCHITECTURE.md)、[ZKP 协议与威胁模型](docs/ZKP.md) 和 [QuantJudge 证明与链接入](docs/QUANTJUDGE.md)。
+金融指标为当前带时间戳快照，不自动回填历史回测；K线使用原始报价币种，多资产组合另做基准币种换算。研究/提醒/定投依赖后端持续运行，浏览器关闭不等于后端停止。
 
 ## 界面预览
+
+以下图片为历史工作台预览，布局和评价以当前代码为准。
 
 ![单标的策略回测](docs/assets/ui-single.png)
 
 ![多资产风险分析](docs/assets/ui-portfolio.png)
-
-## 独立服务器部署
-
-先按 [部署指南的构建前置条件](docs/DEPLOYMENT.md#构建前置条件) 准备固定哈希的 Linux 验证器。干净克隆缺少该发布制品，不能直接构建；即使使用 `compose.zkvm.yaml` 运行时挂载也不能跳过基础镜像构建要求。
-
-```bash
-cp .env.example .env
-# 编辑 .env：ATLAS_ALLOWED_ORIGINS=实际HTTPS域名，ATLAS_COOKIE_SECURE=true。
-# 必须将 VITE_TRINE_DEMO_MODE=false、VITE_TRINE_TEST_PRIVATE_KEY=（空值）后再构建。
-docker compose up -d --build
-```
-
-`.env.example`保留公开演示测试密钥和demo默认值，不能原样用于部署。上面的两项VITE变量会进入前端构建；只设置demo=false而仍保留私钥也不符合安全配置。修改后重新构建，并核查最终构建配置无测试私钥；不要给公开测试账户充值或用于真实资金。
-
-Compose 使用前端 Nginx 与后端 API 两个容器，仅映射 `127.0.0.1:8080`。SQLite、行情缓存和会话/证明/包加密密钥保存在 `atlas-data` 命名卷中。后端单进程启动研究、提醒和自动定投。根 `Dockerfile` 及旧单镜像构建脚本未维护；`deploy/run.sh` 已停用，不能用作升级入口。已有部署升级前请阅读 [部署指南](docs/DEPLOYMENT.md)，核对原 Compose 项目名和数据卷，避免连接空卷。
-
-例如 Nginx 的站点 location（证书配置由服务器管理）：
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $remote_addr;
-    client_max_body_size 20m;
-}
-```
-
-首次注册自己的账号后，可将 `ATLAS_ALLOW_REGISTRATION=false` 关闭公开注册，再重建容器配置。默认会话密钥首次生成后保存在数据目录 `.session-secret`；也可显式提供不少于 32 字符的 `ATLAS_SESSION_SECRET`。修改密码会使其他设备的会话失效。
-
-不使用 Docker 时，先构建前端，然后运行：
-
-```bash
-cd frontend && npm ci && npm run build
-cd ../backend
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
-```
-
-环境变量：`ATLAS_DATA_DIR` 指定存储目录；`ATLAS_STATIC_DIR` 指定前端构建目录；`ATLAS_ALLOWED_ORIGINS` 是逗号分隔的前端来源。对外服务请配置 HTTPS，并只信任实际反向代理传入的转发头。

@@ -1,5 +1,7 @@
 # 项目目录说明
 
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
 Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链。根目录只保留能够独立说明职责的一级模块。
 
 ## 根目录
@@ -9,14 +11,14 @@ Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链�
 | `backend/` | FastAPI 服务、行情适配器、指标与回测引擎、研究任务、QuantJudge、ZKP receipt 验证及 SQLite 本地数据 | 是 | Atlas 后端源码 |
 | `frontend/` | React + TypeScript 界面、K 线与指标图表、单标的/多资产回测、策略实验室和 QuantJudge 市场 | 是 | Atlas 前端源码 |
 | `strategy/` | 策略作者侧的 SDK、示例、打包命令以及本地 ZKP 证明工程 | 开发策略或生成证明时需要 | Atlas 开发工具链 |
-| `deploy/` | 前后端容器镜像、同源代理与隔离容器冒烟测试 | 容器部署时需要 | 仅 Atlas 私有部署，不包含 Supervisor |
+| `deploy/` | API/Web与Supervisor/MySQL镜像工具、代理、预检、打包及冷备恢复 | 容器部署时需要 | 基础两镜像与完整四镜像分别配置，测试链非正式网络 |
 | `docs/` | 产品规格、系统架构、策略开发契约、ZKP 与 Supervisor 接入说明及文档图片 | 否 | 项目文档 |
 | `.github/workflows/` | 前端与Python3.12/3.14源码验证配置，当前不含容器验收 | 否 | 自动验证，不自动部署 |
 | `contracts/` | 合约、交易解码、脱敏加固的Supervisor源码与隔离链runner | 支付/链工具或带链开发时需要 | API通过RPC访问独立进程；临时开发链不能恢复旧订单 |
-| `.artifacts/` | Playwright 截图、策略包和视觉验收结果等可重新生成的本地产物 | 否 | 不提交 Git，可安全清理 |
+| `.artifacts/` | 本地构建/验收记录、截图及可能含敏感信息的临时材料 | 否 | 不提交Git；先辨认私有输入/证据/备份，不能整目录当缓存清理 |
 | `output/playwright/` | 工作空间重构的浏览器视觉验收截图 | 否 | 本地生成，不提交 Git |
 
-根目录中的 `README.md` 是统一入口，`compose.yaml` 编排私有部署，`.env.example` 说明可选设置。构建应使用经审查的干净源码目录并单独放入审核制品；Git忽略不等于Docker上下文排除，不要将含私人数据的工作区发送给构建器。根Dockerfile及旧单镜像构建脚本保留但未维护，`deploy/run.sh` 已停用。
+根目录README是统一入口；`compose.yaml`为基础源码栈，`compose.release.yaml`为固定镜像，`compose.chain.yaml`扩展完整测试链。`.env.example`、`.env.lab.example`及`.env.chain.lab.example`为无凭据模板。构建应使用经审查的干净源码目录并单独放入审核制品；Git忽略不等于Docker上下文排除，不要将含私人数据的工作区发送给构建器。根Dockerfile及旧单镜像构建脚本保留但未维护，`deploy/run.sh` 已停用。
 
 ## `backend/`
 
@@ -73,9 +75,12 @@ strategy/
 - `STRATEGY_DEVELOPMENT.md`：策略格式、SDK、Runner 和 AI 工作流开发流程。
 - `QUANTJUDGE.md`：策略市场、证据链和 Supervisor 对接。
 - `ZKP.md`：零知识证明协议、公开输入和威胁模型。
-- `UI_REDESIGN.md`：工作空间重构、交互修复、验收与能力边界。
-- `REFACTOR_PROGRESS.md`：本轮交付、实际验证结果与未完成事项。
-- `DEPLOYMENT.md`：本机容器运行、数据持久化、备份及部署边界。
+- `UI_REDESIGN.md`：历史工作空间重构及当时验收。
+- `REFACTOR_PROGRESS.md`：历史重构结果，不作为当前运行状态。
+- `DEPLOYMENT.md`：源码构建、数据归属与运维边界。
+- `CURRENT_STATUS.md`：当前实现和验收的统一口径。
+- `LAB_OFFLINE_DEPLOYMENT.md` / `LAB_CHAIN_DEPLOYMENT.md`：基础/完整固定镜像的部署、资源及冷备要求。
+- `DOCUMENTATION_SYNC_20261030.md`：全部Markdown的用途与本轮核对清单。
 - `assets/`：README 与文档引用的图片。
 
 ## 生成目录处理原则

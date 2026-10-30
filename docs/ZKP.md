@@ -1,5 +1,7 @@
 # Atlas ZKP protocol
 
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
 Atlas uses a fixed RISC Zero zkVM guest to prove that a private strategy configuration was executed against an exact market dataset under deterministic backtest semantics. A proof is accepted only when the receipt verifies against a platform-registered image ID and every public journal field passes the server-side binding rules.
 
 The historical profile is `atlas_sma_backtest_risc0_v1`. A new profile, `atlas_program_backtest_risc0_v2`, proves a private bounded integer program rather than only SMA parameters. See [execution boundaries and v2 instructions](EXECUTION_TRUST.md) for the image ID, real verification record and legacy rebuild mismatch. Neither profile proves arbitrary Python, an external LLM, live exchange fills, or every Strategy Lab artifact. The original SMA semantics below remain specific to v1.
@@ -29,6 +31,8 @@ The platform still controls market-dataset registration and profile governance. 
 | Explicitly not persisted | strategy salt, private parameters, source, prompts, full decisions, full equity path, witness file |
 
 Market candles are downloadable by hash because they are the public statement being computed over. Keeping public historical data out of the HTTP API would not make a strategy more private; the parameters and decisions remain inside the witness.
+
+The table describes author-side proof generation and receipt upload. Optional paid server generation explicitly accepts the author's program and retains controlled task inputs/witness on the server; it does not promise secrecy from the host administrator. Both routes publish only the public proof statement. See [the current service workflow](TRINE_SERVICE_WORKFLOW.md).
 
 ## Deterministic execution profile
 
@@ -61,7 +65,7 @@ Proof records are content addressed and protected against path traversal, duplic
 
 ## Supervisor anchor v2
 
-Supervisor remains read-only to Atlas; none of its source or configuration is modified. For ZKP reports the expected transaction input is:
+Atlas maintains the sanitized Supervisor source and an isolated test-chain bootstrap. The API reads JSON-RPC state and broadcasts only externally signed transactions; it does not hold the signing key. The current complete Docker stack is a single-node test chain, not a production consensus network. For ZKP reports the expected transaction input is:
 
 ```text
 ASCII("ATLASZK2")
@@ -81,7 +85,7 @@ Install the RISC Zero toolchain, then build the fixed guest and host verifier:
 PATH="$HOME/.risc0/bin:$PATH" strategy/zkvm/scripts/build.sh
 ```
 
-The build writes the immutable image ID into `strategy/zkvm/profiles.json`. Generate a witness locally; never upload it:
+Inspect the built image ID and compare it with the registered profile before publication. Do not silently replace a historical registered ID to fit a rebuild; the legacy v1 rebuild may differ. For author-side generation, keep the witness locally; the separate server-generation route requires explicit disclosure consent:
 
 ```bash
 strategy/zkvm/target/release/atlas-zkvm inspect --profile atlas_program_backtest_risc0_v2 --witness witness.json

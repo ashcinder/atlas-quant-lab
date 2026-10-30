@@ -1,6 +1,8 @@
 # Clarity → Atlas 功能整合
 
-> 历史整合记录：对应 `main/b7e06dc`、2026-09-07。以下命令与验收数字保留当时证据，不作为当前安装步骤。当前使用npm及API/Web双服务，入口见 [README](../README.md) 与 [部署指南](DEPLOYMENT.md)；[MAIN_MERGE.md](MAIN_MERGE.md) 的当前导航已同步。
+> 历史记录：保留原日期、环境和结果，不作当前操作或验收承诺。当前实现以[4be31bf版本说明](CURRENT_STATUS.md)为准；旧基线/固定ID不随新安装生成。
+
+> 历史整合记录：对应 `main/b7e06dc`、2026-09-07。以下命令与验收数字保留当时证据，不作为当前安装步骤。当前使用npm，部署分基础API/Web和完整四镜像测试链，入口见 [README](../README.md) 与 [部署指南](DEPLOYMENT.md)；[MAIN_MERGE.md](MAIN_MERGE.md) 的当前导航已同步。
 
 验收日期：2026-09-07。目标应用位于 `atlas-quant-lab-main`；`clarity-investment-journal-main` 保留原样。
 

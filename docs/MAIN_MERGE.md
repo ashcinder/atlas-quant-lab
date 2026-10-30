@@ -1,12 +1,14 @@
 # main → QuantJudge 合并说明与当前入口
 
-更新：2026-10-29。当前操作按QuantJudge `672e8b8` 核对。原合并来源为main `b7e06dc` 与QuantJudge `cc1a434`，合并验收记录保留在下方，不能当作当前运行状态。
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
+更新：2026-10-30。当前操作按QuantJudge `4be31bf` 核对。原合并来源为main `b7e06dc` 与QuantJudge `cc1a434`，合并验收记录保留在下方，不能当作当前运行状态。
 
 ## 当前使用方式
 
 - 安装与两个终端开发：遵循 [README](../README.md#本地启动)，使用npm及已提交的 `package-lock.json`，无需全局安装pnpm。
 - 本机带链开发：依赖预装后使用根 `./start.sh`，另需Go和本机MySQL，每次生成新链，不能恢复旧付款订单。
-- API/Web容器：先完成 [部署构建前提](DEPLOYMENT.md#构建前置条件)，核对原项目和数据卷，再运行Compose。根Dockerfile仍在但未维护；旧单镜像启动器已停用。
+- 完整四镜像实验室与测试链：见[完整链部署](LAB_CHAIN_DEPLOYMENT.md)。基础API/Web源码容器：先完成 [部署构建前提](DEPLOYMENT.md#构建前置条件)，核对原项目和数据卷，再运行Compose。根Dockerfile仍在但未维护；旧单镜像启动器已停用。
 - 策略使用、发布、订阅及运行：见 [当前工作流](CURRENT_WORKSPACE_WALKTHROUGH.md)。默认空库，不自带历史验收账号、策略或Proof。
 
 ## 合入与后续能力

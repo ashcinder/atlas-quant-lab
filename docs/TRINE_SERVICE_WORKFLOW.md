@@ -1,6 +1,8 @@
 # Trine 账户、BKC 支付与证明服务
 
-更新：2026-10-29，当前步骤按QuantJudge `672e8b8` 核对；后文日期章节为历史证据。
+> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+
+更新：2026-10-30，当前步骤按QuantJudge `4be31bf` 核对；后文日期章节为历史证据。
 
 ## 用户流程
 
@@ -17,7 +19,7 @@
 - `TRINE_PROOF_PRICE_BKC`：每次证明的正数 BKC 价格。
 - `TRINE_PROOF_RECIPIENT`：服务方收款地址。
 - `strategy/zkvm/target/release/atlas-zkvm`：与登记 image ID 一致的原生执行器。
-- 运行环境需要 Python 虚拟环境、Node.js 和 `contracts/node_modules`（ethers 用于检查已签名交易）。Linux 云主机必须构建 Linux 版证明执行器；Mac 二进制不可直接上传运行。
+- 源码运行需要Python、Node及contracts依赖；固定API镜像已含运行依赖和验证器，接收方不现场编译。源码构建先审核Linux制品，Mac二进制不可直接上传。新Proof还需足够内存，完整栈API限额6GiB；更大输入性能待验。
 
 配置缺失时，服务禁止创建付费任务。服务随后端启动一个持久化队列工作器，文件锁防止多个进程并发证明；任务在 SQLite 中持久化，输入保存在服务端受限目录。请保护服务器及备份，因为云端生成意味着服务器可以读取策略程序和 witness，不能宣称服务器零知晓。
 
@@ -33,9 +35,9 @@
 
 从干净源码构建前，先完成 [固定Linux制品的构建前提](DEPLOYMENT.md#构建前置条件)。后端镜像含交易解码依赖和证明脚本；基础构建本身就要求固定哈希的Linux x86-64执行器。`TRINE_LINUX_ZKVM_BINARY` 的运行时挂载不能跳过它。
 
-还必须提供API容器可达的持久Supervisor RPC。当前浏览器keystore离线签名，再由后端广播，浏览器无需直连节点；签名订单与API网络必须保持同一创世身份。默认容器内 `127.0.0.1:42515` 不指向宿主机，Compose也不启动Supervisor；链不可达时钱包网络或建单会拒绝，不产生假余额或免费授权。
+还必须提供API容器可达的持久Supervisor RPC。当前浏览器keystore离线签名，再由后端广播，浏览器无需直连节点；签名订单与API网络必须保持同一创世身份。基础源码/双镜像栈的 `127.0.0.1:42515` 不指向宿主机；完整四镜像栈通过 `compose.chain.yaml` 启动Supervisor/MySQL，API使用内部 `http://supervisor:42515`；链不可达时钱包网络或建单会拒绝，不产生假余额或免费授权。
 
-确认制品、RPC、金额/收款及数据卷后，设置 `TRINE_LINUX_ZKVM_BINARY` 为已审核Linux执行器的绝对路径，再运行：
+当前完整交付优先按[完整链部署](LAB_CHAIN_DEPLOYMENT.md)，使用已核验四镜像、明确报价/收款和同链身份，不在目标机重建。以下仅为源码构建并接外部持久RPC的可选覆盖路线：确认制品、RPC、金额/收款及数据卷后，设置 `TRINE_LINUX_ZKVM_BINARY` 为已审核Linux执行器的绝对路径，再运行：
 
 ```bash
 docker compose -f compose.yaml -f compose.zkvm.yaml config --quiet
@@ -43,6 +45,12 @@ docker compose -f compose.yaml -f compose.zkvm.yaml up -d --build
 ```
 
 覆盖文件为证明进程设置4核/8GB并只读挂载执行器。镜像和固定制品就绪不代表已验证实际满负载或付费服务。一次性根 `./start.sh` 每次创建新创世块，不能用于恢复已有BKC订单；订单必须使用原创世身份的持久链。不得为恢复付款而改写订单或绕过身份核验。
+
+## 当前本地验收（2026-10-30）
+
+完整实验室测试链已实际跑通BKC订阅、版本/Proof摘要存证、新付费Proof生成、在线/离线验真及篡改拒绝。已确认订单重广播保持confirmed，失败任务使用原订单恢复；receipt和JSON原子发布、重新核对输入及journal，超时清理整组证明进程，不遗留占内存子进程。确认成功不等于自动退款或持续链重组监控已实现。
+
+证明计算与回测/研究共享每账号1项、全局2项预算；状态查询不占预算，繁忙时有限等待/重试。公开验收边界见[当前状态](CURRENT_STATUS.md#已有验收与待验证)。下文旧记录保留为历史，不覆盖当前实现。
 
 ## 历史恢复与支付核验（2026-09-17）
 
