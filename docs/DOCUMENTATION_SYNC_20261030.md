@@ -1,6 +1,6 @@
 # QuantJudge Markdown统一核对清单
 
-日期：2026-10-30。实现基线：[4be31bf](https://github.com/ashcinder/atlas-quant-lab/commit/4be31bf4a4457829cd5581c0463d198948f09aa9)。覆盖该提交全部 **54份** Git跟踪Markdown；本次另增[当前状态](CURRENT_STATUS.md)及本清单。后续本科选题基于这一统一实现。
+日期：2026-10-30。实现基线：[4be31bf](https://github.com/ashcinder/atlas-quant-lab/commit/4be31bf4a4457829cd5581c0463d198948f09aa9)。覆盖该提交全部 **54份** Git跟踪Markdown；本次另增[当前状态](CURRENT_STATUS.md)及本清单。
 
 ## 本轮处理
 
@@ -77,9 +77,3 @@
 本清单为项目文档核对，不作为独立安全审计或全部功能无缺陷证明。
 
 文档一致不等于全部功能无缺陷。真实TEE、通用Python/AI证明、数据来源/完整实盘收益证明及目标机持续运行仍有边界。source-manifest包含文档，新文档会改变构建指纹，原镜像/交付包保留原清单身份；不能把旧镜像冒充本次重新构建。
-
-## 统一后的本科选题
-
-[本科毕设选题](UNDERGRADUATE_THESIS.md)基于统一文档版本5c04f4b及实现4be31bf，按已有功能、学生任务、完成标准和参考材料四部分组织；另附[计算贯通案例](examples/backtest-prerequisite/README.md)。这些是后续新增材料，未混入主工作区的旧选题提交或A股草稿。
-
-新增材料纳入后，最终共59份Markdown；本地链接/锚点252处、shell代码块47段检查通过。计算贯通案例在禁网只读容器中复跑通过，未触碰正在运行服务的数据卷。
