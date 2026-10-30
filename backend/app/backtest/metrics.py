@@ -152,19 +152,54 @@ def classify_regimes(close: pd.Series) -> pd.Series:
     regime = pd.Series("震荡", index=close.index, dtype=object)
     regime.loc[(close > sma50) & (sma50 > sma200) & (volatility <= average_volatility)] = "牛市"
     regime.loc[(close < sma50) & (sma50 < sma200)] = "熊市"
+    # The classification depends on SMA200. Do not silently treat its warm-up
+    # window as sideways observations.
+    regime.iloc[: min(200, len(regime))] = None
     return regime
 
 
-def regime_metrics(equity: pd.Series, close: pd.Series) -> dict[str, dict[str, float | int | None]]:
-    returns = equity.pct_change()
+def _annualized_compound_return(values: pd.Series, factor: float) -> float | None:
+    if values.empty:
+        return None
+    growth = float((1 + values).prod())
+    if growth <= 0:
+        return None
+    return safe_float(growth ** (factor / len(values)) - 1)
+
+
+def regime_metrics(
+    equity: pd.Series,
+    close: pd.Series,
+    interval: str,
+    asset_class: str,
+) -> dict[str, dict[str, float | int | None]]:
+    returns = equity.pct_change().replace([np.inf, -np.inf], np.nan)
+    benchmark_returns = close.pct_change().replace([np.inf, -np.inf], np.nan)
     regimes = classify_regimes(close)
+    factor = periods_per_year(interval, asset_class)
     output: dict[str, dict[str, float | int | None]] = {}
     for name in ["牛市", "熊市", "震荡"]:
-        values = returns[regimes == name].dropna()
+        paired = pd.concat([returns, benchmark_returns], axis=1, join="inner")
+        paired.columns = ["strategy", "benchmark"]
+        paired = paired.loc[regimes == name].dropna()
+        values = paired["strategy"]
+        benchmark_values = paired["benchmark"]
+        annualized = _annualized_compound_return(values, factor)
+        benchmark_annualized = _annualized_compound_return(benchmark_values, factor)
         output[name] = {
             "periods": int(len(values)),
             "total_return": safe_float((1 + values).prod() - 1 if len(values) else np.nan),
+            "benchmark_total_return": safe_float(
+                (1 + benchmark_values).prod() - 1 if len(benchmark_values) else np.nan
+            ),
             "average_return": safe_float(values.mean() if len(values) else np.nan),
             "win_period_rate": safe_float((values > 0).mean() if len(values) else np.nan),
+            "annualized_return": annualized,
+            "benchmark_annualized_return": benchmark_annualized,
+            "annualized_excess_return": safe_float(
+                annualized - benchmark_annualized
+                if annualized is not None and benchmark_annualized is not None
+                else np.nan
+            ),
         }
     return output

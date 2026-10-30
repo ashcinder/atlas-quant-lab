@@ -1,0 +1,105 @@
+services:
+  api:
+    mem_limit: 6g
+    environment:
+      QUANTJUDGE_SUPERVISOR_RPC_URL: http://supervisor:42515
+      TRINE_PROOF_PRICE_BKC: ${TRINE_PROOF_PRICE_BKC:-1}
+      TRINE_PROOF_RECIPIENT: ${TRINE_PROOF_RECIPIENT:?set TRINE_PROOF_RECIPIENT}
+    depends_on:
+      supervisor:
+        condition: service_healthy
+        restart: true
+
+  supervisor:
+    image: ${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261030-lab-full-v1-amd64}
+    platform: linux/amd64
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 96
+    mem_limit: 768m
+    cpus: 1.5
+    stop_grace_period: 30s
+    depends_on:
+      supervisor-db:
+        condition: service_healthy
+        restart: true
+    environment:
+      GIN_MODE: release
+      ATLAS_API_IP: ${ATLAS_API_IP:-172.30.123.2}
+      ATLAS_SUPERVISOR_STATE_ROOT: /var/lib/atlas-supervisor/state
+      ATLAS_SUPERVISOR_LEVELDB_DIR: /var/lib/atlas-supervisor/state/leveldb
+      ATLAS_SUPERVISOR_DB_HOST: supervisor-db
+      ATLAS_SUPERVISOR_DB_PORT: '3306'
+      ATLAS_SUPERVISOR_DB_NAME: atlas_supervisor_isolated
+      ATLAS_SUPERVISOR_DB_USER: atlas_supervisor
+      ATLAS_SUPERVISOR_DB_PASSWORD_FILE: /run/secrets/supervisor-db-password
+      ATLAS_SUPERVISOR_PAYER_ADDRESS: ${ATLAS_SUPERVISOR_PAYER_ADDRESS:?set ATLAS_SUPERVISOR_PAYER_ADDRESS}
+      ATLAS_SUPERVISOR_RECIPIENT_ADDRESS: ${ATLAS_SUPERVISOR_RECIPIENT_ADDRESS:?set ATLAS_SUPERVISOR_RECIPIENT_ADDRESS}
+      ATLAS_SUPERVISOR_FEE_ADDRESS: ${ATLAS_SUPERVISOR_FEE_ADDRESS:?set ATLAS_SUPERVISOR_FEE_ADDRESS}
+      ATLAS_SUPERVISOR_RPC_ADDR: 127.0.0.1:42519
+    secrets:
+      - supervisor-db-password
+    volumes:
+      - supervisor-state:/var/lib/atlas-supervisor
+    networks:
+      atlas-internal:
+        ipv4_address: ${ATLAS_SUPERVISOR_IP:-172.30.123.5}
+      supervisor-db: {}
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+    healthcheck:
+      test: [CMD-SHELL, "wget -q -O /dev/null --header='Content-Type: application/json' --post-data='{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}' http://127.0.0.1:42515/"]
+      interval: 10s
+      timeout: 4s
+      start_period: 45s
+      retries: 6
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+  supervisor-db:
+    image: ${ATLAS_MYSQL_IMAGE:-atlas-mysql:8.4-amd64}
+    platform: linux/amd64
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1
+    environment:
+      MYSQL_DATABASE: atlas_supervisor_isolated
+      MYSQL_USER: atlas_supervisor
+      MYSQL_PASSWORD_FILE: /run/secrets/supervisor-db-password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/supervisor-db-root-password
+    secrets:
+      - supervisor-db-password
+      - supervisor-db-root-password
+    volumes:
+      - supervisor-mysql:/var/lib/mysql
+    networks:
+      supervisor-db: {}
+    healthcheck:
+      test: [CMD-SHELL, "mysqladmin ping --protocol=socket -uroot --password=$$(cat /run/secrets/supervisor-db-root-password) --silent"]
+      interval: 10s
+      timeout: 5s
+      start_period: 45s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+
+volumes:
+  supervisor-state:
+  supervisor-mysql:
+
+networks:
+  supervisor-db:
+    internal: true
+
+secrets:
+  supervisor-db-password:
+    file: ${ATLAS_CHAIN_SECRETS_DIR:?set ATLAS_CHAIN_SECRETS_DIR}/mysql-password
+  supervisor-db-root-password:
+    file: ${ATLAS_CHAIN_SECRETS_DIR:?set ATLAS_CHAIN_SECRETS_DIR}/mysql-root-password

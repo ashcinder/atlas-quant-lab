@@ -118,6 +118,11 @@ def test_signed_transaction_relay_checks_exact_order_and_is_idempotent(setup):
     assert 'signed_raw' not in store.get('buyer',order['id'])
     with pytest.raises(HTTPException):store.broadcast('buyer',order['id'],sign({**tx,'nonce':1}))
     assert runtime.list_subscriptions('buyer')==[]
+    with runtime._connect() as c:
+        c.execute("UPDATE bkc_orders SET status='confirmed' WHERE id=?",(order['id'],))
+    assert store.broadcast('buyer',order['id'],raw)['status']=='confirmed'
+    assert store.get('buyer',order['id'])['status']=='confirmed'
+    assert len(submitted)==1
 
 
 def test_release_anchor_is_owner_bound_zero_value_and_no_subscription(setup):

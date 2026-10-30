@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend'))
@@ -22,8 +23,15 @@ BINARY = ROOT / 'strategy/zkvm/target/release/atlas-zkvm'
 
 
 def write_private(path, data):
-    with open(path, 'x', opener=lambda p, flags: os.open(p, flags, 0o600)) as handle:
-        json.dump(data, handle, ensure_ascii=False, indent=2, allow_nan=False)
+    if path.exists():raise FileExistsError(path.name)
+    with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,prefix='.'+path.name,delete=False) as handle:
+        temporary=Path(handle.name)
+        try:
+            json.dump(data, handle, ensure_ascii=False, indent=2, allow_nan=False)
+            handle.flush();os.fsync(handle.fileno())
+            os.replace(temporary,path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def prover_environment():
@@ -119,11 +127,19 @@ def execute(args):
         write_private(private, witness)
     receipt = output / 'proof.r0'
     started = time.monotonic()
-    if not args.resume or not receipt.is_file():
-        print('开始本地真实证明；策略与witness不会发送给远程证明服务。', flush=True)
-        invoke(['prove', '--profile', PROFILE, '--witness', str(private), '--receipt', str(receipt)])
-    os.chmod(receipt, 0o600)
     verifier = Risc0ReceiptVerifier()
+    if args.resume and receipt.is_file() and registered is None:
+        try:verifier.verify(receipt, profile['image_id'])
+        except ZkProofError:receipt.unlink()
+    if not receipt.is_file():
+        print('开始本地真实证明；策略与witness不会发送给远程证明服务。', flush=True)
+        staging=output/'.proof.r0.partial'
+        invoke(['prove', '--profile', PROFILE, '--witness', str(private), '--receipt', str(staging)])
+        verifier.verify(staging, profile['image_id'])
+        os.chmod(staging,0o600)
+        with staging.open('rb') as handle:os.fsync(handle.fileno())
+        os.replace(staging,receipt)
+    os.chmod(receipt, 0o600)
     verified = verifier.verify(receipt, profile['image_id'])
     statement = check_bundle(witness, verified)
     # Ensure native preflight and proved computation agree apart from identity.

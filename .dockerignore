@@ -21,6 +21,7 @@ strategy/zkvm/target
 Dockerfile*
 docker-compose*
 deploy/*.sh
+!deploy/nginx-entrypoint.sh
 deploy/*.conf
 !deploy/nginx.conf
 .dockerignore
@@ -38,6 +39,10 @@ scripts/*.sh
 .env
 .env.*
 !.env.example
+
+# Local diagnostics, credentials and delivery archives never enter a build.
+.artifacts
+deliverables
 
 # OS
 .DS_Store

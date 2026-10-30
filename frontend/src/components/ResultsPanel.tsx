@@ -36,6 +36,12 @@ const riskLabels: Record<string, string> = {
   return_t_stat: '收益 t 统计量', return_p_value: '收益 p 值', fees_paid: '累计手续费',
 }
 
+const evaluationLabels: Record<string, string> = {
+  return_capacity: '收益能力', risk_adjusted_efficiency: '风险收益效率',
+  risk_control_stability: '风险控制与稳定性', market_adaptability: '市场适应性',
+  backtest_live_consistency: '回测实盘一致性', strategy_purity: '策略纯度',
+}
+
 function resultCurrency(result: BacktestResult | PortfolioResult): string | null {
   if (result.valuation_currency) return result.valuation_currency
   if ('asset' in result) return result.asset.currency
@@ -78,6 +84,10 @@ export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls
             <Suspense fallback={<div className="equity-chart chart-loading">加载权益曲线…</div>}>
               <EquityChart points={result.equity} />
             </Suspense>
+            {'evaluation' in result && result.evaluation ? <section className="result-evaluation" aria-label="六维评价">
+              <header><div><h3>六维评价</h3><small>evaluation_v1 · 缺数不补零</small></div><strong>{result.evaluation.total_score == null ? '总分不可计算' : `${result.evaluation.total_score} / 100`}</strong></header>
+              <div>{result.evaluation.dimensions.map((item) => <article key={item.id}><span>{evaluationLabels[item.id] ?? item.id}</span><b>{item.score == null ? '不可评估' : `${item.score} / 100`}</b>{item.reason ? <small>{item.reason}</small> : null}</article>)}</div>
+            </section> : null}
           </div>
         ) : null}
         {!loading && result && tab === 'trades' ? (

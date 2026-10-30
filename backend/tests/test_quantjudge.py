@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+import json
 
 import pytest
 
@@ -83,6 +84,16 @@ def test_private_inputs_are_committed_signed_and_not_returned(tmp_path):
     assert "decision_commitments" not in str(public_agent)
     assert "equity_points" not in str(public_agent)
     assert all(set(point) == {"time", "return", "benchmark_return"} for point in report["public_curve"])
+    assert report["evaluation"]["version"] == "evaluation_v1"
+    assert report["evaluation"]["total_score"] is None
+    assert [item["status"] for item in report["evaluation"]["dimensions"]] == [
+        "evaluated", "evaluated", "evaluated", "not_evaluable", "not_evaluable", "not_evaluable"
+    ]
+    with store._connect() as connection:
+        signed_payload = json.loads(connection.execute(
+            "SELECT receipt_payload_json FROM qj_reports WHERE id=?", (report["id"],)
+        ).fetchone()[0])
+    assert "evaluation" not in signed_payload
 
 
 def test_developer_token_and_chain_confirmation_boundaries(tmp_path):

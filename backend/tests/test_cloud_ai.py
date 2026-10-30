@@ -83,3 +83,16 @@ def test_cloud_transport_uses_fixed_endpoint_and_redacts_failures(monkeypatch):
     assert seen == ['https://api.deepseek.com/chat/completions']
     assert 'sensitive' not in failure.value.detail
     assert 'fake-key' not in failure.value.detail
+
+
+def test_connection_probe_requests_strict_boolean_json(client, monkeypatch):
+    save(client)
+    observed = {}
+    def complete(config, messages, **kwargs):
+        observed.update(messages=messages, **kwargs)
+        return '{"ok":true}'
+    monkeypatch.setattr(cloud_ai, 'complete', complete)
+    assert client.post('/api/v1/ai-settings/test', json={}).status_code == 200
+    assert observed['messages'][0]['role'] == 'system'
+    assert 'Boolean literal true' in observed['messages'][0]['content']
+    assert observed['max_tokens'] == 128

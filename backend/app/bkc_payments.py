@@ -198,9 +198,11 @@ class BkcStore:
         # A lost HTTP response cannot cause a second payment with a new nonce.
         with self.runtime._connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
-            latest=conn.execute('SELECT transaction_hash FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
+            latest=conn.execute('SELECT transaction_hash,status FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
             if latest['transaction_hash'] and latest['transaction_hash']!=tx['hash']:
                 raise HTTPException(409,'订单已有交易，请恢复核验')
+            if latest['transaction_hash']==tx['hash'] and latest['status']=='confirmed':
+                return {'transaction_hash':tx['hash'],'status':'confirmed'}
             conn.execute("UPDATE bkc_orders SET transaction_hash=?,signed_raw=?,status='submitted' WHERE id=?",(tx['hash'],raw,identifier))
         try:
             if not self.client.transaction(tx['hash']):

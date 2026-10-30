@@ -35,7 +35,7 @@ COPY backend/app ./app
 COPY --from=relay /usr/local/bin/node /usr/local/bin/node
 COPY --from=relay /app/contracts/node_modules /app/contracts/node_modules
 COPY contracts/scripts/decode-transaction.mjs /app/contracts/scripts/decode-transaction.mjs
-COPY scripts/prove-private-program.py scripts/prepare-zk-witness.py scripts/verify-proof-bundle.py scripts/import-verified-proof.py /app/scripts/
+COPY scripts/prove-private-program.py scripts/prepare-zk-witness.py scripts/verify-proof-bundle.py scripts/import-verified-proof.py scripts/admin-user.py /app/scripts/
 RUN mkdir -p /app/strategy/zkvm/target/release
 COPY strategy/zkvm/profiles.json /app/strategy/zkvm/profiles.json
 # The Linux verifier is an explicitly supplied release artifact, not the local
@@ -46,4 +46,4 @@ RUN chmod 0555 /app/strategy/zkvm/target/release/atlas-zkvm \
 USER 10001:10001
 EXPOSE 8000
 # In-process research jobs and alert monitoring require exactly one worker.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-proxy-headers", "--no-access-log", "--timeout-graceful-shutdown", "30"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips \"${ATLAS_TRUSTED_PROXY_IPS:-172.30.120.3}\" --no-access-log --timeout-graceful-shutdown 30"]

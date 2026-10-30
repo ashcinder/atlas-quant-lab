@@ -35,3 +35,10 @@ def test_short_period_sharpe_matches_guest_i64_contract():
     for invalid in [-(2**63) - 1, 2**63]:
         with pytest.raises(ValueError):
             ZkMetricSet(**{**metrics, 'sharpe_milli': invalid})
+
+
+def test_incomplete_json_is_never_published_as_an_atomic_file(tmp_path):
+    path=tmp_path/'verification.public.json'
+    with pytest.raises(ValueError):SDK['write_private'](path, {'metric':float('nan')})
+    assert not path.exists()
+    assert list(tmp_path.iterdir())==[]

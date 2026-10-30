@@ -9,6 +9,15 @@ export function reportSummary(agent: QuantAgent, report: QuantReport, verificati
       market_data_hash: report.market_data_hash || null, data_source: null, environment: null, fees: null, valuation_at: null, behavior_check: null,
       metrics: Object.fromEntries(['total_return', 'annualized_return', 'max_drawdown', 'sharpe', 'sortino', 'annualized_volatility', 'trade_count'].map(key => [key, Number.isFinite(report.metrics[key]) ? report.metrics[key] : null])), performance_score: report.performance_score ?? null,
       performance_score_version: report.performance_score_version ?? null },
+    evaluation: report.evaluation ? {
+      version: report.evaluation.version,
+      complete: report.evaluation.complete,
+      total_score: report.evaluation.total_score,
+      dimensions: report.evaluation.dimensions.map((item) => ({
+        id: item.id, status: item.status, score: item.score, raw: item.raw,
+        reason: item.reason, period: item.period, rule_version: item.rule_version,
+      })),
+    } : null,
     evidence: { level: report.evidence_level ?? null, proof_id: report.zk_proof_id ?? null,
       receipt_integrity_valid: report.receipt_integrity_valid, public_curve_integrity_valid: report.public_curve_integrity_valid,
       verified_this_session: verification?.calculation_verified ?? false,
@@ -16,7 +25,7 @@ export function reportSummary(agent: QuantAgent, report: QuantReport, verificati
       chain_status: verification?.chain.status ?? report.chain_status,
       source_authenticated: false, full_account_coverage_verified: false },
     proof_url: report.zk_proof_id ? `${window.location.origin}${window.location.pathname}#/proof/${encodeURIComponent(report.zk_proof_id)}` : null,
-    limitations: ['报告类型不等于来源认证；表现分是实验性指标换算。', '新增仓位偏离规则不在现有 ZKP 范围内。', '未记录的信息为 null，不从其他报告补齐。'],
+    limitations: ['报告类型不等于来源认证；评价分是规则换算。', '缺数维度不补零，也不生成不完整的六维总分。', '新增仓位偏离规则不在现有 ZKP 范围内。', '未记录的信息为 null，不从其他报告补齐。'],
   }
 }
 

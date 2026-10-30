@@ -171,6 +171,36 @@ class EquityPoint(BaseModel):
     exposure: float
 
 
+class EvaluationPeriod(BaseModel):
+    start: int | str | None = None
+    end: int | str | None = None
+    observation_count: int | None = None
+
+
+class EvaluationDimension(BaseModel):
+    id: Literal[
+        "return_capacity",
+        "risk_adjusted_efficiency",
+        "risk_control_stability",
+        "market_adaptability",
+        "backtest_live_consistency",
+        "strategy_purity",
+    ]
+    status: Literal["evaluated", "not_evaluable"]
+    score: float | None = None
+    raw: dict[str, Any] = Field(default_factory=dict)
+    reason: str | None = None
+    period: EvaluationPeriod
+    rule_version: Literal["evaluation_v1"] = "evaluation_v1"
+
+
+class StrategyEvaluation(BaseModel):
+    version: Literal["evaluation_v1"] = "evaluation_v1"
+    dimensions: list[EvaluationDimension]
+    complete: bool
+    total_score: float | None = None
+
+
 class BacktestResult(BaseModel):
     run_id: str
     created_at: datetime
@@ -186,6 +216,7 @@ class BacktestResult(BaseModel):
     equity: list[EquityPoint]
     metrics: dict[str, float | int | None]
     regime_metrics: dict[str, dict[str, float | int | None]]
+    evaluation: StrategyEvaluation | None = None
     warnings: list[str]
 
 

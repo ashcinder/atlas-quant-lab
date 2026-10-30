@@ -36,11 +36,14 @@ describe('final upgrade behavior and summaries', () => {
   })
   it('does not export private report fields or manufacture a source or fee assumption', () => {
     const report = { id: 'report-a', metrics: { sharpe: 1, api_key: 'secret' }, score: 99, performance_score: null, zk_proof_id: 'proof-a',
+      evaluation: { version: 'evaluation_v1', complete: false, total_score: null, dimensions: [{ id: 'risk_adjusted_efficiency', status: 'evaluated', score: 50, raw: { sharpe: 1 }, reason: null, period: { start: null, end: null, observation_count: 2 }, rule_version: 'evaluation_v1' }] },
       private_source: 'private-source' } as unknown as QuantReport
     const agent = { id: 'a', name: 'A', strategy_commitment: 'hash', api_key: 'secret' } as unknown as QuantAgent
     const summary = reportSummary(agent, report, null)
     expect(JSON.stringify(summary)).not.toMatch(/secret|private-source/)
     expect(summary.report.performance_score).toBeNull(); expect(summary.report.fees).toBeNull()
+    expect(summary.evaluation?.dimensions[0].score).toBe(50)
+    expect(summary.evaluation?.total_score).toBeNull()
     expect(summary.evidence.verified_this_session).toBe(false)
   })
   it('prints the same summary with text nodes so user content cannot become HTML', () => {

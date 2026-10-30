@@ -383,6 +383,15 @@ class ResearchService:
             )
 
     def submit(self, owner_id: str, request: ResearchRequest) -> ResearchJob:
+        from app.work_limits import work_limits
+        work_limits.acquire(owner_id)
+        try:
+            return self._submit_reserved(owner_id, request)
+        except BaseException:
+            work_limits.release(owner_id)
+            raise
+
+    def _submit_reserved(self, owner_id: str, request: ResearchRequest) -> ResearchJob:
         job_id = str(uuid4())
         now = _now()
         with self._connect() as connection:
@@ -400,10 +409,10 @@ class ResearchService:
         event = threading.Event()
         with self.lock:
             self.cancel_events[job_id] = event
-        self.executor.submit(self._execute, job_id, request, event)
+        self.executor.submit(self._execute, job_id, request, event, owner_id)
         return self.get(owner_id, job_id)
 
-    def _execute(self, job_id: str, request: ResearchRequest, cancelled: threading.Event) -> None:
+    def _execute(self, job_id: str, request: ResearchRequest, cancelled: threading.Event, owner_id: str) -> None:
         try:
             self._update(job_id, status="running", progress=0.01, message="正在读取行情")
             bundle = self.data_service.fetch(
@@ -432,6 +441,8 @@ class ResearchService:
         except Exception as exc:
             self._update(job_id, status="failed", message="研究失败", error=str(exc))
         finally:
+            from app.work_limits import work_limits
+            work_limits.release(owner_id)
             with self.lock:
                 self.cancel_events.pop(job_id, None)
 
@@ -468,4 +479,4 @@ class ResearchService:
         return self.get(owner_id, job_id)
 
     def shutdown(self) -> None:
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.executor.shutdown(wait=False, cancel_futures=False)

@@ -1,5 +1,5 @@
 """Paid, durable native zkVM jobs. Local author tools remain independent."""
-import json, os, re, secrets, subprocess, sys, threading, time
+import json, os, re, secrets, signal, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 from uuid import uuid4
 from decimal import Decimal, ROUND_CEILING
@@ -9,6 +9,68 @@ from app.bkc_payments import BkcStore, CHAIN_ID, canonical
 from app.config import DATA_DIR
 from app.zk_author import PROFILE, WORKFLOW
 from app.zkp import load_profiles
+from app.work_limits import work_limits
+
+
+def prover_memory_ready():
+    """Do not accept payment in the verification-only 2 GiB API profile."""
+    for path in ('/sys/fs/cgroup/memory.max', '/sys/fs/cgroup/memory/memory.limit_in_bytes'):
+        try:
+            value = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if value.isdigit() and int(value) < 6 * 1024**3:
+            return False
+    return True
+
+
+def run_proof(command, pass_fds=(), timeout=7200):
+    process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               pass_fds=pass_fds, start_new_session=True)
+    try:
+        return process.wait(timeout=timeout)
+    except BaseException:
+        try:os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:pass
+        process.wait()
+        raise
+
+
+def ensure_job_witness(path, proposed, result_dir):
+    required=set(proposed)
+    def read(candidate):
+        try:
+            value=json.loads(candidate.read_text())
+            return value if isinstance(value,dict) and required<=set(value) else None
+        except (OSError,ValueError):return None
+    saved=read(path)
+    candidate=saved or read(result_dir/'witness.private.json') or proposed
+    for key in ('strategy','market','initial_equity_micros','workflow_commitment'):
+        if candidate[key]!=proposed[key]:raise RuntimeError('persisted job witness inputs changed')
+    if saved is not None:return
+    if path.exists():path.rename(path.with_name('incomplete-witness-'+uuid4().hex+'.private.json'))
+    with tempfile.NamedTemporaryFile(mode='w',dir=path.parent,prefix='.witness-',delete=False) as handle:
+        temporary=Path(handle.name)
+        try:
+            json.dump(candidate,handle);handle.flush();os.fsync(handle.fileno())
+            os.replace(temporary,path)
+        finally:temporary.unlink(missing_ok=True)
+
+def check_paid_proof(proofs, proof_id, result_dir, witness_path, inputs, market_hash):
+    verified=proofs.reverify(proof_id)
+    saved=json.loads((result_dir/'witness.private.json').read_text())
+    original=json.loads(witness_path.read_text())
+    for key in ('strategy','market','initial_equity_micros','strategy_salt','nullifier_nonce','workflow_commitment'):
+        if saved[key]!=original[key]:raise RuntimeError('job witness mismatch')
+    if (saved['strategy']['program']!=inputs['program'] or saved['initial_equity_micros']!=inputs['initial_equity_micros']
+            or saved['strategy']['commission_bps']!=inputs['commission_bps'] or saved['strategy']['slippage_bps']!=inputs['slippage_bps']):
+        raise RuntimeError('job input mismatch')
+    binary=Path(__file__).resolve().parents[2]/'strategy/zkvm/target/release/atlas-zkvm'
+    inspected=subprocess.run([str(binary),'inspect','--profile',PROFILE,'--witness',str(result_dir/'witness.private.json')],
+                             capture_output=True,text=True,check=True,timeout=60)
+    if verified.journal != json.loads(inspected.stdout) or verified.journal['market_data_hash']!=market_hash:
+        raise RuntimeError('proof does not bind paid job')
+
 
 def proof_quote(program, bars, base_bkc):
     """Deterministic work tariff, not a measured cloud-provider bill.
@@ -70,6 +132,9 @@ class CloudProofService:
                     ready = False
                 self._readiness_cache = (time.monotonic(), ready)
             reason = None if ready else '证明执行器不可用或与已登记程序不匹配'
+            if ready and not prover_memory_ready():
+                ready = False
+                reason = '生成新证明需要至少 6 GiB 的 API 容器内存限额，请先调整部署资源'
         return {'configured':valid and ready,'unavailable_reason':reason,'price_bkc':price if valid else None,'recipient':recipient if valid else None,'currency':'BKC','max_bars':20000,'location':'server','local_tools_preserved':True,'pricing_model':'work-v1','pricing_basis':'每 32 根 K 线 × 64 个程序节点为一个基础计价单位，最低一个单位'}
     def get(self,owner,identifier):
         with self.runtime._connect() as c: row=c.execute('SELECT * FROM cloud_proof_jobs WHERE id=? AND owner_id=?',(identifier,owner)).fetchone()
@@ -99,13 +164,14 @@ class CloudProofService:
         payload={'domain':'trine.cloud-proof/v1','order_id':order,'job_id':identifier,'release_id':release_id,'content_hash':release['content_hash'],'market_data_hash':body.market_data_hash,'chain_id':CHAIN_ID,'genesis_hash':genesis,'initial_equity_micros':body.initial_equity_micros,'commission_bps':body.commission_bps,'slippage_bps':body.slippage_bps,'quote':quote}
         with self.runtime._connect() as c:
             c.execute('BEGIN IMMEDIATE')
-            pending=c.execute("SELECT id FROM cloud_proof_jobs WHERE owner_id=? AND release_id=? AND status IN ('awaiting_payment','queued','proving')",(owner,release_id)).fetchone()
+            pending=c.execute("SELECT id FROM cloud_proof_jobs WHERE owner_id=? AND release_id=? AND status IN ('awaiting_payment','queued','proving','failed')",(owner,release_id)).fetchone()
             if pending: return self.get(owner,pending['id'])
             c.execute('INSERT INTO bkc_orders (id,owner_id,kind,resource_id,signer,recipient,amount_wei,data,genesis) VALUES (?,?,?,?,?,?,?,?,?)',(order,owner,'proof',identifier,body.address.lower(),config['recipient'].lower(),quote['amount_wei'],'0x'+canonical(payload).encode().hex(),genesis))
             c.execute('INSERT INTO cloud_proof_jobs VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?)',(identifier,owner,release_id,body.market_data_hash,json.dumps(inputs),order,'awaiting_payment',now,now))
         return self.get(owner,identifier)
     def enqueue(self,owner,identifier):
         job=self.get(owner,identifier);order=self.payments.get(owner,job['order_id'])
+        if job['status'] in ('queued','proving','verified'):return job
         if not order['transaction_hash']: raise HTTPException(402,'请先支付证明服务费用')
         checked=self.payments.confirm(owner,job['order_id'],order['transaction_hash'])
         if checked['status']!='confirmed': raise HTTPException(402,'BKC 支付尚未确认')
@@ -117,33 +183,52 @@ class CloudProofService:
             c.execute('BEGIN IMMEDIATE')
             row=c.execute("SELECT j.* FROM cloud_proof_jobs j JOIN bkc_orders o ON o.id=j.order_id WHERE j.status='queued' AND o.status='confirmed' ORDER BY j.created_at LIMIT 1").fetchone()
             if not row:return
-            c.execute("UPDATE cloud_proof_jobs SET status='proving',updated_at=? WHERE id=?",(time.time(),row['id']))
-        directory=self.root/row['id'];directory.mkdir(mode=0o700,exist_ok=True)
+            try:
+                work_limits.acquire(row['owner_id'])
+            except HTTPException as exc:
+                if exc.status_code == 429:return
+                raise
+            try:
+                c.execute("UPDATE cloud_proof_jobs SET status='proving',updated_at=? WHERE id=?",(time.time(),row['id']))
+            except Exception:
+                work_limits.release(row['owner_id'])
+                raise
+        directory=self.root/row['id']
         result_dir=directory/'result'
         try:
+            directory.mkdir(mode=0o700,exist_ok=True)
             inputs=json.loads(row['inputs']);_,market_path=self.proofs.market_dataset(row['market_hash'])
             witness={'agent_id':'qja_cloud_draft','workflow_commitment':WORKFLOW,'previous_receipt_hash':None,'strategy_salt':list(secrets.token_bytes(32)),'nullifier_nonce':list(secrets.token_bytes(32)),'initial_equity_micros':inputs['initial_equity_micros'],'strategy':{'program':inputs['program'],'commission_bps':inputs['commission_bps'],'slippage_bps':inputs['slippage_bps']},'market':json.loads(market_path.read_text())['dataset']}
             witness_path=directory/'witness.private.json'
-            if not witness_path.exists():
-                with open(witness_path,'x',opener=lambda p,f:os.open(p,f,0o600)) as handle:json.dump(witness,handle)
+            ensure_job_witness(witness_path,witness,result_dir)
             with self.runtime._connect() as c: release=self.runtime._release_for(c,row['release_id'])
-            # A completed result is durable, so restart recovery never creates a new proof.
-            if not (result_dir/'verification.public.json').exists():
+            # Incomplete markers are not completion evidence; recover using the same paid job.
+            marker=result_dir/'verification.public.json'
+            try:result=json.loads(marker.read_text())
+            except (OSError,ValueError):result={}
+            if not result.get('cryptographically_verified') or not result.get('proof_id'):
+                if marker.exists():marker.unlink()
                 command=[sys.executable,str(Path(__file__).resolve().parents[2]/'scripts/prove-private-program.py'),'--witness',str(witness_path),'--output',str(result_dir),'--publish-local','--name',release['name']]
                 if result_dir.exists():
-                    if not (result_dir/'author.private.json').is_file() or not (result_dir/'witness.private.json').is_file(): raise RuntimeError('partial')
-                    command.append('--resume')
-                process=subprocess.run(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=7200,pass_fds=(self.lock_fd,) if hasattr(self,'lock_fd') else ())
-                if process.returncode: raise RuntimeError('prover')
+                    if (result_dir/'author.private.json').is_file() and (result_dir/'witness.private.json').is_file():
+                        command.append('--resume')
+                    elif not (result_dir/'proof.r0').exists():
+                        result_dir.rename(directory/('incomplete-'+uuid4().hex))
+                    else:raise RuntimeError('receipt identity missing')
+                if run_proof(command,pass_fds=(self.lock_fd,) if hasattr(self,'lock_fd') else ()):
+                    raise RuntimeError('prover')
             result=json.loads((result_dir/'verification.public.json').read_text())
             if result.get('cryptographically_verified') is not True or not result.get('proof_id'): raise RuntimeError('verify')
             # Recheck the genuine stored proof rather than trusting a success marker.
+            check_paid_proof(self.proofs,result['proof_id'],result_dir,witness_path,inputs,row['market_hash'])
             with self.runtime._connect() as c:
                 exists=c.execute('SELECT 1 FROM qj_zk_proofs WHERE id=?',(result['proof_id'],)).fetchone()
                 if not exists:raise RuntimeError('missing proof')
                 c.execute("UPDATE cloud_proof_jobs SET status='verified',proof_id=?,error=NULL,updated_at=? WHERE id=?",(result['proof_id'],time.time(),row['id']))
         except Exception:
             with self.runtime._connect() as c:c.execute("UPDATE cloud_proof_jobs SET status='failed',error=?,updated_at=? WHERE id=?",('证明生成未完成；费用订单保留，请联系服务方恢复任务，勿重复支付。',time.time(),row['id']))
+        finally:
+            work_limits.release(row['owner_id'])
     def start(self):
         def run():
             import fcntl

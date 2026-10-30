@@ -9,6 +9,7 @@ import pandas as pd
 
 from app.backtest.metrics import calculate_metrics, drawdown_series, regime_metrics
 from app.data.service import DataBundle
+from app.evaluation import build_evaluation
 from app.indicators import calculate_indicators, serialize_indicators
 from app.models import (
     BacktestRequest,
@@ -276,6 +277,18 @@ def run_backtest(
         bundle.asset.asset_class,
         request.initial_capital,
     )
+    stage_metrics = regime_metrics(
+        equity_series, frame["close"], request.interval, bundle.asset.asset_class
+    )
+    evaluation = build_evaluation(
+        metrics,
+        period={
+            "start": int(pd.Timestamp(frame.index[0]).timestamp()),
+            "end": int(pd.Timestamp(frame.index[-1]).timestamp()),
+            "observation_count": max(len(frame) - 1, 0),
+        },
+        regime_metrics=stage_metrics,
+    )
     warnings.insert(0, "所有策略信号均在当前K线收盘后生成，并在下一根K线开盘执行。")
     if scheduled_dca:
         warnings.append("固定金额定投使用初始可用资金，金额包含手续费；资金不足、仓位上限或流动性限制可能导致部分成交或跳过。日历时间按数据 UTC 时间计算，非交易时段顺延；K线粒度过粗时合并错过的计划，不补做多笔成交。不模拟外部自动入金。")
@@ -316,6 +329,7 @@ def run_backtest(
         trades=[Trade(**trade) for trade in trades],
         equity=equity_points if include_details else [],
         metrics=metrics,
-        regime_metrics=regime_metrics(equity_series, frame["close"]),
+        regime_metrics=stage_metrics,
+        evaluation=evaluation,
         warnings=warnings,
     )

@@ -128,7 +128,10 @@ def test_connection(request: Request):
     config = get_config(request)
     if config is None:
         raise HTTPException(409, "请先保存 AI 配置")
-    content = complete(config, [{"role": "user", "content": 'Return JSON only: {"ok":true}'}], max_tokens=64)
+    content = complete(config, [
+        {"role": "system", "content": "You are a connection probe. Reply with exactly one syntactically valid JSON object. The value of ok must be the Boolean literal true, never a variable or a string. No markdown."},
+        {"role": "user", "content": 'Return exactly this JSON object: {"ok": true}'},
+    ], max_tokens=128)
     try:
         valid = json.loads(content).get("ok") is True
     except (ValueError, AttributeError):

@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from app.config import DATA_DIR, DB_PATH
+from app.evaluation import build_evaluation
 from app.quantjudge_models import PerformanceReportCreate, QuantAgentCreate, SubscriptionCreate
 from app.supervisor_client import SupervisorClient, SupervisorRPCError
 from app.zkp_models import ZkPublicStatement
@@ -411,6 +412,14 @@ class QuantJudgeStore:
         performance_score = self._performance_score(
             metrics, receipt_integrity and curve_integrity is not False
         )
+        evaluation = build_evaluation(
+            metrics if curve_integrity is not False else {},
+            period={
+                "start": payload.get("period_start", row["period_start"]),
+                "end": payload.get("period_end", row["period_end"]),
+                "observation_count": metrics.get("observation_count"),
+            },
+        )
         return {
             "id": row["id"],
             "report_type": payload.get("report_type", row["report_type"]),
@@ -437,6 +446,9 @@ class QuantJudgeStore:
             "score_version": "legacy_evidence_v1",
             "performance_score": performance_score,
             "performance_score_version": "performance_v1",
+            # Derived display data is intentionally outside the signed receipt
+            # payload so legacy signatures and zkVM statements remain stable.
+            "evaluation": evaluation,
             "created_at": payload.get("created_at", row["created_at"]),
             "receipt_integrity_valid": receipt_integrity,
             "public_curve_integrity_valid": curve_integrity,

@@ -24,6 +24,32 @@ func required(name string) string {
 	return value
 }
 
+func optional(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func secret(name string) string {
+	value := os.Getenv(name)
+	fileName := strings.TrimSpace(os.Getenv(name + "_FILE"))
+	if value != "" && fileName != "" {
+		log.Fatalf("set only one of %s or %s_FILE", name, name)
+	}
+	if fileName != "" {
+		contents, err := os.ReadFile(fileName)
+		if err != nil {
+			log.Fatalf("read %s_FILE: %v", name, err)
+		}
+		value = strings.TrimSpace(string(contents))
+	}
+	if value == "" {
+		log.Fatalf("%s or %s_FILE is required", name, name)
+	}
+	return value
+}
+
 func normalizedAddress(name string) string {
 	value := strings.ToLower(strings.TrimPrefix(required(name), "0x"))
 	if !addressPattern.MatchString(value) {
@@ -124,11 +150,11 @@ func main() {
 	}
 
 	db.GlobalConfig = &db.Config{DBConf: &db.DBConf{
-		Host:     "127.0.0.1",
+		Host:     optional("ATLAS_SUPERVISOR_DB_HOST", "127.0.0.1"),
 		Port:     required("ATLAS_SUPERVISOR_DB_PORT"),
 		Database: required("ATLAS_SUPERVISOR_DB_NAME"),
 		User:     required("ATLAS_SUPERVISOR_DB_USER"),
-		Passwd:   required("ATLAS_SUPERVISOR_DB_PASSWORD"),
+		Passwd:   secret("ATLAS_SUPERVISOR_DB_PASSWORD"),
 		LogMod:   1,
 	}}
 	db.InitDB()
@@ -138,12 +164,48 @@ func main() {
 	payer := normalizedAddress("ATLAS_SUPERVISOR_PAYER_ADDRESS")
 	recipient := normalizedAddress("ATLAS_SUPERVISOR_RECIPIENT_ADDRESS")
 	feeSink := normalizedAddress("ATLAS_SUPERVISOR_FEE_ADDRESS")
+	if payer == recipient || payer == feeSink || recipient == feeSink {
+		log.Fatal("isolated chain addresses must be distinct")
+	}
+	identity := "1051:" + payer + ":" + recipient + ":" + feeSink
+	identityPath := filepath.Join(stateRoot, "lab-identity-v1")
+	stored := supervisor.Config{}
+	lookup := db.DB.Where("config = ?", "atlas_lab_identity_v1").First(&stored)
+	fresh := lookup.RecordNotFound()
+	if !fresh {
+		stamp, readErr := os.ReadFile(identityPath)
+		if lookup.Error != nil || readErr != nil || stored.Value != identity || string(stamp) != identity {
+			log.Fatal("isolated chain identity mismatch; restore matching configuration and both state volumes")
+		}
+	} else {
+		var count int
+		if err := db.DB.Model(&supervisor.Account{}).Count(&count).Error; err != nil {
+			log.Fatal("cannot check isolated chain initialization")
+		}
+		entries, readErr := os.ReadDir(stateRoot)
+		if count != 0 || readErr != nil || len(entries) != 0 {
+			log.Fatal("existing chain state has no matching identity stamp; refuse to reseed")
+		}
+	}
 	seedConfig("roothash", "")
 	seedConfig("gasprice", "1000000000")
 	seedConfig("shardid", "0")
-	seedAccount(payer, "1000000000000000000000000")
-	seedAccount(recipient, "0")
-	seedAccount(feeSink, "0")
+	if fresh {
+		seedAccount(payer, "1000000000000000000000000")
+		seedAccount(recipient, "0")
+		seedAccount(feeSink, "0")
+		seedConfig("atlas_lab_identity_v1", identity)
+		if err := os.WriteFile(identityPath, []byte(identity), 0600); err != nil {
+			log.Fatal("cannot persist isolated chain identity")
+		}
+	} else {
+		for _, address := range []string{payer, recipient, feeSink} {
+			var count int
+			if err := db.DB.Model(&supervisor.Account{}).Where("addr = ?", address).Count(&count).Error; err != nil || count != 1 {
+				log.Fatal("isolated chain account missing; refuse to recreate funded accounts")
+			}
+		}
+	}
 	global.SuperAcc = feeSink
 
 	params.ExpDataRootDir = stateRoot

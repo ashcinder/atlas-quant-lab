@@ -139,6 +139,7 @@ export interface BacktestResult {
   equity: EquityPoint[]
   metrics: Record<string, number | null>
   regime_metrics: Record<string, Record<string, number | null>>
+  evaluation?: StrategyEvaluation | null
   warnings: string[]
 }
 
@@ -367,6 +368,25 @@ export interface QuantCurvePoint {
   benchmark_return: number
 }
 
+export type EvaluationDimensionId = 'return_capacity' | 'risk_adjusted_efficiency' | 'risk_control_stability' | 'market_adaptability' | 'backtest_live_consistency' | 'strategy_purity'
+
+export interface EvaluationDimension {
+  id: EvaluationDimensionId
+  status: 'evaluated' | 'not_evaluable'
+  score: number | null
+  raw: Record<string, unknown>
+  reason: string | null
+  period: { start: number | string | null; end: number | string | null; observation_count: number | null }
+  rule_version: 'evaluation_v1'
+}
+
+export interface StrategyEvaluation {
+  version: 'evaluation_v1'
+  dimensions: EvaluationDimension[]
+  complete: boolean
+  total_score: number | null
+}
+
 export interface QuantReport {
   id: string
   report_type: QuantReportType
@@ -391,6 +411,7 @@ export interface QuantReport {
   score_version?: 'legacy_evidence_v1'
   performance_score?: number | null
   performance_score_version?: string
+  evaluation?: StrategyEvaluation
   created_at: string
   receipt_integrity_valid: boolean
   public_curve_integrity_valid: boolean | null

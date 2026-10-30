@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { PortfolioResult } from '../types'
+import type { BacktestResult, PortfolioResult } from '../types'
 import { ResultsPanel } from './ResultsPanel'
 
 vi.mock('./EquityChart', () => ({ EquityChart: () => null }))
@@ -31,5 +31,19 @@ describe('result interpretation', () => {
     expect(screen.getByRole('heading', { name: '资产相关性' })).toBeTruthy()
     expect(screen.getAllByRole('cell', { name: '—' })).toHaveLength(3)
     expect(screen.queryByText('NaN')).toBeNull()
+  })
+
+  it('shows backend evaluation and keeps incomplete total unavailable', () => {
+    const single = { ...result, asset: { symbol: 'SPY', name: 'SPY', asset_class: 'etf', exchange: 'test', currency: 'USD', timezone: 'UTC', tags: [] },
+      interval: '1d', bars: [], indicators: {}, regime_metrics: {}, source_note: null,
+      evaluation: { version: 'evaluation_v1', complete: false, total_score: null, dimensions: [
+        { id: 'return_capacity', status: 'evaluated', score: 50, raw: { annualized_return: 0.1 }, reason: null, period: { start: 1, end: 2, observation_count: 300 }, rule_version: 'evaluation_v1' },
+        { id: 'strategy_purity', status: 'not_evaluable', score: null, raw: {}, reason: '缺少风格观测', period: { start: 1, end: 2, observation_count: 300 }, rule_version: 'evaluation_v1' },
+      ] },
+    } as unknown as BacktestResult
+    render(<ResultsPanel result={single} loading={false} panelMode="normal" onPanelMode={vi.fn()} />)
+    expect(screen.getByRole('region', { name: '六维评价' })).toBeTruthy()
+    expect(screen.getByText('总分不可计算')).toBeTruthy()
+    expect(screen.getByText('缺少风格观测')).toBeTruthy()
   })
 })

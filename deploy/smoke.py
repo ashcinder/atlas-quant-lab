@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import hashlib
+from zipfile import ZipFile
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 from uuid import uuid4
@@ -29,6 +31,10 @@ def main() -> None:
         **os.environ,
         "ATLAS_HTTP_PORT": str(port),
         "QUANTJUDGE_SUPERVISOR_RPC_URL": "http://127.0.0.1:42515",
+        "ATLAS_ALLOW_REGISTRATION": "true",
+        "ATLAS_COOKIE_SECURE": "false",
+        "VITE_TRINE_DEMO_MODE": "false",
+        "VITE_TRINE_TEST_PRIVATE_KEY": "",
     }
     command = ["docker", "compose", "-f", str(REPO / "compose.yaml"), "-p", project]
     opener = build_opener(HTTPCookieProcessor(CookieJar()))
@@ -60,8 +66,9 @@ def main() -> None:
     assert config["volumes"]["atlas-data"]["name"] == f"{project}_atlas-data"
     print(f"Building disposable project {project} on loopback port {port}", flush=True)
     try:
-        compose("up", "--build", "--detach", "--wait", "--wait-timeout", "180")
-        compose("exec", "-T", "web", "nginx", "-t")
+        build_args = ("--no-build", "--pull", "never") if os.getenv("ATLAS_SMOKE_NO_BUILD") == "1" else ("--build",)
+        compose("up", *build_args, "--detach", "--wait", "--wait-timeout", "180")
+        compose("exec", "-T", "web", "nginx", "-c", "/tmp/nginx.conf", "-t")
         for service in ("api", "web"):
             assert compose("exec", "-T", service, "id", "-u", capture=True).strip() != "0"
         container = compose("ps", "-q", "api", capture=True).strip()
@@ -71,7 +78,9 @@ def main() -> None:
         assert inspection["HostConfig"]["ReadonlyRootfs"] is True
         assert inspection["HostConfig"]["PortBindings"] in (None, {})
         runtime_command = inspection["Config"]["Cmd"]
-        assert runtime_command[runtime_command.index("--workers") + 1] == "1"
+        assert "--workers 1" in " ".join(runtime_command) or (
+            "--workers" in runtime_command and runtime_command[runtime_command.index("--workers") + 1] == "1"
+        )
 
         html, content_type = request("/")
         assert "text/html" in content_type
@@ -97,7 +106,22 @@ def main() -> None:
             assert "application/json" in error.headers.get("Content-Type", "")
 
         profiles = api("/api/v1/quantjudge/zkp/profiles")
-        assert profiles and all(profile["verifier_ready"] is False for profile in profiles)
+        assert profiles and all(profile["verifier_ready"] is True for profile in profiles)
+        proof_id = None
+        sample = os.getenv("ATLAS_SMOKE_PROOF_BUNDLE")
+        if sample:
+            sample = Path(sample).resolve()
+            with ZipFile(sample) as archive:
+                receipt_hash = hashlib.sha256(archive.read("proof.r0")).hexdigest()
+            subprocess.run([*command, 'exec', '-T', 'api', 'python', '-c',
+                "import sys; from pathlib import Path; Path('/tmp/public-proof.zip').write_bytes(sys.stdin.buffer.read())"],
+                cwd=REPO, env=environment, input=sample.read_bytes(), check=True, timeout=60)
+            imported = json.loads(compose("exec", "-T", "api", "python", "/app/scripts/import-verified-proof.py",
+                "--bundle", "/tmp/public-proof.zip", "--expected-receipt-sha256", receipt_hash, capture=True))
+            proof_id = imported["proof_id"]
+            assert api(f"/api/v1/quantjudge/zk-proofs/{proof_id}/verify", {})["valid"]
+            downloaded, content_type = request(f"/api/v1/quantjudge/zk-proofs/{proof_id}/bundle")
+            assert "application/zip" in content_type and len(downloaded) > 1000
         result = api("/api/v1/backtests", {
             "symbol": "BTC-USD", "asset_class": "crypto", "interval": "1d",
             "data_source": "demo", "strategy_id": "sma_cross",
@@ -105,6 +129,8 @@ def main() -> None:
         })
         run_id = result["run_id"]
         assert api(f"/api/v1/runs/{run_id}")["run_id"] == run_id
+        assert result["evaluation"]["version"] == "evaluation_v1"
+        assert len(result["evaluation"]["dimensions"]) == 6
         identity = api("/api/v1/quantjudge/overview")["attestation"]
         key_hash = compose("exec", "-T", "api", "python", "-c", (
             "import hashlib; from pathlib import Path; "
@@ -113,6 +139,8 @@ def main() -> None:
         # Both containers are replaced, while their data volume is retained.
         compose("up", "--detach", "--force-recreate", "--wait", "--wait-timeout", "180")
         assert api(f"/api/v1/runs/{run_id}")["run_id"] == run_id
+        if proof_id:
+            assert api(f"/api/v1/quantjudge/zk-proofs/{proof_id}/verify", {})["valid"]
         assert api("/api/v1/quantjudge/overview")["attestation"] == identity
         assert compose("exec", "-T", "api", "python", "-c", (
             "import hashlib; from pathlib import Path; "

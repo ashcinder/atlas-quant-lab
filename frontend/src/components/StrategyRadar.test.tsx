@@ -1,23 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import type { QuantReport } from '../types'
+import type { EvaluationDimension, EvaluationDimensionId, QuantReport } from '../types'
 import { strategyScores } from './strategy-scores'
 
-const report = (metrics: Record<string, number>) => ({ metrics, period_start: '2025-01-01', period_end: '2026-01-01' }) as QuantReport
+const ids: EvaluationDimensionId[] = ['return_capacity', 'risk_adjusted_efficiency', 'risk_control_stability', 'market_adaptability', 'backtest_live_consistency', 'strategy_purity']
+const report = (scores: Array<number | null>) => ({ metrics: {}, period_start: '2025-01-01', period_end: '2026-01-01', evaluation: {
+  version: 'evaluation_v1', complete: scores.every((score) => score != null), total_score: null,
+  dimensions: ids.map((id, index) => ({ id, status: scores[index] == null ? 'not_evaluable' : 'evaluated', score: scores[index], raw: {}, reason: scores[index] == null ? '缺少可核对数据' : null, period: { start: '2025-01-01', end: '2026-01-01', observation_count: 365 }, rule_version: 'evaluation_v1' })) as EvaluationDimension[],
+} }) as QuantReport
 
 describe('six dimensional score calibration', () => {
   it('does not fabricate scores for missing reports or metrics', () => {
     expect(strategyScores(null)).toEqual([null, null, null, null, null, null])
-    expect(strategyScores(report({}))).toEqual([null, null, null, null, null, 100])
+    expect(strategyScores(report([null, null, null, null, null, null]))).toEqual([null, null, null, null, null, null])
   })
-  it('uses consistent scales and caps outliers', () => {
-    expect(strategyScores(report({ annualized_return: .1, max_drawdown: -.1, sharpe: 1, annualized_volatility: .2 }))).toEqual([50, 80, 50, 75, 33, 100])
-    expect(strategyScores(report({ annualized_return: 10, max_drawdown: 0, sharpe: 100, annualized_volatility: 2 }))).toEqual([100, 100, 100, 0, null, 100])
+  it('uses the backend evaluation rather than recalculating report metrics', () => {
+    const value = report([50, 50, 80, null, null, null])
+    value.metrics = { annualized_return: 99, sharpe: 99, max_drawdown: 0 }
+    expect(strategyScores(value)).toEqual([50, 50, 80, null, null, null])
   })
-  it('does not award a full observation score for invalid dates', () => {
-    const value = report({ annualized_return: Number.NaN })
-    value.period_end = 'invalid'
-    expect(strategyScores(value)[0]).toBeNull()
-    expect(strategyScores(value)[5]).toBeNull()
+  it('does not infer evaluation for a legacy report without evaluation_v1', () => {
+    const value = { metrics: { annualized_return: 1 }, period_start: '2025-01-01', period_end: '2026-01-01' } as unknown as QuantReport
+    expect(strategyScores(value)).toEqual([null, null, null, null, null, null])
   })
 })
 
@@ -26,9 +29,10 @@ import {afterEach} from 'vitest'
 import StrategyRadar from './StrategyRadar'
 import type {QuantAgent} from '../types'
 afterEach(cleanup)
-it('connects available radar dimensions even when zero drawdown leaves Calmar undefined',()=>{
- const agent={id:'a',name:'均线',latest_report:report({annualized_return:0,max_drawdown:0,sharpe:0,annualized_volatility:0})} as QuantAgent
+it('draws only evaluated dimensions and explains missing dimensions',()=>{
+ const agent={id:'a',name:'均线',latest_report:report([33,50,100,null,null,null])} as QuantAgent
  const {container}=render(<StrategyRadar agent={agent} peers={[]}/>);
- expect(container.querySelectorAll('[data-radar-segment]').length).toBe(4)
- expect(container.textContent).toContain('待评估')
+ expect(container.querySelectorAll('[data-radar-segment]').length).toBe(2)
+ expect(container.textContent).toContain('不可评估')
+ expect(container.textContent).toContain('缺少可核对数据')
 })

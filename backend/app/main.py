@@ -87,6 +87,7 @@ from app.strategy_code_api import router as strategy_code_router
 from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_config, CloudGuard
 from app.trading_api import ManualTradeSyncScheduler, router as trading_router
 from app.strategy_runtime import StrategyRuntimeScheduler, StrategyRuntimeStore, runtime_router
+from app.work_limits import expensive_request, work_limits
 
 data_service = MarketDataService()
 fundamentals_service = FundamentalsService()
@@ -203,7 +204,20 @@ async def require_atlas_user(request: Request, call_next):
         if body and content_type != 'application/json' and not (multipart_upload and content_type == 'multipart/form-data'):
             return JSONResponse({"error": "请使用 application/json"}, status_code=415)
         request._body = bytes(body)
-    response = await call_next(request)
+    owner = None
+    if expensive_request(request.method, request.url.path):
+        user = getattr(request.state, "user", None)
+        if user is not None:
+            owner = user.id
+            try:
+                work_limits.acquire(owner)
+            except HTTPException as exc:
+                return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
+    try:
+        response = await call_next(request)
+    finally:
+        if owner is not None:
+            work_limits.release(owner)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"

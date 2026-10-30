@@ -11,6 +11,7 @@
 .radar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
 .strategy-radar table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .strategy-radar td, .strategy-radar th { padding: 7px 2px; border-bottom: 1px solid var(--border, #e8eef0); text-align: right; font-variant-numeric: tabular-nums; }
+.strategy-radar td small { display: block; max-width: 250px; margin-left: auto; color: #607485; font-size: 10px; line-height: 1.45; }
 .strategy-radar th:first-child { text-align: left; font-weight: 500; }
 .strategy-radar details { margin-top: 12px; font-size: 11px; line-height: 1.7; }
 .strategy-radar summary { cursor: pointer; color: var(--accent, #087e78); }

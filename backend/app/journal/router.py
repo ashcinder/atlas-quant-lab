@@ -45,25 +45,28 @@ def _origin_ok(request: Request) -> bool:
     return not origin or origin in (*ALLOWED_ORIGINS, same_origin)
 
 
-def _rate_key(request: Request) -> tuple[str, str]:
-    return request.url.path, request.client.host if request.client else "unknown"
+def _rate_key(request: Request, account: str | None = None) -> tuple[str, str]:
+    # Only the ASGI transport address is trusted. Uvicorn resolves it from the
+    # explicitly allowlisted Web proxy; arbitrary HTTP headers are never read.
+    address = request.client.host if request.client else "unknown"
+    return request.url.path, f"{address}:{account}" if account is not None else address
 
 
-def _rate_limited(request: Request, maximum: int, seconds: int) -> bool:
+def _rate_limited(request: Request, maximum: int, seconds: int, account: str | None = None) -> bool:
     cutoff = time.monotonic() - seconds
     with _attempt_lock:
         for key in list(_attempts):
             if not _attempts[key] or _attempts[key][-1] < time.monotonic() - 3600:
                 del _attempts[key]
-        values = [value for value in _attempts.get(_rate_key(request), []) if value > cutoff]
+        values = [value for value in _attempts.get(_rate_key(request, account), []) if value > cutoff]
         if values:
-            _attempts[_rate_key(request)] = values
+            _attempts[_rate_key(request, account)] = values
         return len(values) >= maximum or len(_attempts) >= 10000
 
 
-def _record_attempt(request: Request) -> None:
+def _record_attempt(request: Request, account: str | None = None) -> None:
     with _attempt_lock:
-        _attempts[_rate_key(request)].append(time.monotonic())
+        _attempts[_rate_key(request, account)].append(time.monotonic())
 
 
 async def _body(request: Request) -> dict:
@@ -127,20 +130,21 @@ def session(request: Request):
 async def login(request: Request):
     if not _origin_ok(request):
         return error(403, "来源不被允许")
-    if _rate_limited(request, 5, 15 * 60):
-        return error(429, "登录尝试过于频繁，请稍后再试")
     body = await _body(request)
     email = normalize_email(body.get("email")) if isinstance(body, dict) else ""
+    account_key = email if valid_email(email) else "invalid-email"
+    if _rate_limited(request, 5, 15 * 60, account_key):
+        return error(429, "登录尝试过于频繁，请稍后再试")
     account = store.user_by_email(email) if valid_email(email) else None
     if (
         not account
         or not valid_password(body.get("password"))
         or not verify_password(body.get("password"), account["password_hash"])
     ):
-        _record_attempt(request)
+        _record_attempt(request, account_key)
         return error(401, "邮箱或密码错误")
     with _attempt_lock:
-        _attempts.pop(_rate_key(request), None)
+        _attempts.pop(_rate_key(request, account_key), None)
     user = User(account["id"], account["email"], account["session_version"])
     response = JSONResponse({"authenticated": True, "email": user.email, "userId": user.id})
     response.set_cookie(

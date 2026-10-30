@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from app.backtest.engine import run_backtest
+from app.backtest.metrics import classify_regimes
 from app.backtest.portfolio import run_portfolio_backtest
 from app.catalog import find_asset
 from app.data.providers import DemoProvider
@@ -64,8 +65,22 @@ def test_backtest_produces_auditable_result():
     assert result.metrics["max_drawdown"] <= 0
     assert result.metrics["benchmark_return"] is not None
     assert set(result.regime_metrics) == {"牛市", "熊市", "震荡"}
+    assert result.evaluation is not None
+    assert result.evaluation.version == "evaluation_v1"
+    assert result.evaluation.total_score is None
+    assert [item.id for item in result.evaluation.dimensions] == [
+        "return_capacity", "risk_adjusted_efficiency", "risk_control_stability",
+        "market_adaptability", "backtest_live_consistency", "strategy_purity",
+    ]
     assert any("下一根K线" in warning for warning in result.warnings)
     assert any("演示数据" in warning for warning in result.warnings)
+
+
+def test_regime_classification_excludes_full_sma200_warmup():
+    close = pd.Series(range(1, 241), dtype=float)
+    regimes = classify_regimes(close)
+    assert regimes.iloc[:200].isna().all()
+    assert regimes.iloc[200:].notna().all()
 
 
 def test_trade_execution_price_includes_costs():
