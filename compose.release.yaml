@@ -2,7 +2,7 @@ name: ${COMPOSE_PROJECT_NAME:-atlas-quant-lab}
 
 services:
   api:
-    image: ${ATLAS_API_IMAGE:-atlas-quant-api:20261030-lab-v1-amd64}
+    image: ${ATLAS_API_IMAGE:-atlas-quant-api:20261031-remediation-v1-amd64}
     platform: linux/amd64
     pull_policy: never
     init: true
@@ -43,7 +43,7 @@ services:
       options: {max-size: 10m, max-file: '3'}
 
   web:
-    image: ${ATLAS_WEB_IMAGE:-atlas-quant-web:20261030-lab-v1-amd64}
+    image: ${ATLAS_WEB_IMAGE:-atlas-quant-web:20261031-remediation-v1-amd64}
     platform: linux/amd64
     pull_policy: never
     init: true

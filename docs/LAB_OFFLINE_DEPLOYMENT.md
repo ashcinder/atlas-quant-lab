@@ -1,6 +1,6 @@
 # 实验室离线镜像部署
 
-> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)。
+> 当前指南：2026-10-31整改实现，基于20261030运行版；最终验收以交付清单和随包报告为准；环境验收与限制见[统一状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)。
 
 本文为基础Web/API两镜像路线。需要测试链付款、新Proof和存证时使用[完整四镜像路线](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/LAB_CHAIN_DEPLOYMENT.md)，不要将基础模板原样当作完整服务配置。
 
@@ -19,14 +19,14 @@ bash deploy/release/package-release.sh --proof-bundle /public/verified-proof.zip
 
 示例镜像名必须对应此次源码构建。文档/源码变化也会改变source-manifest指纹；旧镜像不能直接重新打成新版本包，需以新指纹重新构建并验收或保留原包。
 
-输出包及同名 `.sha256`。打包工具只接受与当前源码指纹一致的镜像；`source_commit` 是基线提交，`source_snapshot.snapshot_sha256` 和镜像标签标识实际修改后的源码。不会把未提交的修改描述为基线提交原内容。文件清单、两镜像ID、架构、固定验证器哈希和可选公开样本哈希保存在发布清单内。包中没有用户数据库、私有配置、云模型Key、证书私钥或旧用户数据。
+输出包及同名 `.sha256`。打包工具只接受与当前源码指纹一致的镜像；`source_commit` 是基线提交，`source_snapshot.snapshot_sha256` 和镜像标签标识实际修改后的源码。不会把未提交的修改描述为基线提交原内容。文件清单、两镜像ID、架构、固定验证器哈希和可选公开样本哈希保存在发布清单内；随包环境模板会写入同一组受审镜像名。包中没有用户数据库、私有配置、云模型Key、证书私钥或旧用户数据。
 
 ## 目标服务器启动
 
-1. 核对实际目标机身份、Linux amd64、可用内存和磁盘。运行后至少保留2GiB磁盘；API内存上限2GiB，建议主机至少4GiB可用内存。先确认宿主Docker/Nginx环境和安全组。
+1. 核对实际目标机身份、Linux amd64、内存和磁盘。运行后至少保留2GiB磁盘；基础API内存上限2GiB。预检将Linux报告的总内存达到7.5GiB视为8GiB规格，并另要求 `MemAvailable` 至少7GiB；建议总内存12GiB以上。8GiB规格只表示最低测试配置，不保证所有并发、行情或Proof负载都有容量。先确认宿主Docker/Nginx环境和安全组。
 2. 从可信渠道核对压缩包SHA256，解压，执行 `bash deploy/release/load-images.sh`。它先校验全部文件，再加载镜像并核对镜像ID与平台。
 3. 将 `.env.lab.example` 复制到受控目录如 `/etc/atlas/lab.env`，权限600。填写真实域名、HTTPS端口、证书和Key路径。非443端口必须同时写入Origin，例如 `https://atlas.lab.edu:9443`。配置不作为shell代码执行。
-4. 生成TLS代理配置：`python3 deploy/release/render-tls-proxy.py --env-file /etc/atlas/lab.env --output /tmp/atlas-nginx.conf`。管理员确认它与既有站点没有端口/zone冲突，安装到宿主Nginx的http上下文，执行 `nginx -t` 成功后重载。
+4. 创建存在且受控的备份目录，将其绝对路径填入 `ATLAS_BACKUP_DIR`（默认包根/backups，须先创建）。预检分别检查发行目录、备份目录、Docker数据盘；磁盘至少各保留2GiB，恢复另核算归档展开空间。证书须覆盖域名、证书链可信、剩余有效期至少7天，私钥权限600且与证书匹配。生成TLS代理配置：`python3 deploy/release/render-tls-proxy.py --env-file /etc/atlas/lab.env --output /tmp/atlas-nginx.conf`。管理员确认它与既有站点没有端口/zone冲突，安装到宿主Nginx的http上下文，执行 `nginx -t` 成功后重载。可将宿主完整Nginx主配置绝对路径设为 `ATLAS_NGINX_CONFIG`，使预检再次执行配置检查；不要把http片段当作主配置。
 5. 执行 `bash deploy/release/start-release.sh /etc/atlas/lab.env`。预检通过后仅用 `--no-build --pull never` 启动，不会从仓库下载或现场编译镜像。
 6. 本机和另一台实验室电脑分别访问HTTPS，验证成员登录、行情、回测和Proof；通过后开放成员使用。
 
@@ -71,7 +71,7 @@ python3 deploy/release/import-proof.py /etc/atlas/lab.env
 ```sh
 bash deploy/release/backup-data.sh /etc/atlas/lab.env /secure/atlas-data.tar.gz
 bash deploy/release/restore-data.sh /etc/atlas/lab.env /secure/atlas-data.tar.gz atlas-restore-test
-bash deploy/release/rollback-images.sh /etc/atlas/lab.env PREVIOUS_API_IMAGE PREVIOUS_WEB_IMAGE
+bash deploy/release/rollback-images.sh /etc/atlas/lab.env /reviewed/previous-release-manifest.json /reviewed/rollback-compatibility.json
 ```
 
 备份短暂停API写入后复制完整数据目录，包含SQLite、签名身份和加密Key；备份属敏感材料，权限600，需加密离线保存。恢复只创建新的独立卷，拒绝覆盖已有卷。恢复后启动独立项目验收时，必须同时换独立网段、端口和所有代理地址，避免与正式项目冲突；核对数据库完整性、业务记录、Proof及密钥一致再决定切换。
@@ -81,3 +81,13 @@ bash deploy/release/rollback-images.sh /etc/atlas/lab.env PREVIOUS_API_IMAGE PRE
 ## 验收记录
 
 每个发布包附本轮结果和未完成项；公开摘要与清单只包含脱敏信息；本地 `.artifacts/` 可能同时包含私有账号/秘密和完整备份，不能整目录分享。已验收完整栈范围见仓库[当前状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)，本机详细记录不随源码发布。容器冒烟、真实Proof、页面和备份恢复必须针对最终镜像ID执行。24小时观察从最终镜像连续启动后计时；休眠、Docker停止和中断必须记录，不提前宣称通过。目标机架构、域名/证书及有效AI配置未具备时，相应验收保持待完成。
+
+## 2026-10-31整改行为
+
+退出只撤销当前登录设备；SQLite保存随机会话标识的哈希，不保存原Cookie。首次从20261030升级时旧Cookie全部需重新登录一次；原用户、账本和链数据不重置。密码修改仍使全部旧设备登录失效，当前设备获得新会话。退出同时清理本会话云AI配置。
+
+Proof存证继续允许第三方；列表显示作者/第三方及实际签名地址。角色依据平台发起账号与作者关系，不证明钱包归属。只有当前用户对当前Proof的存证才使自己的按钮完成；其他人或旧Proof记录不占用作者入口。
+
+镜像回退必须使用完整受审旧发布清单和兼容性记录，禁止只传标签。记录schema为 `atlas.quantjudge.rollback-compatibility.v1`，包含精确 `current_api_image_id`、`previous_api_image_id`、`schema_compatible: true` 、已验证备份的绝对路径 `verified_backup_path` 和 `verified_backup_sha256`；由独立恢复及旧镜像兼容验收生成，不能凭空填true。回退后原会话可能需重新登录；绝不恢复旧数据库覆盖新增写入。
+
+当前回退仅允许API/Web变更；两清单的Supervisor/MySQL精确ID必须相同，否则拒绝并要求独立链/数据库迁移验收。工具会实际计算备份文件SHA，与兼容记录匹配后才运行预检。

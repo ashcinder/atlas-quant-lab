@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check, ChevronDown, CircleAlert, FolderKanban, LockKeyhole, Pencil, Plus,
   ShieldCheck, X,
 } from 'lucide-react'
 import type { Asset, Interval, StrategyProject, StrategyProjectCreate } from '../types'
 import type { StrategyLabTab } from './StrategyLabWorkspace'
+import { api } from '../api'
 
 interface Props {
   projects: StrategyProject[]
   project: StrategyProject | null
   asset: Asset | null
+  assets?: Asset[]
   interval: Interval
   busy: boolean
   onSelect: (id: string) => void
@@ -34,7 +36,7 @@ function gateTab(id: string): StrategyLabTab {
 }
 
 export function StrategyProjectBar({
-  projects, project, asset, interval, busy, onSelect, onCreate, onUpdate, onFreeze, onGoTab,
+  projects, project, asset, assets = [], interval, busy, onSelect, onCreate, onUpdate, onFreeze, onGoTab,
 }: Props) {
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create')
@@ -42,6 +44,11 @@ export function StrategyProjectBar({
   const [name, setName] = useState('')
   const [thesis, setThesis] = useState('')
   const [benchmark, setBenchmark] = useState('BTC-USD')
+  const [symbol, setSymbol] = useState('')
+  const [researchInterval, setResearchInterval] = useState<Interval>(interval)
+  const [matches, setMatches] = useState<Asset[]>([])
+  const deferredSymbol = useDeferredValue(symbol)
+  const choices = useMemo(() => [...new Map([...assets, ...(asset ? [asset] : []), ...matches].map(item => [item.symbol, item])).values()], [asset, assets, matches])
   const [objective, setObjective] = useState<StrategyProject['objective']>('sharpe')
   const [version, setVersion] = useState('1.0.0')
   const [formError, setFormError] = useState('')
@@ -53,6 +60,8 @@ export function StrategyProjectBar({
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const existing = mode === 'edit' ? project : null
     setEditorMode(mode)
+    setSymbol(existing?.asset_symbol ?? asset?.symbol ?? '')
+    setResearchInterval(existing?.interval ?? interval)
     setName(existing?.name ?? `${asset?.symbol ?? '新标的'} 策略研究`)
     setThesis(existing?.thesis ?? '当市场出现可解释且可重复的信号时，在真实交易成本后取得稳定的风险调整收益。')
     setBenchmark(existing?.benchmark ?? (asset?.asset_class === 'crypto' ? 'BTC-USD' : 'SPY'))
@@ -60,6 +69,13 @@ export function StrategyProjectBar({
     setFormError('')
     setEditorOpen(true)
   }
+
+  useEffect(() => {
+    if (!editorOpen) return
+    let active = true
+    api.searchAssets(deferredSymbol).then(items => { if (active) setMatches(items) }).catch(() => { /* Keep the supplied catalog available. */ })
+    return () => { active = false }
+  }, [deferredSymbol, editorOpen])
 
   useEffect(() => {
     if (!editorOpen && !gateOpen) return undefined
@@ -98,16 +114,21 @@ export function StrategyProjectBar({
   )
 
   const submit = async () => {
-    if (!asset) { setFormError('请先在单标的页面选择研究标的。'); return }
-    if (!name.trim()) { setFormError('请输入能够识别这项研究的项目名称。'); return }
+    const selected = choices.find(item => item.symbol.toUpperCase() === symbol.trim().toUpperCase() || item.name === symbol.trim())
+    const assetClass = selected?.asset_class ?? (project?.asset_symbol === symbol.trim().toUpperCase() ? project.asset_class : undefined)
+    if (!symbol.trim() || !assetClass) { setFormError('请输入标的代码或名称，并从候选中选择研究标的。'); return }
+    if (name.trim().length < 2) { setFormError('项目名称至少需要 2 个字符。'); return }
     if (thesis.trim().length < 12) { setFormError('投资假设至少需要 12 个字符，并应说明信号、成本和预期结果。'); return }
+    if (!benchmark.trim()) { setFormError('请输入基准代码。'); return }
+    const definition = {
+      name: name.trim(), thesis: thesis.trim(), asset_symbol: selected?.symbol ?? symbol.trim().toUpperCase(),
+      asset_class: assetClass === 'unknown' ? 'equity' : assetClass, interval: researchInterval,
+      benchmark: benchmark.trim().toUpperCase(), objective,
+    }
     setFormError('')
     try {
-      if (editorMode === 'edit' && project) await onUpdate({ name: name.trim(), thesis: thesis.trim(), benchmark, objective })
-      else await onCreate({
-        name: name.trim(), thesis: thesis.trim(), asset_symbol: asset.symbol,
-        asset_class: asset.asset_class, interval, benchmark, objective, deployment_mode: 'research',
-      })
+      if (editorMode === 'edit' && project) await onUpdate(definition)
+      else await onCreate({ ...definition, deployment_mode: 'research' })
       setEditorOpen(false)
     } catch { /* The parent reports API details; keep the editor open for correction. */ }
   }
@@ -143,8 +164,9 @@ export function StrategyProjectBar({
         <header><div><FolderKanban size={16} /><span><strong id="project-editor-title">{editorMode === 'edit' ? '编辑策略项目' : '创建策略项目'}</strong><small>先写清楚假设，再进入参数与模型。</small></span></div><button aria-label="关闭项目编辑器" type="button" onClick={() => setEditorOpen(false)}><X size={14} /></button></header>
         <label><span>项目名称</span><input name="project-name" autoComplete="off" autoFocus value={name} onChange={(event) => { setName(event.target.value); setFormError('') }} maxLength={100} placeholder="例如 BTC 趋势与风险控制…" /></label>
         <label><span>可证伪的投资假设<small>{thesis.length}/800 · 至少 12 字</small></span><textarea name="project-thesis" autoComplete="off" value={thesis} onChange={(event) => { setThesis(event.target.value); setFormError('') }} maxLength={800} rows={5} placeholder="说明信号为何有效、计入哪些成本，以及样本外应达到什么结果…" /></label>
-        <div><label><span>研究标的</span><input name="asset-symbol" value={editorMode === 'edit' ? (project?.asset_symbol ?? '') : (asset?.symbol ?? '')} disabled /></label><label><span>研究周期</span><input name="interval" value={editorMode === 'edit' ? (project?.interval ?? interval) : interval} disabled /></label></div>
-        <div><label><span>基准</span><input name="benchmark" autoComplete="off" spellCheck={false} value={benchmark} onChange={(event) => setBenchmark(event.target.value.toUpperCase())} /></label><label><span>主目标</span><select name="objective" value={objective} onChange={(event) => setObjective(event.target.value as StrategyProject['objective'])}>{Object.entries(objectiveLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+        <div><label><span>研究标的</span><input name="asset-symbol" autoComplete="off" spellCheck={false} list="project-research-assets" value={symbol} onChange={(event) => { setSymbol(event.target.value); setFormError('') }} maxLength={40} placeholder="搜索代码或名称，如 BTC-USD、贵州茅台" /></label><label><span>研究周期</span><select name="interval" value={researchInterval} onChange={(event) => setResearchInterval(event.target.value as Interval)}>{Object.entries({ '15m': '15分钟', '1h': '1小时', '4h': '4小时', '1d': '日线', '1wk': '周线' }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
+        <div><label><span>基准</span><input name="benchmark" autoComplete="off" spellCheck={false} list="project-research-assets" value={benchmark} onChange={(event) => setBenchmark(event.target.value.toUpperCase())} maxLength={40} /></label><label><span>主目标</span><select name="objective" value={objective} onChange={(event) => setObjective(event.target.value as StrategyProject['objective'])}>{Object.entries(objectiveLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
+        <datalist id="project-research-assets">{choices.map(item => <option key={item.symbol} value={item.symbol}>{item.name}</option>)}</datalist>
         {formError ? <p className="project-editor-error" role="alert"><CircleAlert size={13} />{formError}</p> : null}
         <footer><button type="button" onClick={() => setEditorOpen(false)}>取消</button><button className="is-primary" disabled={busy}>{busy ? '保存中…' : editorMode === 'edit' ? '保存并递增修订' : '创建策略项目'}</button></footer>
       </form>

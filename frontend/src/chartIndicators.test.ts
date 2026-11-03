@@ -28,3 +28,11 @@ it('handles flat markets and empty data without NaN', () => {
   expect(values.vwap.at(-1)?.value).toBeNull()
   for (const points of Object.values(calculateChartIndicators([], defaultIndicatorSettings()))) expect(points).toEqual([])
 })
+it('extends MACD to the loaded history using the backend EMA warmup', () => {
+  const values = calculateChartIndicators(bars, defaultIndicatorSettings())
+  expect(values.macd).toHaveLength(bars.length)
+  expect(values.macd[24].value).toBeNull()
+  expect(values.macd[25].value).toBeCloseTo(5.2592254801732, 10)
+  expect(values.macd_signal[32].value).toBeNull()
+  expect(values.macd_signal[33].value).toBeCloseTo(5.73752779540389, 10)
+})

@@ -50,6 +50,7 @@ def test_backtest_produces_auditable_result():
         asset_class="crypto",
         interval="1d",
         data_source="demo",
+        adjustment="raw",
         strategy_id="sma_cross",
         params={"fast": 10, "slow": 40},
         commission_rate=0.001,
@@ -58,6 +59,7 @@ def test_backtest_produces_auditable_result():
         persist=False,
     )
     result = run_backtest(request, make_bundle())
+    assert result.adjustment == "raw"
     assert len(result.bars) == len(result.equity)
     assert result.metrics["trade_count"] == len(result.trades)
     assert result.metrics["trade_count"] < 100

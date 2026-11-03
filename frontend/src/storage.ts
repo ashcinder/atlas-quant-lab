@@ -38,11 +38,16 @@ export const DEFAULT_PREFERENCES: Preferences = {
   showMacd: true,
 }
 
+export function sourceForAssetClass(source: DataSource, assetClass: string): DataSource {
+  return source === 'binance' && assetClass !== 'crypto' ? 'auto' : source
+}
+
 export function loadPreferences(): Preferences {
   try {
     const raw = window.localStorage.getItem(userStorageKey(KEY))
       ?? (!storageUser ? LEGACY_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) : null)
-    return raw ? { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) } : DEFAULT_PREFERENCES
+    const preferences: Preferences = raw ? { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) } : DEFAULT_PREFERENCES
+    return { ...preferences, source: sourceForAssetClass(preferences.source, preferences.assetClass) }
   } catch {
     return DEFAULT_PREFERENCES
   }

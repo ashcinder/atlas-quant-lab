@@ -21,6 +21,21 @@ export function calculateChartIndicators(bars: Bar[], settings: IndicatorSetting
   const put = (key: string, values: Array<number | null>) => { output[key] = bars.map((bar, i) => ({ time: bar.time, value: values[i] != null && Number.isFinite(values[i]) ? values[i] : null })) }
   const close = bars.map(b => b.close)
   const mean = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / xs.length
+  // Match the backend's adjust=False EMA and warmup across all loaded history.
+  let fast = close[0] ?? 0, slow = fast, signal = 0, samples = 0
+  const macd = close.map((value, i) => {
+    fast += 2 / 13 * (value - fast)
+    slow += 2 / 27 * (value - slow)
+    return i >= 25 ? fast - slow : null
+  })
+  const macdSignal = macd.map(value => {
+    if (value == null) return null
+    signal = samples === 0 ? value : signal + 2 / 10 * (value - signal)
+    return ++samples >= 9 ? signal : null
+  })
+  put('macd', macd)
+  put('macd_signal', macdSignal)
+  put('macd_hist', macd.map((value, i) => value == null || macdSignal[i] == null ? null : value - macdSignal[i]!))
   for (const spec of indicatorCatalog) {
     const n = Math.max(2, Math.min(500, Math.trunc(settings[spec.key]?.period || spec.period || 14)))
     const out: Array<number | null> = []

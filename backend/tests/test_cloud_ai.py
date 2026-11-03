@@ -1,3 +1,4 @@
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,8 @@ def client():
     @app.middleware("http")
     async def user(request, call_next):
         request.state.user = SimpleNamespace(id="user-a")
+        token = request.cookies.get("atlas_session")
+        request.state.session_id_hash = hashlib.sha256(token.encode()).hexdigest() if token else None
         return await call_next(request)
     app.include_router(cloud_ai.router)
     with TestClient(app) as client:

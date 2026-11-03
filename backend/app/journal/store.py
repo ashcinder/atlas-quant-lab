@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -40,6 +41,14 @@ class JournalStore:
                     data TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS sessions (
+                    sid_hash TEXT PRIMARY KEY,
+                    owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    session_version INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS sessions_owner_id ON sessions(owner_id);
             """)
             connection.execute(
                 "INSERT OR IGNORE INTO users (id,email,password_hash,created_at) "
@@ -63,13 +72,31 @@ class JournalStore:
         with self._connect() as connection:
             return connection.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
 
-    def find_session_user(self, user_id: str, email: str, version: int):
+    def create_session(
+        self, owner_id: str, sid_hash: str, version: int, expires_at: int
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE expires_at<=?", (int(time.time()),))
+            connection.execute(
+                "INSERT INTO sessions "
+                "(sid_hash,owner_id,session_version,expires_at,created_at) VALUES (?,?,?,?,?)",
+                (sid_hash, owner_id, version, expires_at, _now()),
+            )
+
+    def find_session_user(self, user_id: str, email: str, version: int, sid_hash: str):
         with self._connect() as connection:
             return connection.execute(
-                "SELECT id,email,session_version FROM users "
-                "WHERE id=? AND email=? AND session_version=?",
-                (user_id, email, version),
+                "SELECT users.id,users.email,users.session_version FROM sessions "
+                "JOIN users ON users.id=sessions.owner_id "
+                "WHERE sessions.sid_hash=? AND sessions.owner_id=? "
+                "AND sessions.session_version=? AND sessions.expires_at>? "
+                "AND users.email=? AND users.session_version=?",
+                (sid_hash, user_id, version, int(time.time()), email, version),
             ).fetchone()
+
+    def revoke_session(self, sid_hash: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE sid_hash=?", (sid_hash,))
 
     def users(self) -> list[User]:
         with self._connect() as connection:
@@ -84,6 +111,7 @@ class JournalStore:
             )
             if not cursor.rowcount:
                 return None
+            connection.execute("DELETE FROM sessions WHERE owner_id=?", (user.id,))
             row = connection.execute(
                 "SELECT id,email,session_version FROM users WHERE id=?", (user.id,)
             ).fetchone()

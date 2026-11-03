@@ -19,6 +19,10 @@ class ProviderError(RuntimeError):
     pass
 
 
+class NoMarketData(ProviderError):
+    """The provider answered successfully but has no bars for the requested window."""
+
+
 class MarketDataProvider(ABC):
     name: str
 
@@ -36,7 +40,7 @@ class MarketDataProvider(ABC):
 
 def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
-        raise ProviderError("数据源没有返回行情")
+        raise NoMarketData("数据源在请求区间没有返回行情")
     frame = frame.rename(columns={str(column): str(column).lower() for column in frame.columns})
     required = ["open", "high", "low", "close"]
     missing = [column for column in required if column not in frame.columns]
@@ -48,6 +52,8 @@ def _normalize(frame: pd.DataFrame) -> pd.DataFrame:
     frame.index = pd.to_datetime(frame.index, utc=True)
     frame = frame[~frame.index.duplicated(keep="last")].sort_index()
     frame = frame.replace([np.inf, -np.inf], np.nan).dropna(subset=required)
+    if frame.empty:
+        raise NoMarketData("数据源在请求区间没有有效行情")
     return frame.astype(float)
 
 
@@ -123,7 +129,7 @@ def _records_frame(
     timezone: str,
 ) -> pd.DataFrame:
     if not records:
-        raise ProviderError("数据源没有返回行情")
+        raise NoMarketData("数据源在请求区间没有返回行情")
     frame = pd.DataFrame(records)
     if isinstance(columns, list):
         if frame.shape[1] < len(columns):
@@ -645,7 +651,7 @@ class BinanceProvider(MarketDataProvider):
                 break
             cursor = next_cursor
         if not rows:
-            raise ProviderError("Binance 没有返回行情，请检查交易对")
+            raise NoMarketData("Binance 在请求区间没有返回行情")
         frame = pd.DataFrame(
             rows,
             columns=[

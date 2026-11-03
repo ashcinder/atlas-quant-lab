@@ -1,6 +1,7 @@
 import type { ExecutionPipeline } from './components/executionPipeline'
 import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
 import { retainChartHistory } from './backtestChart'
+import type { LoadChartHistory } from './useChartHistory'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { AlertCircle, LoaderCircle } from 'lucide-react'
 import { api } from './api'
@@ -16,8 +17,8 @@ import { TopBar } from './components/TopBar'
 import { WorkspaceNavigation, type WorkspaceMode } from './components/WorkspaceNavigation'
 import { SystemStatus } from './components/SystemStatus'
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary'
-import { loadPreferences, savePreferences } from './storage'
-import type { Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
+import { loadPreferences, savePreferences, sourceForAssetClass } from './storage'
+import type { Adjustment, Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
 
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
 const StrategyLabWorkspace = lazy(() => import('./components/StrategyLabWorkspace').then((module) => ({ default: module.StrategyLabWorkspace })))
@@ -37,7 +38,7 @@ function marketFromResult(result: BacktestResult): MarketData {
   return {
     asset: result.asset,
     interval: result.interval,
-    adjustment: 'auto',
+    adjustment: result.adjustment ?? 'unknown',
     source: result.data_source,
     source_note: result.source_note,
     fetched_at: Math.floor(Date.parse(result.created_at) / 1000),
@@ -196,7 +197,7 @@ export default function App() {
       refresh: options.refresh,
     }).then((data) => {
       if (marketRequestRef.current !== requestId) return
-      setMarket(data)
+      setMarket(current => options.silent ? retainChartHistory(current, data) : data)
       setAsset((current) => current?.symbol === data.asset.symbol && current.asset_class === data.asset.asset_class ? current : data.asset)
     }).catch((reason: Error) => {
       if (reason.name !== 'AbortError' && !options.silent && marketRequestRef.current === requestId) setError(reason.message)
@@ -205,7 +206,7 @@ export default function App() {
     })
   }, [preferences.adjustment])
 
-  const selectAsset = useCallback((nextAsset: Asset) => {
+  const selectAsset = useCallback((nextAsset: Asset, researchInterval = preferences.interval) => {
     backtestRequestRef.current += 1
     setSingleResult(null)
     setMarket(null)
@@ -215,7 +216,7 @@ export default function App() {
     setFundamentals(null)
     setFundamentalsError(null)
     setAsset(nextAsset)
-    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class }
+    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class, interval: researchInterval, source: sourceForAssetClass(preferences.source, nextAsset.asset_class) }
     setPreferences(next)
     loadMarket(nextAsset, next.interval, next.source, next.adjustment)
   }, [loadMarket, preferences])
@@ -297,6 +298,15 @@ export default function App() {
     if ((start && !Number.isFinite(Date.parse(start))) || (end && !Number.isFinite(Date.parse(end))) || (start && end && Date.parse(start) >= Date.parse(end))) {
       setError('回测开始时间必须早于结束时间'); return
     }
+    if (start && end) {
+      const intervals = { '15m': { minutes: 15, label: '15分钟' }, '1h': { minutes: 60, label: '小时线' }, '4h': { minutes: 240, label: '4小时线' }, '1d': { minutes: 1440, label: '日线' }, '1wk': { minutes: 10080, label: '周线' } }
+      const interval = intervals[preferences.interval]
+      // Conservative upper bound: missing bars and market closures can only reduce it.
+      const maximumBars = Math.ceil((Date.parse(end) - Date.parse(start)) / (interval.minutes * 60_000)) + 1
+      if (maximumBars < 40) {
+        setError(`所选日期范围按${interval.label}不足40根K线，回测至少需要40根。请延长日期范围${preferences.interval === '15m' ? '' : '，或选择更短的K线周期'}。`); return
+      }
+    }
     backtestBusyRef.current = true
     const requestId = ++backtestRequestRef.current
     marketAbortRef.current?.abort()
@@ -329,8 +339,9 @@ export default function App() {
       persist: true,
     }).then((result) => {
       if (backtestRequestRef.current === requestId) {
-        setSingleResult(result)
-        setMarket(current => retainChartHistory(current, { ...marketFromResult(result), adjustment: preferences.adjustment }))
+        const resolved = { ...result, adjustment: result.adjustment ?? preferences.adjustment }
+        setSingleResult(resolved)
+        setMarket(current => retainChartHistory(current, marketFromResult(resolved)))
       }
       return api.listRuns()
     }).then(setRuns).catch((reason: Error) => { if (backtestRequestRef.current === requestId) setError(reason.message) }).finally(() => { backtestBusyRef.current = false; setSingleRunning(false) })
@@ -345,8 +356,27 @@ export default function App() {
     if (result) api.listRuns().then(setRuns).catch(() => undefined)
   }, [])
   const activeResult = mode === 'single' ? singleResult : mode === 'portfolio' ? portfolioResult : null
-  const chartBars = market?.bars ?? singleResult?.bars ?? []
-  const chartIndicators = market?.indicators ?? singleResult?.indicators ?? {}
+  const chartBars = singleResult?.bars ?? market?.bars ?? []
+  const chartIndicators = singleResult?.indicators ?? market?.indicators ?? {}
+  const chartLastBarTime = singleResult ? singleResult.bars.at(-1)?.time : market?.last_bar_time
+  const chartIsStale = singleResult ? singleResult.data_source.endsWith(':stale-cache') : market?.is_stale
+  const chartSource = singleResult?.data_source ?? market?.source
+  const chartAdjustment = singleResult ? singleResult.adjustment : market?.adjustment ?? preferences.adjustment
+  const historyAdjustment = chartAdjustment && ['auto', 'raw', 'forward', 'backward'].includes(chartAdjustment) ? chartAdjustment as Adjustment : undefined
+  const loadChartHistory = useCallback<LoadChartHistory>(async (before, signal) => {
+    if (!asset || !historyAdjustment) return []
+    const seconds = { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }[preferences.interval]
+    const provider = chartSource?.split(':')[0]
+    const data = await api.getMarket(asset.symbol, asset.asset_class, preferences.interval,
+      provider === 'binance' ? 'binance' : preferences.source, historyAdjustment, {
+        start: new Date(Math.max(0, before - seconds * 1000) * 1000).toISOString(),
+        end: new Date((before - 1) * 1000).toISOString(), signal, provider,
+      })
+    if (data.asset.symbol !== asset.symbol || data.interval !== preferences.interval || data.adjustment !== historyAdjustment || data.source.split(':')[0] !== provider || data.is_stale) {
+      throw new Error('更早行情的来源或时效与当前图表不一致，未拼接数据。')
+    }
+    return data.bars
+  }, [asset, chartSource, historyAdjustment, preferences.interval, preferences.source])
 
   const layoutStyle = useMemo(() => ({
     '--market-sidebar-width': `${preferences.marketSidebarWidth}px`,
@@ -378,8 +408,9 @@ export default function App() {
     try {
       if (run.mode === 'single') {
         const result = await api.getRun<BacktestResult>(run.id)
+        setStart(''); setEnd('')
         setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single')
-        setPreferences((current) => ({ ...current, symbol: result.asset.symbol, assetClass: result.asset.asset_class, interval: result.interval }))
+        setPreferences((current) => ({ ...current, symbol: result.asset.symbol, assetClass: result.asset.asset_class, interval: result.interval, source: sourceForAssetClass(current.source, result.asset.asset_class) }))
       } else {
         const result = await api.getRun<PortfolioResult>(run.id)
         setPortfolioResult(result); setMode('portfolio')
@@ -400,7 +431,7 @@ export default function App() {
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={market?.is_stale} lastBarTime={market?.last_bar_time} />}
+      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={mode === 'portfolio' ? portfolioResult?.data_source.includes(':stale-cache') : chartIsStale} lastBarTime={mode === 'portfolio' ? undefined : chartLastBarTime} />}
       {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? <WorkspaceErrorBoundary>
@@ -409,7 +440,7 @@ export default function App() {
           <ResizeHandle rootRef={shellRef} side="left" cssVariable="--market-sidebar-width" oppositeCssVariable="--strategy-panel-width" centerMinimum={460} value={preferences.marketSidebarWidth} minimum={150} maximum={360} defaultValue={178} label="调整市场列表宽度" onCommit={(value) => commitLayout('marketSidebarWidth', value)} />
           <div className={`center-stack results-${preferences.resultsPanelMode}`}>
             <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载图表组件…</div>}>
-              <TradingChart highlightStart={start ? Date.parse(start) / 1000 : undefined} highlightEnd={end ? Date.parse(end) / 1000 : undefined} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={market?.source ?? singleResult?.data_source} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}`} lastBarTime={market?.last_bar_time} isStale={market?.is_stale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
+              <TradingChart highlightStart={singleResult?.bars[0]?.time ?? (start ? Date.parse(start) / 1000 : undefined)} highlightEnd={singleResult?.bars.at(-1)?.time ?? (end ? Date.parse(end) / 1000 : undefined)} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={chartSource} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}:${singleResult?.run_id ?? 'market'}:${chartSource?.split(':')[0]}:${preferences.source}:${chartAdjustment ?? 'unknown'}`} onLoadHistory={historyAdjustment && chartSource && !chartSource.startsWith('demo') ? loadChartHistory : undefined} lastBarTime={chartLastBarTime} isStale={chartIsStale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
             </Suspense>
             {preferences.resultsPanelMode === 'normal' ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
             <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
@@ -421,7 +452,7 @@ export default function App() {
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
-      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} assets={assets} onResearchContextChange={selectAsset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
       {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />

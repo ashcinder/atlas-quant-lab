@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from app.bkc_payments import BkcStore, OfferInput
 from app.storage import RunStore
 from app.strategy_runtime import StrategyRuntimeStore, ReleaseCreate
@@ -156,6 +157,67 @@ def test_proof_anchor_binds_verified_statement_and_rejects_invalid_receipt(setup
     monkeypatch.setattr(ZkProofStore,'reverify',reject)
     with pytest.raises(ValueError,match='invalid receipt'):
         store.prepare('alice','proof_anchor','proof-one',ALICE)
+
+def test_proof_anchor_api_identifies_actor_and_only_current_users_record(setup, monkeypatch):
+    import app.bkc_payments as payments
+    from app.zkp import ZkProofStore
+    runtime, runs, chain, store, release = setup
+    with runtime._connect() as c:
+        c.execute('''CREATE TABLE cloud_proof_jobs (
+            id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, release_id TEXT NOT NULL,
+            proof_id TEXT, status TEXT NOT NULL, created_at REAL NOT NULL)''')
+        c.executemany('INSERT INTO cloud_proof_jobs VALUES (?,?,?,?,?,?)', [
+            ('job-a', 'alice', release, 'proof-old', 'verified', 1.0),
+            ('job-z', 'alice', release, 'proof-current', 'verified', 1.0),
+        ])
+    monkeypatch.setattr(ZkProofStore, 'reverify', lambda self, proof_id: True)
+    monkeypatch.setattr(ZkProofStore, 'get', lambda self, proof_id: {
+        'proof_hash': f'receipt-{proof_id}', 'image_id': 'image',
+        'public_inputs_hash': 'inputs', 'public_statement': {'proof_id': proof_id},
+    })
+    author_order = store.prepare('alice', 'proof_anchor', 'proof-old', ALICE)
+
+    monkeypatch.setattr(payments, 'SupervisorClient', lambda: chain)
+    app = FastAPI()
+    @app.middleware('http')
+    async def identify(request, call_next):
+        request.state.user = SimpleNamespace(id=request.headers.get('x-user', 'bob'))
+        return await call_next(request)
+    app.include_router(payments.bkc_router(runtime, runs))
+    with TestClient(app) as client:
+        prepared = client.post(
+            f'/api/v1/strategy-releases/{release}/proof-anchor-order',
+            headers={'x-user': 'bob'}, json={'address': BOB},
+        )
+        assert prepared.status_code == 200
+        assert prepared.json()['payload']['proof_id'] == 'proof-current'
+        duplicate = client.post(
+            f'/api/v1/strategy-releases/{release}/proof-anchor-order',
+            headers={'x-user': 'bob'}, json={'address': BOB},
+        )
+        assert duplicate.json()['id'] == prepared.json()['id']
+        assert runtime.list_subscriptions('bob') == []
+
+        with runtime._connect() as c:
+            c.execute("UPDATE bkc_orders SET status='confirmed', transaction_hash=?, block_number=9, block_hash=? WHERE id=?", ('0x' + '4' * 64, BLOCK, author_order['id']))
+            c.execute("UPDATE bkc_orders SET status='confirmed', transaction_hash=?, block_number=10, block_hash=? WHERE id=?", ('0x' + '5' * 64, BLOCK, prepared.json()['id']))
+
+        response = client.get(
+            f'/api/v1/strategy-releases/{release}/anchors',
+            headers={'x-user': 'bob'},
+        )
+        assert response.status_code == 200
+        anchors = {item['payload']['proof_id']: item for item in response.json()}
+        current = anchors['proof-current']
+        assert {key: current[key] for key in ('signer', 'actor_role', 'is_mine', 'is_current_proof')} == {
+            'signer': BOB, 'actor_role': 'third_party',
+            'is_mine': True, 'is_current_proof': True,
+        }
+        old = anchors['proof-old']
+        assert {key: old[key] for key in ('signer', 'actor_role', 'is_mine', 'is_current_proof')} == {
+            'signer': ALICE, 'actor_role': 'author',
+            'is_mine': False, 'is_current_proof': False,
+        }
 
 def test_signing_never_underfunds_calldata_when_node_estimate_omits_it(setup, monkeypatch):
     _, _, chain, store, release = setup

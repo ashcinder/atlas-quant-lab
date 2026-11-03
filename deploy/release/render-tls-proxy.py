@@ -21,6 +21,7 @@ def main() -> int:
     template = Path(__file__).with_name("nginx-tls.conf.template").read_text()
     replacements = {
         "__ATLAS_DOMAIN__": required(values, "ATLAS_DOMAIN"),
+        "__ATLAS_HTTPS_ORIGIN__": required(values, "ATLAS_ALLOWED_ORIGINS"),
         "__ATLAS_HTTP_PORT__": required(values, "ATLAS_HTTP_PORT"),
         "__ATLAS_HTTPS_PORT__": required(values, "ATLAS_HTTPS_PORT"),
         "__ATLAS_TLS_CERT_FILE__": required(values, "ATLAS_TLS_CERT_FILE"),

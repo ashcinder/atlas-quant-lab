@@ -19,6 +19,9 @@ EXPECTED_VERIFIER_SHA256 = "b62a2d6ed3dd49e0f02762f8291aab2f075c4f06862908441137
 EXPECTED_IMAGE_ID = "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4"
 PROFILE = "atlas_program_backtest_risc0_v2"
 MIN_FREE_BYTES = 2 * 1024**3
+MIN_TOTAL_MEMORY_BYTES = int(7.5 * 1024**3)
+MIN_AVAILABLE_MEMORY_BYTES = 7 * 1024**3
+RECOMMENDED_TOTAL_MEMORY_BYTES = 12 * 1024**3
 REPO = Path(__file__).resolve().parents[2]
 
 
@@ -147,9 +150,142 @@ def validate_config(values: dict[str, str]) -> None:
             raise ValueError(f"{name} does not point to a file")
 
 
-def inspect_images(values: dict[str, str]) -> None:
-    manifest_path = REPO / 'release-manifest.json'
-    expected = json.loads(manifest_path.read_text())['images'] if manifest_path.exists() else None
+def load_release_manifest(path: Path, values: dict[str, str]) -> dict:
+    manifest = json.loads(path.read_text())
+    if manifest.get("schema") != "atlas.quantjudge.offline-release.v1":
+        raise ValueError("release manifest schema is not approved")
+    if manifest.get("platform") != "linux/amd64":
+        raise ValueError("release manifest platform must be linux/amd64")
+    snapshot = manifest.get("source_snapshot", {}).get("snapshot_sha256", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", snapshot):
+        raise ValueError("release manifest source snapshot is invalid")
+    verifier = manifest.get("verifier", {})
+    if verifier != {
+        "sha256": EXPECTED_VERIFIER_SHA256,
+        "profile": PROFILE,
+        "image_id": EXPECTED_IMAGE_ID,
+    }:
+        raise ValueError("release manifest verifier does not match the approved verifier")
+    required_images = {"api", "web"}
+    if values.get("ATLAS_CHAIN_MODE") == "isolated_lab":
+        required_images.update(("supervisor", "mysql"))
+    images = manifest.get("images")
+    if not isinstance(images, dict) or not required_images.issubset(images):
+        raise ValueError("release manifest is missing required images")
+    for component in required_images:
+        record = images[component]
+        if not isinstance(record, dict) or not record.get("name") or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", record.get("id", "")
+        ):
+            raise ValueError(f"release manifest {component} image record is invalid")
+    return manifest
+
+
+def validate_rollback_compatibility(current: dict, previous: dict, record: dict) -> None:
+    current_api = current.get("images", {}).get("api", {}).get("id")
+    previous_api = previous.get("images", {}).get("api", {}).get("id")
+    if record.get("schema") != "atlas.quantjudge.rollback-compatibility.v1":
+        raise ValueError("compatibility record schema is not approved")
+    if record.get("current_api_image_id") != current_api or record.get(
+        "previous_api_image_id"
+    ) != previous_api:
+        raise ValueError("compatibility record does not bind the current and previous API images")
+    if record.get("schema_compatible") is not True:
+        raise ValueError("rollback database schema compatibility is not verified")
+    if not re.fullmatch(r"[0-9a-f]{64}", record.get("verified_backup_sha256", "")):
+        raise ValueError("compatibility record requires a verified backup SHA-256")
+    # This command rolls back only application images. Never attach an older
+    # chain engine or MySQL image to a newer data volume on an API-only review.
+    for component in ('supervisor', 'mysql'):
+        if current.get('images', {}).get(component, {}).get('id') != previous.get('images', {}).get(component, {}).get('id'):
+            raise ValueError('chain/MySQL image rollback requires separate coordinated migration: ' + component)
+
+
+def validate_tls(values: dict[str, str]) -> None:
+    cert = Path(required(values, "ATLAS_TLS_CERT_FILE"))
+    key = Path(required(values, "ATLAS_TLS_KEY_FILE"))
+    if key.stat().st_mode & 0o077:
+        raise ValueError("ATLAS_TLS_KEY_FILE must not be accessible by group or other users")
+    if not os.access(cert, os.R_OK) or not os.access(key, os.R_OK):
+        raise ValueError("TLS certificate and key must be readable")
+    run("openssl", "x509", "-checkend", str(7 * 24 * 60 * 60), "-noout", "-in", str(cert))
+    domain = required(values, "ATLAS_DOMAIN")
+    address = ipaddress.ip_address(domain) if re.fullmatch(r"[0-9.]+", domain) else None
+    name_check = "-checkip" if address else "-checkhost"
+    run("openssl", "x509", "-in", str(cert), "-noout", name_check, domain)
+    run("openssl", "verify", "-purpose", "sslserver", "-untrusted", str(cert), str(cert))
+    cert_public = run("openssl", "x509", "-in", str(cert), "-pubkey", "-noout")
+    key_public = run("openssl", "pkey", "-in", str(key), "-pubout")
+    if hashlib.sha256(cert_public.encode()).digest() != hashlib.sha256(key_public.encode()).digest():
+        raise ValueError("TLS certificate and private key do not match")
+    nginx_config = values.get("ATLAS_NGINX_CONFIG", "").strip()
+    if nginx_config:
+        config = Path(nginx_config)
+        if not config.is_absolute() or not config.is_file():
+            raise ValueError("ATLAS_NGINX_CONFIG must point to an existing absolute path")
+        run("nginx", "-t", "-c", str(config))
+
+
+def validate_local_storage(values: dict[str, str]) -> None:
+    backup = Path(values.get("ATLAS_BACKUP_DIR", str(REPO / "backups")))
+    for label, directory in (("release", REPO), ("backup", backup)):
+        if not directory.is_absolute() or not directory.is_dir():
+            raise ValueError(f"{label} directory must already exist: {directory}")
+        if shutil.disk_usage(directory).free < MIN_FREE_BYTES:
+            raise ValueError(f"less than 2 GiB free in {label} directory: {directory}")
+
+
+def validate_memory(memory: dict[str, int]) -> None:
+    total = memory.get("MemTotal", 0)
+    available = memory.get("MemAvailable", 0)
+    if total < MIN_TOTAL_MEMORY_BYTES:
+        raise ValueError(
+            "host reports less than 7.5 GiB total RAM; an 8 GiB-class VM is required"
+        )
+    if available < MIN_AVAILABLE_MEMORY_BYTES:
+        raise ValueError(
+            "less than 7 GiB MemAvailable; stop other workloads or use a larger host"
+        )
+    if total < RECOMMENDED_TOTAL_MEMORY_BYTES:
+        print(
+            "preflight warning: host has less than the recommended 12 GiB total RAM; "
+            "the 8 GiB-class profile is only a minimum test profile"
+        )
+
+
+def validate_docker_storage(values: dict[str, str]) -> None:
+    docker_host = run(
+        "docker", "context", "inspect", "--format", '{{(index .Endpoints "docker").Host}}'
+    )
+    if docker_host.startswith("unix://"):
+        docker_root = Path(run("docker", "info", "--format", "{{.DockerRootDir}}"))
+        if not docker_root.is_dir() or shutil.disk_usage(docker_root).free < MIN_FREE_BYTES:
+            raise ValueError("less than 2 GiB free in local DockerRootDir")
+    project = values.get("COMPOSE_PROJECT_NAME", "atlas-quant-lab")
+    volume = f"{project}_atlas-data"
+    mount = "type=volume,destination=/probe"
+    try:
+        run("docker", "volume", "inspect", volume)
+        mount = f"type=volume,source={volume},destination=/probe,readonly"
+    except subprocess.CalledProcessError:
+        pass
+    output = run(
+        "docker", "run", "--rm", "--network", "none", "--read-only",
+        "--mount", mount, "--entrypoint", "df", required(values, "ATLAS_API_IMAGE"),
+        "-Pk", "/probe",
+    )
+    try:
+        available = int(output.splitlines()[-1].split()[3]) * 1024
+    except (IndexError, ValueError) as exc:
+        raise ValueError("could not read Docker volume filesystem capacity") from exc
+    if available < MIN_FREE_BYTES:
+        raise ValueError("less than 2 GiB free on Docker volume filesystem")
+
+
+def inspect_images(values: dict[str, str], manifest_path: Path) -> None:
+    manifest = load_release_manifest(manifest_path, values)
+    expected = manifest["images"]
+    snapshot = manifest["source_snapshot"]["snapshot_sha256"]
     keys = {"ATLAS_API_IMAGE": "api", "ATLAS_WEB_IMAGE": "web"}
     if values.get("ATLAS_CHAIN_MODE") == "isolated_lab":
         keys.update(ATLAS_SUPERVISOR_IMAGE="supervisor", ATLAS_MYSQL_IMAGE="mysql")
@@ -158,10 +294,13 @@ def inspect_images(values: dict[str, str]) -> None:
         details = json.loads(run("docker", "image", "inspect", image))[0]
         if details.get("Os") != "linux" or details.get("Architecture") != "amd64":
             raise ValueError(f"{image} is not linux/amd64")
-        if expected:
-            record = expected[component]
-            if image != record['name'] or details.get('Id') != record['id']:
-                raise ValueError(f"{name} does not match the reviewed release manifest")
+        record = expected[component]
+        if image != record['name'] or details.get('Id') != record['id']:
+            raise ValueError(f"{name} does not match the reviewed release manifest")
+        if component != "mysql" and details.get("Config", {}).get("Labels", {}).get(
+            "org.atlas.source-snapshot"
+        ) != snapshot:
+            raise ValueError(f"{name} does not match the manifest source snapshot")
 
     api_image = required(values, "ATLAS_API_IMAGE")
     script = (
@@ -234,31 +373,31 @@ def main() -> int:
     os.environ.update(values)
     if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
         raise ValueError("release server must be Linux amd64")
-    if shutil.disk_usage(REPO).free < MIN_FREE_BYTES:
-        raise ValueError("less than 2 GiB free disk space")
+    validate_local_storage(values)
     memory = {}
     for line in Path('/proc/meminfo').read_text().splitlines():
         key, value = line.split(':', 1)
         memory[key] = int(value.strip().split()[0]) * 1024
-    minimum = 8 if values.get('ATLAS_CHAIN_MODE') == 'isolated_lab' else 2.25
-    if memory.get('MemAvailable', 0) < int(minimum * 1024**3):
-        raise ValueError(f"less than {minimum} GiB available RAM for this release profile")
+    validate_memory(memory)
     run("docker", "info", "--format", "{{.ServerVersion}}")
+    validate_tls(values)
     run(
         "docker", "compose", "--env-file", str(ARGS.env_file),
         *compose_files(values), "config", "--quiet",
     )
-    inspect_images(values)
+    inspect_images(values, ARGS.release_manifest)
+    validate_docker_storage(values)
     inspect_networks(values)
     inspect_volume(values)
     check_http_port(values)
-    print("preflight passed: linux/amd64 images, verifier, config, network, volume and port")
+    print("preflight passed: release manifest, TLS, storage, RAM, images, verifier, network, volume and port")
     return 0
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-file", type=Path, required=True)
+    parser.add_argument("--release-manifest", type=Path, default=REPO / "release-manifest.json")
     ARGS = parser.parse_args()
     try:
         raise SystemExit(main())

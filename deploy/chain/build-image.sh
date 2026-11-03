@@ -5,10 +5,10 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OUTPUT="${ATLAS_SUPERVISOR_BINARY_OUTPUT:-$PROJECT_DIR/.artifacts/lab-full-20261030/chain-build/atlas-isolated-supervisor-linux-amd64}"
-IMAGE="${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261030-lab-full-v1-amd64}"
-WEB_BASE="${ATLAS_WEB_IMAGE:-atlas-quant-web:20261030-lab-v1-amd64}"
+IMAGE="${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261031-remediation-v1-amd64}"
+WEB_BASE="${ATLAS_WEB_IMAGE:-atlas-quant-web:20261031-remediation-v1-amd64}"
 MYSQL_SOURCE='mysql:8.4@sha256:a0225d1ea6631c8bc2385dc4c2faba17bbf1834ecf369e1659a9a382bd8d5dd7'
-MYSQL_IMAGE="${ATLAS_MYSQL_IMAGE:-atlas-mysql:8.4-amd64}"
+MYSQL_IMAGE="${ATLAS_MYSQL_IMAGE:-atlas-mysql:20261031-remediation-v1-amd64}"
 BUILD_DIR="$SCRIPT_DIR/.build"
 fingerprint=$(python3 "$PROJECT_DIR/deploy/release/source-manifest.py" | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot_sha256"])')
 

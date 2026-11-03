@@ -130,6 +130,7 @@ export interface BacktestResult {
   created_at: string
   asset: Asset
   interval: Interval
+  adjustment?: Adjustment | null
   strategy: Strategy
   data_source: string
   source_note: string | null

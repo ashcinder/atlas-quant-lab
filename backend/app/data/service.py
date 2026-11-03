@@ -14,6 +14,7 @@ from app.data.providers import (
     BinanceProvider,
     DemoProvider,
     MarketDataProvider,
+    NoMarketData,
     ProviderError,
     SinaProvider,
     TencentProvider,
@@ -119,12 +120,19 @@ class MarketDataService:
         refresh: bool = False,
         *,
         minimum_bars: int | None = None,
+        provider_hint: str | None = None,
+        cache_history: bool = True,
     ) -> DataBundle:
         asset = find_asset(symbol, asset_class)
         if asset.asset_class == "unknown":
             asset.asset_class = asset_class
-        candidates = [source]
-        if source in {"auto", "yahoo"}:
+        if provider_hint is not None:
+            if provider_hint not in self.providers or provider_hint == "demo":
+                raise ValueError("不支持的行情来源")
+            candidates = [provider_hint]
+        else:
+            candidates = [source]
+        if provider_hint is None and source in {"auto", "yahoo"}:
             if asset.asset_class == "crypto":
                 candidates = ["binance", "yahoo"]
             elif asset.exchange == "HKEX":
@@ -132,6 +140,7 @@ class MarketDataService:
             else:
                 candidates = ["sina", "yahoo"]
         errors: list[str] = []
+        empty_errors: list[str] = []
         stale_fallbacks: list[DataBundle] = []
         if minimum_bars is None:
             minimum_bars = 8 if asset.exchange == "HKEX" and interval == "4h" else 30
@@ -184,7 +193,8 @@ class MarketDataService:
                 )
                 if len(frame) < minimum_bars:
                     raise ProviderError(f"有效K线少于{minimum_bars}根")
-                self._write_cache(cache_path, frame)
+                if cache_history:
+                    self._write_cache(cache_path, frame)
                 return DataBundle(
                     asset=asset,
                     frame=frame,
@@ -192,6 +202,20 @@ class MarketDataService:
                     source_note="已刷新至数据源最新可用K线",
                     fetched_at=datetime.now(UTC),
                 )
+            except NoMarketData as exc:
+                empty_errors.append(str(exc))
+                if cached is not None and len(cached) >= minimum_bars:
+                    stale_fallbacks.append(
+                        DataBundle(
+                            asset=asset,
+                            frame=cached,
+                            source=f"{provider_name}:stale-cache",
+                            source_note=f"数据源当前未返回该区间，显示已有缓存：{exc}",
+                            fetched_at=self._cache_time(cache_path),
+                            cache_hit=True,
+                            is_stale=True,
+                        )
+                    )
             except ProviderError as exc:
                 errors.append(str(exc))
                 if cached is not None and len(cached) >= minimum_bars:
@@ -208,6 +232,8 @@ class MarketDataService:
                     )
         if stale_fallbacks:
             return stale_fallbacks[0]
+        if empty_errors and not errors and len(empty_errors) == len(candidates):
+            raise NoMarketData("；".join(empty_errors))
         raise ProviderError("；".join(errors) or "真实数据源不可用")
 
     def convert_to_base_currency(

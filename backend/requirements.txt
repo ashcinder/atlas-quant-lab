@@ -10,3 +10,7 @@ cryptography>=50,<51
 python-multipart>=0.0.20,<1
 cbor2==6.0.1
 ccxt==4.5.78
+
+# Reviewed security floors; exact closure is requirements.lock.
+certifi>=2026.10.23
+urllib3>=2.8.0,<3

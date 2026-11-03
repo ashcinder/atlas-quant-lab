@@ -206,6 +206,7 @@ class BacktestResult(BaseModel):
     created_at: datetime
     asset: Asset
     interval: Interval
+    adjustment: Adjustment | None = None
     strategy: StrategyDefinition
     data_source: str
     valuation_currency: str | None = None

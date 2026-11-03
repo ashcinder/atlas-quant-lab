@@ -21,6 +21,7 @@ from app.auth import (
     verify_password,
 )
 from app.config import ALLOW_REGISTRATION, ALLOWED_ORIGINS, AUTH_ENABLED, COOKIE_SECURE, SESSION_SECONDS
+from app.cloud_ai import clear_session_config
 from app.journal.domain import clear_ledger, empty_ledger, materialize_automatic, validate_ledger
 from app.journal.store import JournalStore
 
@@ -149,7 +150,7 @@ async def login(request: Request):
     response = JSONResponse({"authenticated": True, "email": user.email, "userId": user.id})
     response.set_cookie(
         COOKIE_NAME,
-        create_session(user),
+        create_session(user, store.create_session),
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
@@ -180,7 +181,7 @@ async def register(request: Request):
     )
     response.set_cookie(
         COOKIE_NAME,
-        create_session(user),
+        create_session(user, store.create_session),
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",
@@ -193,6 +194,10 @@ async def register(request: Request):
 def logout(request: Request):
     if not _origin_ok(request):
         return error(403, "来源不被允许")
+    user = current_user(request)
+    if user is not None and AUTH_ENABLED:
+        clear_session_config(request)
+        store.revoke_session(request.state.session_id_hash)
     response = JSONResponse({"authenticated": False})
     response.delete_cookie(
         COOKIE_NAME, httponly=True, samesite="strict",
@@ -223,7 +228,7 @@ async def change_password(request: Request):
     response = JSONResponse({"changed": True, "email": renewed.email})
     response.set_cookie(
         COOKIE_NAME,
-        create_session(renewed),
+        create_session(renewed, store.create_session),
         max_age=SESSION_SECONDS,
         httponly=True,
         samesite="strict",

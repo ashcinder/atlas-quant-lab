@@ -15,12 +15,12 @@ fi
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 output_parent=$(cd "$(dirname "$1")" && pwd)
 output="$output_parent/$(basename "$1")"
-api_image=${ATLAS_API_IMAGE:-atlas-quant-api:20261030-lab-v1-amd64}
-web_image=${ATLAS_WEB_IMAGE:-atlas-quant-web:20261030-lab-v1-amd64}
+api_image=${ATLAS_API_IMAGE:-atlas-quant-api:20261031-remediation-v1-amd64}
+web_image=${ATLAS_WEB_IMAGE:-atlas-quant-web:20261031-remediation-v1-amd64}
 images=("$api_image" "$web_image")
 if [[ ${ATLAS_CHAIN_MODE:-} == isolated_lab ]]; then
-  supervisor_image=${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261030-lab-full-v1-amd64}
-  mysql_image=${ATLAS_MYSQL_IMAGE:-atlas-mysql:8.4-amd64}
+  supervisor_image=${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261031-remediation-v1-amd64}
+  mysql_image=${ATLAS_MYSQL_IMAGE:-atlas-mysql:20261031-remediation-v1-amd64}
   images+=("$supervisor_image" "$mysql_image")
 fi
 if [[ -e "$output" ]]; then
@@ -64,8 +64,20 @@ install -m 0755 \
   "$repo/deploy/release/restore-data.sh" \
   "$repo/deploy/release/rollback-images.sh" \
   "$repo/deploy/release/chain-snapshot.py" \
+  "$repo/deploy/release/snapshot-content.py" \
   "$bundle/deploy/release/"
 install -m 0644 "$repo/docs/LAB_OFFLINE_DEPLOYMENT.md" "$bundle/docs/"
+if [[ -n ${ATLAS_ACCEPTANCE_RECORD:-} ]]; then
+  # Explicit sanitized evidence only; never collect the private artifacts directory.
+  python3 - "$ATLAS_ACCEPTANCE_RECORD" "$bundle/docs/acceptance.json" <<'PY'
+import json,sys
+from pathlib import Path
+d=json.loads(Path(sys.argv[1]).read_text())
+assert d.get('schema')=='atlas.remediation.acceptance.v1'
+assert d.get('contains_credentials') is False
+Path(sys.argv[2]).write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n')
+PY
+fi
 if [[ ${ATLAS_CHAIN_MODE:-} == isolated_lab ]]; then
   install -m 0644 "$repo/compose.chain.yaml" "$repo/.env.chain.lab.example" "$bundle/"
   mkdir -p "$bundle/deploy/chain" "$bundle/contracts/isolated-supervisor/scripts"
@@ -85,6 +97,21 @@ p = Path(path)
 lines = p.read_text().splitlines()
 p.write_text('\n'.join('ATLAS_API_IMAGE='+api if line.startswith('ATLAS_API_IMAGE=') else 'ATLAS_WEB_IMAGE='+web if line.startswith('ATLAS_WEB_IMAGE=') else line for line in lines)+'\n')
 PY
+if [[ ${ATLAS_CHAIN_MODE:-} == isolated_lab ]]; then
+  python3 - "$bundle/.env.chain.lab.example" "$supervisor_image" "$mysql_image" <<'PY'
+from pathlib import Path
+import sys
+path, supervisor, mysql = sys.argv[1:]
+p = Path(path)
+lines = p.read_text().splitlines()
+p.write_text('\n'.join(
+    'ATLAS_SUPERVISOR_IMAGE='+supervisor if line.startswith('ATLAS_SUPERVISOR_IMAGE=')
+    else 'ATLAS_MYSQL_IMAGE='+mysql if line.startswith('ATLAS_MYSQL_IMAGE=')
+    else line
+    for line in lines
+)+'\n')
+PY
+fi
 
 proof_hash=
 if [[ -n "$proof_bundle" ]]; then
@@ -145,7 +172,7 @@ for component,name in zip(('supervisor','mysql'),sys.argv[2:]):
     m['images'][component]={'name':name,'id':record['Id']}
     if component=='supervisor':
         m['images'][component]['binary_sha256']=record['Config']['Labels']['org.atlas.supervisor.binary-sha256']
-m['chain']={'mode':'isolated_lab','chain_id':1051,'new_chain_on_fresh_volumes':True,'real_funds':False,'tee_required':False,'minimum_available_ram_gib':8}
+m['chain']={'mode':'isolated_lab','chain_id':1051,'new_chain_on_fresh_volumes':True,'real_funds':False,'tee_required':False,'minimum_total_ram_gib':7.5,'minimum_available_ram_gib':7,'recommended_total_ram_gib':12}
 p.write_text(json.dumps(m,indent=2,sort_keys=True)+'\n')
 PY
 fi

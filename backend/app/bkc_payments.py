@@ -327,19 +327,25 @@ def bkc_router(runtime, runs):
     def prepare_proof_anchor(release_id: str, value: PrepareInput, request: Request):
         store.release(request.state.user.id, release_id)
         with runtime._connect() as conn:
-            job = conn.execute("SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified' ORDER BY created_at DESC LIMIT 1", (release_id,)).fetchone()
+            job = conn.execute("SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified' AND proof_id IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1", (release_id,)).fetchone()
         if not job:
             raise HTTPException(409, '请先完成 Proof 生成与验证')
         return store.prepare(request.state.user.id, 'proof_anchor', job['proof_id'], value.address)
 
     @router.get('/strategy-releases/{release_id}/anchors')
     def release_anchors(release_id: str, request: Request):
-        store.release(request.state.user.id, release_id)
+        release = store.release(request.state.user.id, release_id)
         with runtime._connect() as conn:
-            rows = conn.execute("SELECT * FROM bkc_orders WHERE status='confirmed' AND (kind='release' AND resource_id=? OR kind='proof_anchor' AND resource_id IN (SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified'))", (release_id, release_id)).fetchall()
+            current = conn.execute("SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND status='verified' AND proof_id IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1", (release_id,)).fetchone()
+            rows = conn.execute("SELECT * FROM bkc_orders WHERE status='confirmed' AND (kind='release' AND resource_id=? OR kind='proof_anchor' AND resource_id IN (SELECT proof_id FROM cloud_proof_jobs WHERE release_id=? AND proof_id IS NOT NULL)) ORDER BY COALESCE(block_number, -1) DESC, id DESC", (release_id, release_id)).fetchall()
+        current_proof = current['proof_id'] if current else None
         return [{'kind': row['kind'], 'transaction_hash': row['transaction_hash'],
                  'block_number': row['block_number'], 'block_hash': row['block_hash'],
                  'genesis': row['genesis'], 'chain_id': CHAIN_ID,
+                 'signer': row['signer'],
+                 'actor_role': 'author' if row['owner_id'] == release['owner_id'] else 'third_party',
+                 'is_mine': row['owner_id'] == request.state.user.id,
+                 'is_current_proof': row['kind'] == 'proof_anchor' and row['resource_id'] == current_proof,
                  'payload': json.loads(bytes.fromhex(row['data'][2:]).decode())} for row in rows]
 
     @router.post('/runs/{run_id}/anchor-order')

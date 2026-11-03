@@ -7,7 +7,7 @@ import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { StudioTab } from './QuantStrategyStudio'
 import { api } from '../api'
 import type {
-  CustomStrategyRecord, ResearchJob, StrategyProject,
+  Asset, Interval, CustomStrategyRecord, ResearchJob, StrategyProject,
   StrategyProjectArtifactKind, StrategyProjectCreate, StudioWorkflowRecord,
 } from '../types'
 import { StrategyProjectBar } from './StrategyProjectBar'
@@ -26,13 +26,15 @@ export type StrategyLabTab = 'overview' | 'builder' | 'workflow' | 'validate' | 
 interface Props extends Omit<ResearchWorkspaceProps, 'view' | 'showHeader'> {
   initialTab?: StrategyLabTab
   onOpenMarket?: () => void
+  assets?: Asset[]
+  onResearchContextChange?: (asset: Asset, interval: Interval) => void
 }
 
 const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: typeof Braces }> = [
   { id: 'overview', label: '项目总览', stage: '', icon: LayoutDashboard },
-  { id: 'builder', label: '交易规则', stage: '01 DRAFT', icon: Braces },
-  { id: 'workflow', label: '策略画布', stage: '02 COMPOSE', icon: GitBranch },
-  { id: 'validate', label: '研究验证', stage: '03 VALIDATE', icon: FlaskConical },
+  { id: 'builder', label: '买卖条件', stage: '01 DRAFT', icon: Braces },
+  { id: 'workflow', label: '交易流程', stage: '02 COMPOSE', icon: GitBranch },
+  { id: 'validate', label: '参数测试', stage: '03 VALIDATE', icon: FlaskConical },
   { id: 'packages', label: '历史档案', stage: '04 VERSION', icon: FileArchive },
   { id: 'proof', label: 'ZKP 证明', stage: '05 PROVE', icon: ShieldCheck },
   { id: 'sdk', label: 'SDK 与格式', stage: 'DEVKIT', icon: Beaker },
@@ -61,7 +63,7 @@ const descriptions: Record<StrategyLabTab, string> = {
   sdk: '查看策略契约、格式说明与 Python 示例，了解已有开发协议。',
 }
 
-export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps }: Props) {
+export function StrategyLabWorkspace({ initialTab = 'workflow', assets = [], onResearchContextChange, ...researchProps }: Props) {
   const [module, setModule] = useState<'visual' | 'code' | 'template'>('visual')
   const [pipeline, setPipeline] = useState(defaultPipeline)
   const [codeVisited, setCodeVisited] = useState(false)
@@ -100,9 +102,18 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
       return existing ? current.map((item) => item.id === next.id ? next : item) : [next, ...current]
     })
   }
-  const selectProject = (id: string) => {
+  const syncProjectContext = (next: StrategyProject) => {
+    if (!onResearchContextChange || (researchProps.asset?.symbol === next.asset_symbol && researchProps.asset?.asset_class === next.asset_class && researchProps.interval === next.interval)) return
+    const selected = assets.find(item => item.symbol === next.asset_symbol) ?? (researchProps.asset?.symbol === next.asset_symbol ? researchProps.asset : null)
+    onResearchContextChange(selected ? { ...selected, asset_class: next.asset_class } : {
+      symbol: next.asset_symbol, name: next.asset_symbol, asset_class: next.asset_class,
+      exchange: 'UNKNOWN', currency: 'USD', timezone: 'UTC', tags: [],
+    }, next.interval)
+  }
+  const selectProject = (id: string, selected = projects.find(item => item.id === id)) => {
     projectSelection.current += 1
     setProjectId(id)
+    if (selected) syncProjectContext(selected)
   }
   const createProject = async (payload: StrategyProjectCreate) => {
     const selection = projectSelection.current
@@ -110,15 +121,20 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
     try {
       const created = await api.createStrategyProject(payload)
       acceptProject(created)
-      if (selection === projectSelection.current) selectProject(created.id)
+      if (selection === projectSelection.current) selectProject(created.id, created)
     }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目创建失败'); throw reason }
     finally { setPendingProjectRequests((current) => current - 1) }
   }
   const updateProject = async (payload: Partial<StrategyProjectCreate>) => {
     if (!project) return
+    const selection = projectSelection.current
     setPendingProjectRequests((current) => current + 1)
-    try { acceptProject(await api.updateStrategyProject(project.id, project.revision, payload)) }
+    try {
+      const updated = await api.updateStrategyProject(project.id, project.revision, payload)
+      acceptProject(updated)
+      if (selection === projectSelection.current) syncProjectContext(updated)
+    }
     catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目更新失败'); throw reason }
     finally { setPendingProjectRequests((current) => current - 1) }
   }
@@ -140,7 +156,7 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
   return <div className="strategy-lab-modules">
     <header className="lab-command-bar">
       <nav className="lab-module-switch" aria-label="策略开发方式"><button title="从现有策略模板调整参数" className={module === 'template' ? 'is-active' : ''} aria-pressed={module === 'template'} onClick={() => setModule('template')}><Copy size={15} /><span>模板</span></button><button title="使用规则与 AI 积木构建策略" className={module === 'visual' ? 'is-active' : ''} aria-pressed={module === 'visual'} onClick={() => setModule('visual')}><GitBranch size={15} /><span>图形化</span></button><button title="使用多语言编辑器和 AI 助手" className={module === 'code' ? 'is-active' : ''} aria-pressed={module === 'code'} onClick={() => { setModule('code'); setCodeVisited(true) }}><Code2 size={15} /><span>代码</span></button></nav>
-      <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
+      <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} assets={assets} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
     </header>
     <div className="lab-module-content template-mode" hidden={module !== 'template'} inert={module !== 'template'}><TemplateStrategyWorkspace key={projectId} {...researchProps} pipeline={pipeline} storageKey={`atlas:template-presets:${projectId || 'scratch'}`} /><details className="template-flow-settings"><summary>交易流程与 AI 设置</summary><ExecutionPipelinePanel value={pipeline} onChange={setPipeline} /></details></div>
     <div className="lab-module-content" hidden={module !== 'visual'} inert={module !== 'visual'}><main className="strategy-lab" data-view={tab}>
@@ -154,12 +170,12 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', ...researchProps
     </header>
 
     {tab === 'overview' ? <section className="lab-overview">
-      <div className="lab-overview-heading"><div><h1>把想法变成可检验的策略。</h1><p>{descriptions.overview}</p></div><button className="primary-action" onClick={() => chooseTab(project?.strategy_hash ? 'validate' : 'workflow')}>{project?.strategy_hash ? '继续研究验证' : '开始构建策略'}<ArrowRight size={16} /></button></div>
+      <div className="lab-overview-heading"><div><h1>把想法变成可检验的策略。</h1><p>{descriptions.overview}</p></div><button className="primary-action" onClick={() => chooseTab(project?.strategy_hash ? 'validate' : 'workflow')}>{project?.strategy_hash ? '继续比较参数' : '开始构建策略'}<ArrowRight size={16} /></button></div>
       <div className="lab-overview-grid"><div>
         <div className="section-label"><h2>选择你的起点</h2><span>无需代码，从交易逻辑开始</span></div>
         <div className="lab-entry-cards">
-          <button onClick={() => chooseTab('builder')}><Braces size={25} /><span className="capability-tag">可回测</span><h3>可视化构建</h3><p>使用价格、均线、动量等指标组合交易规则，无需编写代码。</p><span className="entry-link">打开规则编辑器 <ArrowRight size={15} /></span></button>
-          <button onClick={() => chooseTab('workflow')}><GitBranch size={25} /><span className="capability-tag neutral">AI 积木</span><h3>搭建交易流程</h3><p>沿着市场、信号、仓位与风控的顺序，按需加入 AI 建议与审查。</p><span className="entry-link">打开策略画布 <ArrowRight size={15} /></span></button>
+          <button onClick={() => chooseTab('builder')}><Braces size={25} /><span className="capability-tag">可回测</span><h3>设置买卖条件</h3><p>使用价格、均线、动量等指标设置买卖条件，无需编写代码。</p><span className="entry-link">设置条件并回测 <ArrowRight size={15} /></span></button>
+          <button onClick={() => chooseTab('workflow')}><GitBranch size={25} /><span className="capability-tag neutral">AI 积木</span><h3>搭建交易流程</h3><p>沿着市场、信号、仓位与风控的顺序，按需加入 AI 建议与审查。</p><span className="entry-link">设置交易流程 <ArrowRight size={15} /></span></button>
         </div>
         <details className="lab-journey-details"><summary>查看研究与发布步骤</summary><div className="lab-journey">{tabs.filter((item) => ['workflow', 'builder', 'validate'].includes(item.id)).map((item, index) => <button key={item.id} onClick={() => chooseTab(item.id)}><span className={`journey-number ${tabComplete(item.id, project) ? 'done' : ''}`}>{tabComplete(item.id, project) ? <Check size={16} /> : index + 1}</span><span><strong>{item.label}</strong><small>{descriptions[item.id]}</small></span><ArrowRight size={16} /></button>)}</div></details>
       </div><aside className="lab-project-summary"><h2>{project?.name ?? '探索工作区'}</h2><p>{project?.thesis ?? '先试用规则编辑器。准备归档研究时，在顶部创建策略项目。'}</p><dl><div><dt>研究标的</dt><dd>{project?.asset_symbol ?? researchProps.asset?.symbol ?? '待选择'}</dd></div><div><dt>时间周期</dt><dd>{project?.interval ?? researchProps.interval}</dd></div><div><dt>已通过门禁</dt><dd>{project ? `${project.gates.filter((gate) => gate.passed).length} / ${project.gates.length}` : '未创建项目'}</dd></div></dl><div className="lab-next-step"><strong>下一步</strong><p>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '查看版本与发布状态' : '在顶部创建项目，将策略与验证结果关联保存。')}</p></div><button onClick={() => chooseTab('sdk')}>查看开发指南 <ArrowRight size={15} /></button><div className="lab-capabilities"><strong>当前能力边界</strong><p>规则可以回测，AI 画布可以编排与保存。AI 执行仍待接入，配置完成不代表验证通过。</p></div></aside></div>

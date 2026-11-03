@@ -51,10 +51,12 @@ def test_registration_login_logout_password_and_isolation():
         == 400
     )
     other_device = TestClient(app)
+    first_old_session = first.cookies.get("atlas_session")
     assert (
         other_device.post("/api/login", json={"email": email, "password": password}).status_code
         == 200
     )
+    other_old_session = other_device.cookies.get("atlas_session")
     assert (
         first.post(
             "/api/change-password",
@@ -63,10 +65,18 @@ def test_registration_login_logout_password_and_isolation():
         == 200
     )
     assert other_device.get("/api/ledger").status_code == 401
+    first_replay = TestClient(app)
+    first_replay.cookies.set("atlas_session", first_old_session)
+    assert first_replay.get("/api/ledger").status_code == 401
+    other_replay = TestClient(app)
+    other_replay.cookies.set("atlas_session", other_old_session)
+    assert other_replay.get("/api/ledger").status_code == 401
     assert first.get("/api/ledger").status_code == 200
     assert first.post("/api/logout").status_code == 200
     assert first.get("/api/ledger").status_code == 401
     assert first.get("/api/v1/runs").status_code == 401
+    first_replay.close()
+    other_replay.close()
 
 
 def test_request_security_and_invalid_payloads():

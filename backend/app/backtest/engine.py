@@ -320,6 +320,7 @@ def run_backtest(
         created_at=datetime.now(UTC),
         asset=bundle.asset,
         interval=request.interval,
+        adjustment=request.adjustment,
         strategy=strategy,
         data_source=bundle.source,
         valuation_currency=bundle.asset.currency,

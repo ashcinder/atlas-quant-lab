@@ -11,7 +11,8 @@ RUN npm ci --registry=https://mirrors.cloud.tencent.com/npm/ --no-audit --no-fun
 COPY frontend/ ./
 RUN npm run build
 
-FROM nginx:1.28.3-alpine
+FROM nginx:1.30.6-alpine
+RUN apk upgrade --no-cache
 ENV ATLAS_TLS_PROXY_IP=172.30.120.1
 COPY deploy/nginx.conf /etc/nginx/nginx.conf.template
 COPY deploy/nginx-entrypoint.sh /usr/local/bin/atlas-nginx-entrypoint

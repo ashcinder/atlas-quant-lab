@@ -69,7 +69,7 @@ export function GuidedWorkflow({ workflow, selectedId, templates, activeTemplate
           </li>
         })}</ol>
         <div className="guided-validation">{validation}{diagnostics}</div>
-        {onEditRules ? <div className="guided-next"><div><strong>准备检验你的想法？</strong><p>先配置可回测的买卖规则。AI 编排暂不参与回测。</p></div><button onClick={onEditRules}>配置交易规则 <ArrowRight size={16} /></button></div> : null}
+        {onEditRules ? <div className="guided-next"><div><strong>准备检验你的想法？</strong><p>先配置可回测的买卖规则。AI 编排暂不参与回测。</p></div><button onClick={onEditRules}>设置买卖条件 <ArrowRight size={16} /></button></div> : null}
       </section>
       <aside ref={settingsRef} className="guided-settings" aria-label="积木设置"><button className="guided-back" onClick={() => canvasRef.current?.scrollIntoView?.({ block: 'start' })}>返回策略画布</button>{inspector}</aside>
     </div>

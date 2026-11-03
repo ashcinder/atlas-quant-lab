@@ -33,10 +33,16 @@ _lock = Lock()
 
 def session_key(request: Request) -> str:
     user = getattr(request.state, "user", None)
-    token = request.cookies.get(COOKIE_NAME)
-    if user is None or not token:
+    session_id_hash = getattr(request.state, "session_id_hash", None)
+    if user is None or not request.cookies.get(COOKIE_NAME) or not session_id_hash:
         raise HTTPException(401, "云端 AI 设置需要登录会话")
-    return hashlib.sha256(f"{user.id}:{token}".encode()).hexdigest()
+    return hashlib.sha256(f"{user.id}:{session_id_hash}".encode()).hexdigest()
+
+
+def clear_session_config(request: Request) -> None:
+    key = session_key(request)
+    with _lock:
+        _sessions.pop(key, None)
 
 def get_config(request: Request) -> CloudConfig | None:
     if not request.cookies.get(COOKIE_NAME):

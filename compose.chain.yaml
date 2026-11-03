@@ -11,7 +11,7 @@ services:
         restart: true
 
   supervisor:
-    image: ${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261030-lab-full-v1-amd64}
+    image: ${ATLAS_SUPERVISOR_IMAGE:-atlas-supervisor:20261031-remediation-v1-amd64}
     platform: linux/amd64
     pull_policy: never
     init: true
@@ -62,7 +62,7 @@ services:
       options: {max-size: 10m, max-file: '3'}
 
   supervisor-db:
-    image: ${ATLAS_MYSQL_IMAGE:-atlas-mysql:8.4-amd64}
+    image: ${ATLAS_MYSQL_IMAGE:-atlas-mysql:20261031-remediation-v1-amd64}
     platform: linux/amd64
     pull_policy: never
     restart: unless-stopped
@@ -81,7 +81,7 @@ services:
     networks:
       supervisor-db: {}
     healthcheck:
-      test: [CMD-SHELL, "mysqladmin ping --protocol=socket -uroot --password=$$(cat /run/secrets/supervisor-db-root-password) --silent"]
+      test: [CMD-SHELL, "MYSQL_PWD=$$(cat /run/secrets/supervisor-db-password) mysql --protocol=TCP --host=127.0.0.1 --user=atlas_supervisor --database=atlas_supervisor_isolated --execute='SELECT 1' --silent"]
       interval: 10s
       timeout: 5s
       start_period: 45s

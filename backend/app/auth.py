@@ -64,16 +64,24 @@ def _unb64(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def create_session(user: User) -> str:
+def _session_id_hash(session_id: str) -> str:
+    return hashlib.sha256(session_id.encode()).hexdigest()
+
+
+def create_session(user: User, register: callable) -> str:
     if not AUTH_ENABLED:
         return ""
+    session_id = secrets.token_urlsafe(32)
+    expires = int(time.time()) + SESSION_SECONDS
+    register(user.id, _session_id_hash(session_id), user.session_version, expires)
     payload = _b64(
         json.dumps(
             {
                 "userId": user.id,
                 "email": user.email,
                 "sessionVersion": user.session_version,
-                "expires": int(time.time()) + SESSION_SECONDS,
+                "sessionId": session_id,
+                "expires": expires,
             },
             separators=(",", ":"),
         ).encode()
@@ -100,11 +108,20 @@ def parse_session(request: Request, lookup: callable) -> User | None:
             not isinstance(session["userId"], str)
             or not isinstance(session["email"], str)
             or not isinstance(session["sessionVersion"], int)
+            or not isinstance(session["sessionId"], str)
             or session["expires"] <= time.time()
         ):
             return None
-        user = lookup(session["userId"], session["email"], session["sessionVersion"])
-        return User(user["id"], user["email"], user["session_version"]) if user else None
+        session_id_hash = _session_id_hash(session["sessionId"])
+        user = lookup(
+            session["userId"], session["email"], session["sessionVersion"], session_id_hash
+        )
+        if not user:
+            return None
+        authenticated = User(user["id"], user["email"], user["session_version"])
+        request.state.user = authenticated
+        request.state.session_id_hash = session_id_hash
+        return authenticated
     except (KeyError, ValueError, TypeError, json.JSONDecodeError):
         return None
 

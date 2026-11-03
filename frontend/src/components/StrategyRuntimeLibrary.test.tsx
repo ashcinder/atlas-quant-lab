@@ -10,6 +10,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   vi.mocked(request).mockImplementation(async (path) => {
     if (path.endsWith('/bkc-offer')) return null
+    if (path.endsWith('/anchors')) return []
     if (path === '/strategy-releases') return [release]
     if (path === '/strategy-subscriptions') return []
     if (path.startsWith('/strategies')) return []

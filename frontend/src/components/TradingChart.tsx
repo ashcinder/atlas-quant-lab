@@ -1,4 +1,5 @@
 import { outsideBacktest } from '../backtestChart'
+import { useChartHistory, type LoadChartHistory } from '../useChartHistory'
 import './quant-controls.css'
 import { indicatorCatalog, calculateChartIndicators, defaultIndicatorSettings, type IndicatorSettings } from '../chartIndicators'
 import { IndicatorPicker } from './IndicatorPicker'
@@ -33,6 +34,7 @@ interface Props {
   interval: Interval
   source?: string
   datasetKey: string
+  onLoadHistory?: LoadChartHistory
   lastBarTime?: number
   isStale?: boolean
   showVolume: boolean
@@ -93,7 +95,7 @@ function chartOptions(interval: Interval) {
     rightPriceScale: { borderColor: theme.border, minimumWidth: 104, ticksVisible: true },
     timeScale: {
       borderColor: theme.border, borderVisible: true, ticksVisible: true, minimumHeight: 32,
-      visible: true, timeVisible: true, secondsVisible: false, rightOffset: 8,
+      visible: true, timeVisible: true, secondsVisible: false, rightOffset: 8, fixLeftEdge: true,
       tickMarkFormatter: (time: Time, type: TickMarkType) => axisTime(time, type, interval),
     },
     localization: {
@@ -136,9 +138,15 @@ function rangeTime(time: number, interval: Interval) {
 }
 
 export const TradingChart = memo(function TradingChart({
-  bars, indicators, trades, chartType, interval, source, datasetKey, lastBarTime, isStale = false,
+  bars: currentBars, indicators, trades, chartType, interval, source, datasetKey, onLoadHistory, lastBarTime, isStale = false,
   showVolume, showMacd, onShowVolume, onShowMacd, highlightStart, highlightEnd,
 }: Props) {
+  const [replayMode, setReplayMode] = useState(false)
+  const history = useChartHistory(currentBars, datasetKey, onLoadHistory, !replayMode)
+  const bars = history.bars
+  const loadHistory = history.load
+  const loadHistoryRef = useRef<() => void>(() => {})
+  useEffect(() => { loadHistoryRef.current = () => { void loadHistory() } }, [loadHistory])
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
   const volumeCaptionRef = useRef<HTMLDivElement>(null)
@@ -178,7 +186,6 @@ export const TradingChart = memo(function TradingChart({
   useEffect(() => { try { localStorage.setItem(userStorageKey('atlas:indicator-toolbar:v1'), JSON.stringify([...toolbarIndicators])) } catch { /* storage optional */ } }, [toolbarIndicators])
   const toggleToolbarIndicator = (key: string) => setToolbarIndicators(current => { const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next })
   const calculated = useMemo(() => ({ ...indicators, ...calculateChartIndicators(bars, indicatorSettings) }), [bars, indicators, indicatorSettings])
-  const [replayMode, setReplayMode] = useState(false)
   const [replayPlaying, setReplayPlaying] = useState(false)
   const [replayIndex, setReplayIndex] = useState(0)
   const [replayAccount, setReplayAccount] = useState<ReplayAccount>({ cash: 100_000, quantity: 0, trades: [] })
@@ -313,8 +320,14 @@ export const TradingChart = memo(function TradingChart({
       })
     }
 
+    let previousFirst: number | undefined
+    let updating = false
     const binding: ChartBinding = {
       update: (payload, fit) => {
+        updating = true
+        const range = chart.timeScale().getVisibleLogicalRange()
+        const first = previousFirst
+        const prepended = first == null ? 0 : payload.bars.filter(bar => bar.time < first).length
         setMainData(payload.bars)
         setVolume?.(payload.bars)
         overlaySetters.forEach((setter, key) => setter(payload.indicators[key] ?? []))
@@ -326,6 +339,9 @@ export const TradingChart = memo(function TradingChart({
           shape: trade.side === 'buy' ? 'arrowUp' : 'arrowDown',
         })))
         if (fit && payload.bars.length > 0) chart.timeScale().fitContent()
+        else if (range && prepended) chart.timeScale().setVisibleLogicalRange({ from: range.from + prepended, to: range.to + prepended })
+        previousFirst = payload.bars[0]?.time
+        updating = false
       },
     }
     bindingRef.current = binding
@@ -371,6 +387,18 @@ export const TradingChart = memo(function TradingChart({
     }
     chart.timeScale().subscribeVisibleTimeRangeChange(syncVisibleTime)
     requestAnimationFrame(syncVisibleTime)
+    let userInteracted = false
+    const checkHistory = () => {
+      const range = chart.timeScale().getVisibleLogicalRange()
+      if (!updating && userInteracted && range && range.from < 50) loadHistoryRef.current()
+    }
+    const startInteraction = () => { userInteracted = true }
+    const finishInteraction = () => { requestAnimationFrame(checkHistory) }
+    container.addEventListener('pointerdown', startInteraction)
+    container.addEventListener('pointerup', finishInteraction)
+    container.addEventListener('wheel', startInteraction, { passive: true })
+    container.addEventListener('wheel', finishInteraction, { passive: true })
+    chart.timeScale().subscribeVisibleLogicalRangeChange(checkHistory)
 
     const syncCrosshairTime = (param: MouseEventParams<Time>) => {
       const label = crosshairTimeRef.current
@@ -394,6 +422,11 @@ export const TradingChart = memo(function TradingChart({
       resizeObserver.disconnect()
       container.removeEventListener('pointerup', syncPaneCaptions)
       chart.timeScale().unsubscribeVisibleTimeRangeChange(syncVisibleTime)
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(checkHistory)
+      container.removeEventListener('pointerdown', startInteraction)
+      container.removeEventListener('pointerup', finishInteraction)
+      container.removeEventListener('wheel', startInteraction)
+      container.removeEventListener('wheel', finishInteraction)
       chart.unsubscribeCrosshairMove(syncCrosshairTime)
       bindingRef.current = null
       window.removeEventListener('atlas-appearance-change', refreshLineTheme)
@@ -487,6 +520,11 @@ export const TradingChart = memo(function TradingChart({
         </div>
       </div>
       {replayMode ? <div className="replay-toolbar"><span className="replay-status"><i />REPLAY <b>{replayIndex + 1}</b><em>/ {bars.length}</em></span><button onClick={() => setReplayPlaying((value) => !value)} title={replayPlaying ? '暂停' : '播放'}>{replayPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}</button><button onClick={stepReplay} title="下一根K线"><StepForward size={13} /></button><span className="replay-clock">{rangeTime(latest?.time ?? 0, interval)}</span><span className="replay-account"><small>模拟权益</small><strong>{formatNumber(replayEquity, 2)}</strong><em>仓位 {formatNumber(replayAccount.quantity, 4)}</em></span><button className="paper-buy" onClick={() => placeReplayOrder('buy')}>买入25%</button><button className="paper-sell" onClick={() => placeReplayOrder('sell')}>全部卖出</button><button className="replay-exit" onClick={() => { setReplayMode(false); setReplayPlaying(false) }} title="返回实时图表"><X size={13} /></button></div> : null}
+      {!replayMode && onLoadHistory ? <div className="chart-history" role="status">
+        <span>{history.status === 'loading' ? '正在加载更早行情…' : history.status === 'end' ? '该数据源未提供更早行情，可切换周期或来源' : history.status === 'error' ? `更早行情暂不可用：${history.error}` : '向前拖动可分批加载更早行情'}</span>
+        <span aria-label="已加载K线范围">{bars.length} 根 · {bars[0] ? rangeTime(bars[0].time, interval) : '等待行情'}</span>
+        {history.status !== 'end' && <button disabled={history.status === 'loading'} onClick={() => void history.load(true)}>{history.status === 'error' ? '重试加载历史' : '加载更早行情'}</button>}
+      </div> : null}
       <div className="chart-canvas-wrap" ref={canvasWrapRef} style={{ minHeight: 280 + (Number(showVolume) + Number(showMacd) + indicatorCatalog.filter(x => x.pane && visibleIndicators.has(x.key)).length) * 95 }}>
         <div className="chart-canvas" ref={containerRef} aria-label="金融K线、成交量与MACD技术指标图" />
         {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button aria-label="隐藏成交量" onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}

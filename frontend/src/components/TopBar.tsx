@@ -72,7 +72,7 @@ export function TopBar(props: Props) {
         <select aria-label="行情数据源" value={props.source} onChange={(event) => props.onSource(event.target.value as DataSource)}>
           <option value="auto">自动真实数据</option>
           <option value="yahoo">广覆盖行情</option>
-          <option value="binance">加密货币</option>
+          <option value="binance" disabled={props.mode !== 'portfolio' && props.asset?.asset_class !== 'crypto'}>加密货币</option>
           <option value="demo">演示数据</option>
         </select>
       </label> : null}

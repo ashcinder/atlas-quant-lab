@@ -2,8 +2,8 @@
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-api_image=${ATLAS_API_IMAGE:-atlas-quant-api:20261030-lab-v1-amd64}
-web_image=${ATLAS_WEB_IMAGE:-atlas-quant-web:20261030-lab-v1-amd64}
+api_image=${ATLAS_API_IMAGE:-atlas-quant-api:20261031-remediation-v1-amd64}
+web_image=${ATLAS_WEB_IMAGE:-atlas-quant-web:20261031-remediation-v1-amd64}
 verifier="$repo/strategy/zkvm/release/linux-amd64/atlas-zkvm"
 fingerprint=$(python3 "$repo/deploy/release/source-manifest.py" | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot_sha256"])')
 

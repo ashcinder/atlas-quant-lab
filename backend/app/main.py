@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import json
 import re
 from datetime import UTC, datetime
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,10 +16,10 @@ from app.auth import parse_session
 from app.exchange_accounts import router as exchange_account_router
 from fastapi.exceptions import RequestValidationError
 from app.backtest import run_backtest, run_portfolio_backtest
-from app.catalog import search_assets
+from app.catalog import find_asset, search_assets
 from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, STATIC_DIR
 from app.data import MarketDataService
-from app.data.providers import ProviderError
+from app.data.providers import NoMarketData, ProviderError
 from app.execution_api import execution_router
 from app.fundamentals import FundamentalsService
 from app.indicators import calculate_indicators, serialize_indicators
@@ -90,6 +91,7 @@ from app.strategy_runtime import StrategyRuntimeScheduler, StrategyRuntimeStore,
 from app.work_limits import expensive_request, work_limits
 
 data_service = MarketDataService()
+market_history_slots = BoundedSemaphore(2)
 fundamentals_service = FundamentalsService()
 run_store = RunStore()
 workspace_store = WorkspaceStore()
@@ -246,15 +248,77 @@ def market_bars(
     asset_class: str = "crypto",
     interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$"),
     source: str = Query(default="auto", pattern="^(auto|yahoo|binance|demo)$"),
+    provider: str | None = Query(default=None, pattern="^(binance|yahoo|sina|tencent)$"),
     adjustment: str = Query(default="auto", pattern="^(auto|raw|forward|backward)$"),
     refresh: bool = False,
+    start: datetime | None = None,
+    end: datetime | None = None,
 ):
+    bounded_window = start is not None or end is not None
+    if provider is not None and not bounded_window:
+        raise HTTPException(status_code=422, detail="锁定行情来源时必须提供历史窗口")
+    if bounded_window:
+        if start is None or end is None:
+            raise HTTPException(status_code=422, detail="历史窗口必须同时提供开始和结束时间")
+        start = start.replace(tzinfo=UTC) if start.tzinfo is None else start.astimezone(UTC)
+        end = end.replace(tzinfo=UTC) if end.tzinfo is None else end.astimezone(UTC)
+        if start >= end:
+            raise HTTPException(status_code=422, detail="开始时间必须早于结束时间")
+        interval_seconds = {
+            "15m": 15 * 60,
+            "1h": 60 * 60,
+            "4h": 4 * 60 * 60,
+            "1d": 24 * 60 * 60,
+            "1wk": 7 * 24 * 60 * 60,
+        }[interval]
+        if (end - start).total_seconds() >= 5_000 * interval_seconds:
+            raise HTTPException(status_code=422, detail="单次历史窗口最多包含5000个K线周期")
+        if not market_history_slots.acquire(blocking=False):
+            raise HTTPException(status_code=429, detail="历史行情请求较多，请稍后重试")
     try:
-        bundle = data_service.fetch(
-            symbol, asset_class, interval, None, None, adjustment, source, refresh
-        )
-    except ProviderError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        try:
+            bundle = data_service.fetch(
+                symbol,
+                asset_class,
+                interval,
+                start,
+                end,
+                adjustment,
+                source,
+                refresh,
+                **(
+                    {
+                        "minimum_bars": 1,
+                        "provider_hint": provider,
+                        "cache_history": False,
+                    }
+                    if bounded_window
+                    else {}
+                ),
+            )
+        except NoMarketData as exc:
+            if not bounded_window:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            asset = find_asset(symbol, asset_class)
+            if asset.asset_class == "unknown":
+                asset.asset_class = asset_class
+            boundary = int(end.timestamp())
+            return MarketDataResponse(
+                asset=asset,
+                interval=interval,
+                adjustment=adjustment,
+                source=provider or source,
+                source_note=f"{provider or source} 在该历史区间没有行情",
+                fetched_at=boundary,
+                last_bar_time=boundary,
+                bars=[],
+                indicators={},
+            )
+        except ProviderError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        if bounded_window:
+            market_history_slots.release()
     return MarketDataResponse(
         asset=bundle.asset,
         interval=interval,

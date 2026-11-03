@@ -19,13 +19,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OMP_NUM_THREADS=1
 WORKDIR /app/backend
 RUN sed -i 's|http://deb.debian.org|https://mirrors.cloud.tencent.com|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends openssl libstdc++6 \
+    && apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends openssl libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=wheels /wheels /wheels
 COPY backend/requirements.lock ./requirements.lock
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.lock \
     && pip check \
     && rm -rf /wheels \
+    && python -m pip uninstall -y pip setuptools wheel \
+    && rm -rf /usr/local/lib/python3.14/ensurepip \
     && groupadd --gid 10001 atlas \
     && useradd --uid 10001 --gid atlas --no-create-home atlas \
     && mkdir -p /app/backend/.data \

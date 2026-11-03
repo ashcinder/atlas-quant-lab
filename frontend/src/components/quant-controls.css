@@ -27,6 +27,10 @@
 .bkc-order-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; font-size: 11px; background: #eef2f6; padding: 10px; color: #263447; }
 .break-anywhere { overflow-wrap: anywhere; }
 .chart-workspace { overflow: auto; }
+.chart-history { display: flex; align-items: center; justify-content: space-between; flex: 0 0 auto; flex-wrap: wrap; gap: 6px 12px; padding: 5px 10px; color: var(--muted); border-bottom: 1px solid var(--border); font-size: 12px; }
+.chart-history span { overflow-wrap: anywhere; }
+.chart-history button { flex-shrink: 0; padding: 4px 8px; color: var(--text); border: 1px solid var(--border); border-radius: 4px; background: var(--panel); cursor: pointer; }
+.chart-history button:disabled { opacity: .6; cursor: wait; }
 .chart-legend { flex-wrap: wrap; height: auto; min-height: 40px; }
 .indicator-toggles { flex-wrap: wrap; }
 @media (max-width: 640px) { .atlas-indicator-dialog { padding: 14px; } .indicator-picker-row { display: block; } .indicator-picker-row > div { margin-top: 8px; } .bkc-wallet-bar { justify-content: flex-start; } }

@@ -18,10 +18,10 @@
 
 ```bash
 export ATLAS_CHAIN_MODE=isolated_lab
-export ATLAS_API_IMAGE=atlas-quant-api:20261030-lab-full-v1-amd64
-export ATLAS_WEB_IMAGE=atlas-quant-web:20261030-lab-full-v1-amd64
-export ATLAS_SUPERVISOR_IMAGE=atlas-supervisor:20261030-lab-full-v1-amd64
-export ATLAS_MYSQL_IMAGE=atlas-mysql:8.4-amd64
+export ATLAS_API_IMAGE=atlas-quant-api:20261031-remediation-v1-amd64
+export ATLAS_WEB_IMAGE=atlas-quant-web:20261031-remediation-v1-amd64
+export ATLAS_SUPERVISOR_IMAGE=atlas-supervisor:20261031-remediation-v1-amd64
+export ATLAS_MYSQL_IMAGE=atlas-mysql:20261031-remediation-v1-amd64
 python3 scripts/prepare-linux-verifier.py /reviewed/linux/atlas-zkvm
 bash deploy/release/build-images.sh
 # build-image.sh需本机已有其固定digest的MySQL基础镜像，先在可信构建机准备。
@@ -34,9 +34,9 @@ bash deploy/release/package-release.sh /output/atlas-lab-full.tar.gz
 
 ## 服务器准备及初始化
 
-1. 先按基础部署说明准备Linux amd64、Docker/Compose、系统Python3.9+、Bash/openssl/curl和HTTPS代理。完整模式预检要求至少8GiB可用内存，建议12GiB以上；新证明内存显著高于验真。不得根据仅验真用量配置主机。
+1. 先按基础部署说明准备Linux amd64、Docker/Compose、系统Python3.9+、Bash/openssl/curl和HTTPS代理。完整模式将Linux报告总内存达到7.5GiB视为8GiB规格，并要求 `MemAvailable` 至少7GiB，建议总内存12GiB以上；8GiB规格只是最低测试配置，新证明内存显著高于验真，不保证所有并发负载容量。不得根据仅验真用量配置主机。
 2. 校验并加载含API/Web/Supervisor/MySQL的完整包，禁止只加载旧v2双镜像包。镜像ID必须匹配发布清单。
-3. 填写基础受控配置 `/etc/atlas/lab.env`。执行 `bash deploy/chain/init-secrets.sh /etc/atlas/chain` 生成独立链随机数据库密码和随机测试付款钱包。目录700，文件600；初始化拒绝覆盖已有文件。钱包私钥不嵌入镜像、不传给API服务，仅在账户所有者本地签名。
+3. 填写基础受控配置 `/etc/atlas/lab.env`。执行 `bash deploy/chain/init-secrets.sh /etc/atlas/chain` 生成独立链随机数据库密码和随机测试付款钱包。随包脚本先校验 `release-manifest.json`，从中选定API/Supervisor/MySQL镜像并写入 `chain.env`；环境变量若指定其他标签会在生成密钥前被拒绝。源码树没有发布清单时才采用脚本默认值或显式 `ATLAS_*_IMAGE`。目录700，文件600；初始化拒绝覆盖已有文件。钱包私钥不嵌入镜像、不传给API服务，仅在账户所有者本地签名。
 4. 合并公共链配置而不执行shell：`python3 deploy/chain/merge-env.py /etc/atlas/lab.env /etc/atlas/chain/chain.env /etc/atlas/full.env`。按实际项目审查端口和独立网段，TLS代理gateway及API信任地址必须一致。密钥路径只在私有配置中，镜像无密钥。
 5. 核对 `ATLAS_API_IMAGE`/`ATLAS_WEB_IMAGE`/Supervisor/MySQL四项与包清单一致。生成并安装HTTPS代理，再执行 `bash deploy/release/start-release.sh /etc/atlas/full.env`。`ATLAS_CHAIN_MODE=isolated_lab` 会自动加载 `compose.chain.yaml`；启动仅用 `--no-build --pull never`，无现场源码编译或拉取。
 6. 创建成员后核验：Supervisor连接、chain ID1051、创世块身份；作者设置版本价格，订阅者本地签名→API广播→确认→授权；版本/报告存证；Proof报价→本地签名付款→确认→排队生成→真实验真→下载→断网独立复核→Proof摘要存证。测试资产必须标清为实验室额度。只有完成这些检查后才能称该目标机完整流程可用。
@@ -60,6 +60,12 @@ bash deploy/release/restore-data.sh /etc/atlas/full.env /secure/atlas-full.priva
 
 重启恢复后核对创世hash、最新块、付款交易/余额/nonce、授权记录、Proof receipt哈希和登录身份，恢复实例确认后才能切换。当前测试只建立正常受控停止/重启与冷备份恢复证据，不声明任意时刻崩溃写入的跨存储原子性已验证。
 
-镜像回退工具只切换API/Web，保持链/DB镜像及卷不变；链数据版本升级/回退需单独审查兼容性，不能盲目将旧链文件覆盖新写入。收费证明失败时保留原订单与交易哈希，不能为同一任务再次付款。
+镜像回退工具要求受审旧发布清单、当前/旧API精确ID及数据兼容性记录；完整模式核对四镜像且要求链/DB精确ID前后一致，仅切换API/Web，仍保留当前数据卷，禁止用旧文件覆盖新写入。收费证明失败时保留原订单与交易哈希，不能为同一任务再次付款。
 
 2026-10-30已有本地测试链实际付款/授权/存证、新Proof和两代冷备恢复验收；24小时观察与目标服务器原生/HTTPS/成员环境仍待单独完成。TEE真实硬件、正式多节点网络、真实交易及行情来源认证继续单列；完整口径见仓库[当前状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)，不以本实验室测试替代。
+
+## 2026-10-31备份保护
+
+完整备份要求三个服务已初始化并健康运行，先核对三个卷的Compose归属、实际容器挂载和同一秘密目录，任一不符立即失败且不创建缺卷、不停服务。校验后依次停API/链/DB，捕获链身份及MySQL逻辑摘要，执行SQLite完整性检查，并把文件清单和摘要写入私有 `snapshot-manifest.json`（schema `atlas.coordinated-backup.v2`）。临时归档校验通过后才发布最终文件；失败清理本次产物并恢复原服务。
+
+恢复只写新卷；先验证文件清单，再按展开空间检查Docker盘及备份盘，恢复后逐文件和SQLite内容核对。新建的私有 `restore-verification.json` 初始 `runtime_verified=false`；须另起独立网络实例，比较创世hash/区块、MySQL逻辑摘要、业务数据、Proof及登录后，才可把恢复验收记为通过。旧备份可隔离恢复，缺少v2清单时标明legacy，不能直接视为新版已验收备份。

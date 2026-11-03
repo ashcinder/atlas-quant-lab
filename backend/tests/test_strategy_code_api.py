@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app import strategy_code_api
 
 SUPPORTED_LANGUAGES = [
     "python",
@@ -23,6 +24,74 @@ SUPPORTED_LANGUAGES = [
     "mql4",
     "mql5",
 ]
+
+
+@pytest.mark.parametrize('mention', ['# target_bps is not the SDK entrypoint', 'note = "target_bps"'])
+def test_sdk_assistant_does_not_treat_comments_or_strings_as_bounded(client, monkeypatch, mention):
+    monkeypatch.setattr(strategy_code_api, 'get_config', lambda request: object())
+    code = mention + '\ndef on_bar(context):\n    return None\n'
+    calls = []
+    def complete(config, messages):
+        calls.append(messages)
+        return json.dumps({'explanation': 'SDK策略', 'code': code})
+    monkeypatch.setattr(strategy_code_api, 'cloud_complete', complete)
+    response = client.post('/api/v1/strategy-code/assist', json={
+        'prompt': '调整SDK策略', 'code': code, 'language': 'python',
+    })
+    assert response.status_code == 200
+    assert response.json()['code'] == code
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("second_valid", [True, False])
+def test_bounded_assistant_checks_and_repairs_generated_code(client, monkeypatch, second_valid):
+    monkeypatch.setattr(strategy_code_api, "get_config", lambda request: object())
+    invalid = "def target_bps(index, close, sma):\n    if index < 30:\n        return 0\n    return 5000\n"
+    valid = "def target_bps(index, close, sma):\n    return 0 if index < 30 else 5000\n"
+    calls = []
+
+    def complete(config, messages):
+        calls.append(messages)
+        code = valid if len(calls) == 2 and second_valid else invalid
+        return json.dumps({"explanation": "策略", "code": code})
+
+    monkeypatch.setattr(strategy_code_api, "cloud_complete", complete)
+    response = client.post("/api/v1/strategy-code/assist", json={
+        "prompt": "写一个策略", "code": valid, "language": "python"
+    })
+    assert len(calls) == 2
+    assert "仅支持局部变量赋值和最终return" in calls[1][1]["content"]
+    if second_valid:
+        assert response.status_code == 200
+        assert response.json()["code"] == valid
+    else:
+        assert response.status_code == 422
+        assert "自动修正后仍未通过" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("second_valid", [True, False])
+def test_cloud_assistant_retries_invalid_json_format(client, monkeypatch, second_valid):
+    monkeypatch.setattr(strategy_code_api, "get_config", lambda request: object())
+    calls = []
+
+    def complete(config, messages):
+        calls.append(messages)
+        if len(calls) == 2 and second_valid:
+            return json.dumps({"explanation": "空仓", "code": "def target_bps(index, close, sma):\n    return 0\n"})
+        return '{"explanation": "缺少代码"}'
+
+    monkeypatch.setattr(strategy_code_api, "cloud_complete", complete)
+    response = client.post("/api/v1/strategy-code/assist", json={
+        "prompt": "写一个策略", "code": "def target_bps(index, close, sma):\n    return 0\n"
+    })
+    assert len(calls) == 2
+    assert "上次回复格式无效" in calls[1][1]["content"]
+    if second_valid:
+        assert response.status_code == 200
+        assert response.json()["explanation"] == "空仓"
+    else:
+        assert response.status_code == 502
+        assert "自动重试后仍未通过" in response.json()["detail"]
 
 
 @pytest.fixture(scope="module")
@@ -64,6 +133,8 @@ def test_capabilities_and_assist_fail_clearly_without_provider(client, monkeypat
         "max_prompt_chars": 4000,
         "max_code_chars": 60000,
         "code_execution": False,
+        "bounded_authoring": True,
+        "conversation_context": True,
     }
     response = client.post(
         "/api/v1/strategy-code/assist", json={"prompt": "写一个策略", "code": ""}
