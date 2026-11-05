@@ -7,6 +7,7 @@ from time import monotonic
 from fastapi import APIRouter, HTTPException
 from app.zkp import ZkProofError, ZkVerifierUnavailable
 from app.zkp_bindings import init_public_programs, check_public_program
+from app.proof_sources import source_snapshot
 
 SOURCE = 'https://github.com/ashcinder/atlas-quant-lab/blob/7e38e0930690de8952f1fb2e3f6004321c717907'
 
@@ -63,6 +64,15 @@ def proof_inspection_router(store):
                 if not result.get('verification_claims', {}).get('bounded_program_backtest'):
                     raise ZkProofError('市场公开收益与证明报告不一致')
                 report_checks.append({'report_id': report_id, 'published_return_verified': True})
+            try:
+                snapshot = source_snapshot(record['proof_profile'], verified.image_id)
+            except (OSError, ValueError) as exc:
+                raise ZkVerifierUnavailable('受信源码快照不可用或已改变') from exc
+            sources = ({'verifier_source': None, 'guest_source': None,
+                        'source_status': 'bundled_snapshot', 'guest_source_manifest': snapshot[0]}
+                       if snapshot else {
+                           'verifier_source': SOURCE + '/strategy/zkvm/host/src/main.rs',
+                           'guest_source': SOURCE + ('/strategy/zkvm/core/src/lib.rs' if record['proof_profile'] == 'atlas_sma_backtest_risc0_v1' else '/strategy/zkvm/program-core/src/lib.rs')})
             return {'valid': True, 'proof_id': proof_id, 'proof_hash': record['proof_hash'],
                     'image_id': verified.image_id, 'journal': verified.journal,
                     'verified_at': datetime.now(UTC).isoformat(),
@@ -70,9 +80,7 @@ def proof_inspection_router(store):
                     'market_origin_verified': False,
                     'onchain_verification_checked': False,
                     'market': market,
-                    'program': program, 'reports': report_checks,
-                    'verifier_source': SOURCE + '/strategy/zkvm/host/src/main.rs',
-                    'guest_source': SOURCE + ('/strategy/zkvm/core/src/lib.rs' if record['proof_profile'] == 'atlas_sma_backtest_risc0_v1' else '/strategy/zkvm/program-core/src/lib.rs')}
+                    'program': program, 'reports': report_checks, **sources}
         except KeyError as exc:
             raise HTTPException(404, '证明不存在') from exc
         except (subprocess.TimeoutExpired, OSError) as exc:

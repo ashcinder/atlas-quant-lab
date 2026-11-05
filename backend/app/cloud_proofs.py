@@ -10,6 +10,9 @@ from app.config import DATA_DIR
 from app.zk_author import PROFILE, WORKFLOW
 from app.zkp import load_profiles
 from app.work_limits import work_limits
+from app.proof_runtime import proof_settings, read_proof_json, validate_market_input, validate_witness_input
+from app.proof_segments import cleanup_segments
+import logging
 
 
 def prover_memory_ready():
@@ -40,9 +43,9 @@ def ensure_job_witness(path, proposed, result_dir):
     required=set(proposed)
     def read(candidate):
         try:
-            value=json.loads(candidate.read_text())
+            value=read_proof_json(candidate)
             return value if isinstance(value,dict) and required<=set(value) else None
-        except (OSError,ValueError):return None
+        except (OSError,json.JSONDecodeError):return None
     saved=read(path)
     candidate=saved or read(result_dir/'witness.private.json') or proposed
     for key in ('strategy','market','initial_equity_micros','workflow_commitment'):
@@ -117,7 +120,13 @@ class CloudProofService:
         binary=Path(__file__).resolve().parents[2]/'strategy/zkvm/target/release/atlas-zkvm'
         ready = False
         reason = '请配置 Proof 服务价格与收款地址'
-        if valid:
+        settings_valid = True
+        try:
+            proof_settings()
+        except ValueError as error:
+            settings_valid = False
+            reason = str(error)
+        if valid and settings_valid:
             cached = self._readiness_cache
             if cached and time.monotonic() - cached[0] < 30:
                 ready = cached[1]
@@ -155,7 +164,21 @@ class CloudProofService:
         if not program: raise HTTPException(422,'当前 zkVM 支持受限 Python 程序；请将策略保存为可证明 Python 版本')
         try: _,dataset_path=self.proofs.market_dataset(body.market_data_hash)
         except KeyError as exc: raise HTTPException(404,'请先登记有效的历史行情数据集') from exc
-        dataset=json.loads(dataset_path.read_text())['dataset']
+        try:
+            dataset=read_proof_json(dataset_path)['dataset']
+            validate_market_input(dataset)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(422, '证明行情输入无效或超过资源限制') from exc
+        # Reserve the longest legal identity and largest serialized salt bytes;
+        # the final indented author witness must fit before an order is created.
+        try:
+            validate_witness_input({'agent_id':'qja_'+'x'*64,'workflow_commitment':WORKFLOW,
+                'previous_receipt_hash':None,'strategy_salt':[255]*32,'nullifier_nonce':[255]*32,
+                'initial_equity_micros':body.initial_equity_micros,
+                'strategy':{'program':program,'commission_bps':body.commission_bps,
+                            'slippage_bps':body.slippage_bps},'market':dataset})
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(422, '完整证明输入无效或超过16MiB') from exc
         if not 3<=len(dataset['bars'])<=20000: raise HTTPException(422,'云端单次证明需要 3–20000 根 K 线')
         quote = proof_quote(program, len(dataset['bars']), config['price_bkc'])
         _,genesis=self.payments.network()
@@ -196,9 +219,13 @@ class CloudProofService:
         directory=self.root/row['id']
         result_dir=directory/'result'
         try:
+            proof_settings()
             directory.mkdir(mode=0o700,exist_ok=True)
+            if result_dir.exists() and not cleanup_segments(result_dir):
+                raise RuntimeError('proof task still active')
             inputs=json.loads(row['inputs']);_,market_path=self.proofs.market_dataset(row['market_hash'])
-            witness={'agent_id':'qja_cloud_draft','workflow_commitment':WORKFLOW,'previous_receipt_hash':None,'strategy_salt':list(secrets.token_bytes(32)),'nullifier_nonce':list(secrets.token_bytes(32)),'initial_equity_micros':inputs['initial_equity_micros'],'strategy':{'program':inputs['program'],'commission_bps':inputs['commission_bps'],'slippage_bps':inputs['slippage_bps']},'market':json.loads(market_path.read_text())['dataset']}
+            witness={'agent_id':'qja_cloud_draft','workflow_commitment':WORKFLOW,'previous_receipt_hash':None,'strategy_salt':list(secrets.token_bytes(32)),'nullifier_nonce':list(secrets.token_bytes(32)),'initial_equity_micros':inputs['initial_equity_micros'],'strategy':{'program':inputs['program'],'commission_bps':inputs['commission_bps'],'slippage_bps':inputs['slippage_bps']},'market':read_proof_json(market_path)['dataset']}
+            validate_witness_input(witness)
             witness_path=directory/'witness.private.json'
             ensure_job_witness(witness_path,witness,result_dir)
             with self.runtime._connect() as c: release=self.runtime._release_for(c,row['release_id'])
@@ -209,6 +236,8 @@ class CloudProofService:
             if not result.get('cryptographically_verified') or not result.get('proof_id'):
                 if marker.exists():marker.unlink()
                 command=[sys.executable,str(Path(__file__).resolve().parents[2]/'scripts/prove-private-program.py'),'--witness',str(witness_path),'--output',str(result_dir),'--publish-local','--name',release['name']]
+                if hasattr(self, 'lock_fd'):
+                    command.extend(['--worker-lock-fd', str(self.lock_fd)])
                 if result_dir.exists():
                     if (result_dir/'author.private.json').is_file() and (result_dir/'witness.private.json').is_file():
                         command.append('--resume')
@@ -228,7 +257,32 @@ class CloudProofService:
         except Exception:
             with self.runtime._connect() as c:c.execute("UPDATE cloud_proof_jobs SET status='failed',error=?,updated_at=? WHERE id=?",('证明生成未完成；费用订单保留，请联系服务方恢复任务，勿重复支付。',time.time(),row['id']))
         finally:
+            try:
+                if result_dir.exists():
+                    cleanup_segments(result_dir)
+            except (OSError, ValueError, RuntimeError):
+                logging.getLogger(__name__).warning('任务分段清理未完成，将在安全恢复时重试')
             work_limits.release(row['owner_id'])
+    def reclaim_segments(self):
+        # Called only after acquiring the worker lock. Never glob application data.
+        with self.runtime._connect() as c:
+            identifiers = [r[0] for r in c.execute('SELECT id FROM cloud_proof_jobs')]
+        for identifier in identifiers:
+            if not re.fullmatch(r'cpj_[0-9a-f]{32}', identifier):
+                continue
+            task = self.root / identifier
+            if not task.is_dir() or task.is_symlink():
+                continue
+            for output in task.iterdir():
+                if output.name != 'result' and not re.fullmatch(r'incomplete-[0-9a-f]{32}', output.name):
+                    continue
+                if output.is_symlink() or not output.is_dir():
+                    continue
+                try:
+                    cleanup_segments(output)
+                except (OSError, ValueError, RuntimeError):
+                    logging.getLogger(__name__).warning('跳过不安全或仍活动的分段任务')
+
     def start(self):
         def run():
             import fcntl
@@ -239,6 +293,7 @@ class CloudProofService:
                     except BlockingIOError:self.stop_event.wait(3)
                 if self.stop_event.is_set():return
                 self.lock_fd=lock.fileno()
+                self.reclaim_segments()
                 with self.runtime._connect() as c:c.execute("UPDATE cloud_proof_jobs SET status='queued' WHERE status='proving'")
                 while not self.stop_event.is_set():
                     try:self.tick()

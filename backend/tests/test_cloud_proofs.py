@@ -17,7 +17,7 @@ def setup(tmp_path,monkeypatch):
     monkeypatch.setattr(module,'DATA_DIR',tmp_path)
     runtime=StrategyRuntimeStore(SimpleNamespace(),tmp_path/'db.sqlite')
     runs=RunStore(tmp_path/'db.sqlite')
-    dataset=tmp_path/'market.json';dataset.write_text(json.dumps({'dataset':{'bars':[{}]*32}}))
+    dataset=tmp_path/'market.json';dataset.write_text(json.dumps({'dataset':{'source':'synthetic','symbol':'TEST','interval':'1d','adjustment':'none','bars':[{}]*32}}))
     service=CloudProofService(runtime,runs,SimpleNamespace(market_dataset=lambda h:({},dataset)))
     service.config=lambda:{'configured':True,'price_bkc':'1.25','recipient':ADDRESS}
     service.payments.network=lambda:(None,'0x'+'c'*64)
@@ -146,7 +146,7 @@ def test_early_partial_result_recovers_without_new_payment(setup,monkeypatch):
     with runtime._connect() as c:
         c.execute("UPDATE bkc_orders SET status='confirmed' WHERE id=?",(job['order_id'],))
         c.execute("UPDATE cloud_proof_jobs SET status='queued' WHERE id=?",(job['id'],))
-    directory=service.root/job['id']/'result';directory.mkdir(parents=True)
+    directory=service.root/job['id']/'result';directory.mkdir(mode=0o700,parents=True)
     (directory/'verification.public.json').write_text('{broken')
     seen=[]
     def launch(command,**kwargs):

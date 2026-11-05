@@ -69,6 +69,7 @@ COPY contracts/ ./contracts/
 
 # Copy ZKVM
 COPY strategy/zkvm/profiles.json ./strategy/zkvm/
+COPY strategy/zkvm/source-snapshots ./strategy/zkvm/source-snapshots
 COPY strategy/zkvm/target/release/atlas-zkvm ./strategy/zkvm/target/release/atlas-zkvm || true
 RUN chmod 0555 ./strategy/zkvm/target/release/atlas-zkvm 2>/dev/null || true
 

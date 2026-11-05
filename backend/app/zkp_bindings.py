@@ -30,7 +30,8 @@ def check_public_program(store, proof_id, journal):
         raise ZkProofError('公开策略源码与承诺的程序不一致')
     with tempfile.TemporaryDirectory(prefix='atlas-public-binding-') as directory:
         path = Path(directory)/'witness.json'; path.write_text(json.dumps(witness))
-        checked = subprocess.run([str(DEFAULT_VERIFIER), 'inspect', '--profile', journal['proof_profile'], '--witness', str(path)],
+        binary = getattr(store.verifier, 'executable', DEFAULT_VERIFIER)
+        checked = subprocess.run([str(binary), 'inspect', '--profile', journal['proof_profile'], '--witness', str(path)],
                                  capture_output=True, text=True, timeout=60, env={'PATH': os.environ.get('PATH',''), 'RISC0_DEV_MODE':'0'})
     if checked.returncode or json.loads(checked.stdout) != journal:
         raise ZkProofError('公开策略、标的、区间或成本与证明结果不一致')

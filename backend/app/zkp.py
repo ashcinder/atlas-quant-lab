@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from app.config import DATA_DIR, DB_PATH, ROOT_DIR
 from app.quantjudge import canonical_json, sha256_hex
 from app.zkp_models import ZkPublicStatement
+from app.proof_runtime import validate_market_input
 
 MAX_RECEIPT_BYTES = 16 * 1024 * 1024
 MAX_DATASET_BARS = 20_000
@@ -146,6 +147,11 @@ def make_market_dataset(
 ) -> dict[str, Any]:
     if not 3 <= len(bars) <= MAX_DATASET_BARS:
         raise ZkProofError(f"ZKP 市场数据必须包含 3–{MAX_DATASET_BARS} 根 K 线")
+    try:
+        validate_market_input(dict(source=source, symbol=symbol, interval=interval,
+                                   adjustment=adjustment, bars=bars))
+    except ValueError as exc:
+        raise ZkProofError(str(exc)) from exc
     converted: list[dict[str, int]] = []
     previous_time = 0
     for bar in bars:
@@ -310,7 +316,11 @@ class ZkProofStore:
         fetched_at: datetime,
         trust_model: str = "platform_fetched_public_market_data",
     ) -> dict[str, Any]:
-        source = str(dataset["source"])
+        try:
+            validate_market_input(dataset)
+        except ValueError as exc:
+            raise ZkProofError(str(exc)) from exc
+        source = dataset["source"]
         if source == "demo" or "stale" in source:
             raise ZkProofError("演示或过期缓存数据不能登记为 ZKP 可信市场数据")
         market_hash = market_commitment(dataset)

@@ -15,6 +15,7 @@ def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=N
     sys.path.insert(0, str(repository / 'backend'))
     from app.zkp import market_commitment
     from app.zk_python import compile_strategy
+    from app.proof_sources import verify_bundled_source
     manifest = json.loads((folder / 'manifest.json').read_text())
     statement = json.loads((folder / 'journal.json').read_text())
     profiles = json.loads((repository / 'strategy/zkvm/profiles.json').read_text())['profiles']
@@ -34,6 +35,8 @@ def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=N
     actual = invoke(['verify', '--receipt', str(receipt), '--expected-image-id', profile['image_id']])
     if actual.get('valid') is not True or actual.get('image_id') != profile['image_id'] or actual.get('journal') != statement:
         raise ValueError('证明与公开结果不一致')
+    source_verified = verify_bundled_source(folder, statement['proof_profile'], profile['image_id'],
+                                           manifest.get('guest_source_manifest'))
     dataset = json.loads((folder / 'market.json').read_text())['dataset']
     if market_commitment(dataset) != statement['market_data_hash']:
         raise ValueError('历史数据或标的已改变')
@@ -56,7 +59,8 @@ def verify_bundle(folder, repository, expected_agent=None, expected_return_ppm=N
     return {'valid': True, 'agent_id': statement['agent_id'], 'symbol': dataset['symbol'],
             'period_start': statement['period_start'], 'period_end': statement['period_end'],
             'total_return_ppm': statement['metrics']['total_return_ppm'],
-            'public_code_verified': public_code_verified, 'market_origin_verified': False}
+            'public_code_verified': public_code_verified, 'market_origin_verified': False,
+            'guest_source_verified': source_verified}
 
 
 if __name__ == '__main__':

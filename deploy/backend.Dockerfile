@@ -40,11 +40,12 @@ COPY contracts/scripts/decode-transaction.mjs /app/contracts/scripts/decode-tran
 COPY scripts/prove-private-program.py scripts/prepare-zk-witness.py scripts/verify-proof-bundle.py scripts/import-verified-proof.py scripts/admin-user.py /app/scripts/
 RUN mkdir -p /app/strategy/zkvm/target/release
 COPY strategy/zkvm/profiles.json /app/strategy/zkvm/profiles.json
+COPY strategy/zkvm/source-snapshots /app/strategy/zkvm/source-snapshots
 # The Linux verifier is an explicitly supplied release artifact, not the local
 # macOS target binary. Build fails if its architecture, hash, or image ID drifts.
 COPY strategy/zkvm/release/linux-amd64/atlas-zkvm /app/strategy/zkvm/target/release/atlas-zkvm
 RUN chmod 0555 /app/strategy/zkvm/target/release/atlas-zkvm \
-    && python -c "import hashlib,json,struct,subprocess; p='/app/strategy/zkvm/target/release/atlas-zkvm'; b=open(p,'rb').read(); assert b[:4]==b'\\x7fELF' and struct.unpack_from('<H',b,18)[0]==62; assert hashlib.sha256(b).hexdigest()=='b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3'; d=json.loads(subprocess.check_output([p,'profile','--profile','atlas_program_backtest_risc0_v2'])); assert d['image_id']=='02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4'"
+    && python -c "import hashlib,json,struct,subprocess; p='/app/strategy/zkvm/target/release/atlas-zkvm'; b=open(p,'rb').read(); assert b[:4]==b'\\x7fELF' and struct.unpack_from('<H',b,18)[0]==62; assert hashlib.sha256(b).hexdigest()=='ffe848a6bdd3e548a8cbfff59b3a87689498ecbbd323436c1b3dbc9d8a3d059f'; d=json.loads(subprocess.check_output([p,'profile','--profile','atlas_program_backtest_risc0_v2'])); assert d['image_id']=='02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4'"
 USER 10001:10001
 EXPOSE 8000
 # In-process research jobs and alert monitoring require exactly one worker.

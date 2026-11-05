@@ -1,0 +1,39 @@
+{
+  "schema": "atlas.guest-source.v1",
+  "profile": "atlas_program_backtest_risc0_v3_experimental",
+  "image_id": "86a4381bd862c632e72dfa19fc0b1c3115ec314570eedb7fb0a195158b3e04d4",
+  "r0bf_sha256": "0963461252a4833d7144e66dfa53e5b32656901545bfc500c022b0d69a8af0e3",
+  "sdk_version": "3.0.6",
+  "guest_rustc": "1.97.0-dev (e638c6cfe)",
+  "guest_rustc_archive_sha256": "100b597d605b706bec94e1d32bfaaf5851df8d75173f986d4b56a3e90916be53",
+  "target": "riscv32im-risc0-zkvm-elf",
+  "rust_flags": [
+    "-C",
+    "passes=lower-atomic",
+    "-C",
+    "link-arg=-Ttext=0x00200800",
+    "-C",
+    "link-arg=--fatal-warnings",
+    "-C",
+    "panic=abort",
+    "--cfg",
+    "getrandom_backend=\"custom\""
+  ],
+  "release": {
+    "lto": "fat",
+    "codegen_units": 1
+  },
+  "files": {
+    "BUILD.md": "664aebc95c69c2f3887ef19aa19b591d3ea69c6830445c2b573bb21949082d09",
+    "program-core/Cargo.lock": "4e357b92df453831db27b2757df7897e7a1f7cda4d78697ff40bcbc3264a8cb2",
+    "program-core/Cargo.toml": "74d5d76291431a05e39449751e4ef0c8a13b33830d9769e54cbcb0698fa32bcc",
+    "program-core/src/equivalence.rs": "ac373e28935df0e663a2601c8690de1915106ad3f19a9e9c37d20ef90fcf342a",
+    "program-core/src/hash_equivalence.rs": "fdc3232dbefe0e2d76b321ebde7f6317343d06840eb46327d4021c557a4ecc80",
+    "program-core/src/lib.rs": "6e7edd1eb65af4edcdab6dd7b5b66951fc3d677c18c14589bd79623c023b5b6d",
+    "program-core/src/reference.rs": "4c6c5d6c7ff9c628a9adb2d79580a5c5729841682719f387c3b63686f4938e7b",
+    "program-core/src/word_reader.rs": "2e27bac9e4ba2267ab39bd87aabe24e9fa3d4f9ac74051a4cbc29d578e499f7f",
+    "program-methods/guest/Cargo.lock": "36576eacb872a2215d6b4a753345db4e944da05a0e5aa1092415c5f1fd6695b1",
+    "program-methods/guest/Cargo.toml": "5e8c5e14603617109d6d85ee25a7bcd4bd004e2a97d99cf0f8e2fdd71613eb5e",
+    "program-methods/guest/src/main.rs": "7e96cb3fd0999b6b464d58135a642f4afc810df25fa5fa1a6ff7a7f026cf73d2"
+  }
+}

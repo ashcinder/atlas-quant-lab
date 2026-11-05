@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import zipfile
+from app.proof_sources import source_snapshot
 
 
 def export_bundle(store, proof_id):
@@ -15,12 +16,18 @@ def export_bundle(store, proof_id):
                 'proof_hash': record['proof_hash'], 'image_id': record['image_id'],
                 'public_example': example is not None}
     root = Path(__file__).resolve().parents[2]
+    snapshot = source_snapshot(record['proof_profile'], record['image_id'])
+    if snapshot:
+        manifest['guest_source_manifest'] = snapshot[0]
     content = io.BytesIO()
     with zipfile.ZipFile(content, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('manifest.json', json.dumps(manifest, indent=2))
         archive.writestr('journal.json', json.dumps(statement, indent=2))
         archive.writestr('proof.r0', store.receipt_path(proof_id).read_bytes())
         archive.writestr('market.json', market.read_bytes())
+        if snapshot:
+            for name, source_bytes in snapshot[1].items():
+                archive.writestr('guest-source/' + name, source_bytes)
         archive.writestr('verify-proof-bundle.py', (root / 'scripts/verify-proof-bundle.py').read_bytes())
         if example:
             archive.writestr('strategy.py', example['source'])

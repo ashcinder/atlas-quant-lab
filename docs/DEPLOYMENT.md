@@ -13,7 +13,7 @@
 
 需要Docker Engine与支持 `--wait` 的Compose v2。干净克隆不含 `strategy/zkvm/release/linux-amd64/atlas-zkvm`；从源码构建API前须提供经审核的Linux x86-64 ELF：
 
-- SHA-256：`b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3`。
+- SHA-256：`ffe848a6bdd3e548a8cbfff59b3a87689498ecbbd323436c1b3dbc9d8a3d059f`。
 - v2 image ID：`02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4`。
 
 用已有工具检查并安装制品：

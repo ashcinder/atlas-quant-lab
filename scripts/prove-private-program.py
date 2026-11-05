@@ -12,11 +12,15 @@ import subprocess
 import sys
 import time
 import tempfile
+import stat
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'backend'))
 from app.zkp import Risc0ReceiptVerifier, ZkProofError, ZkProofStore, load_profiles
 from app.zkp_models import ZkPublicStatement
+from app.proof_runtime import (bounded_environment_integer, proof_segment_limit_po2,
+    proof_disk_segments_enabled, proof_settings, read_proof_json, validate_witness_input)
+from app.proof_segments import segment_workspace, cleanup_segments
 
 PROFILE = 'atlas_program_backtest_risc0_v2'
 BINARY = ROOT / 'strategy/zkvm/target/release/atlas-zkvm'
@@ -36,17 +40,53 @@ def write_private(path, data):
 
 def prover_environment():
     # Do not inherit BONSAI credentials, remote prover URLs, dev flags or hooks.
+    threads = bounded_environment_integer('ATLAS_PROOF_THREADS', 1, 3, default=1)
     return {'PATH': os.environ.get('PATH', ''), 'RISC0_PROVER': 'local',
-            'RISC0_DEV_MODE': '0', 'RAYON_NUM_THREADS': '1'}
+            'RISC0_DEV_MODE': '0', 'RAYON_NUM_THREADS': str(threads)}
 
 
-def invoke(args, timeout=3600):
+def invoke(args, timeout=3600, pass_fds=()):
     result = subprocess.run([str(BINARY), *args], env=prover_environment(),
-                            capture_output=True, text=True, timeout=timeout)
+                            capture_output=True, text=True, timeout=timeout, pass_fds=pass_fds)
     if result.returncode:
         # Prover diagnostics can include private witness values; never echo them.
         raise RuntimeError('本地证明程序失败；没有登记证明或收益。请在作者机器检查输入与工具链。')
     return json.loads(result.stdout)
+
+
+def prove_arguments(witness, receipt, segment_path=None):
+    arguments = ['prove', '--profile', PROFILE, '--witness', str(witness),
+                 '--receipt', str(receipt)]
+    segment_limit_po2 = proof_segment_limit_po2()
+    if segment_limit_po2 is not None:
+        arguments.extend(['--segment-limit-po2', str(segment_limit_po2)])
+    if segment_path is not None:
+        arguments.extend(['--segment-path', str(segment_path)])
+    return arguments
+
+
+def invoke_prove(witness, receipt, output, worker_lock_fd=None):
+    inherited = ()
+    if worker_lock_fd is not None:
+        actual = os.fstat(worker_lock_fd)
+        expected = (output.parent.parent / 'worker.lock').lstat()
+        if (not stat.S_ISREG(actual.st_mode) or not stat.S_ISREG(expected.st_mode)
+                or actual.st_uid != os.getuid()
+                or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)):
+            raise ValueError('Proof worker锁身份不符')
+        inherited = (worker_lock_fd,)
+    if not proof_disk_segments_enabled():
+        return invoke(prove_arguments(witness, receipt), pass_fds=inherited)
+    with segment_workspace(output) as (segment_path, lock_fd):
+        return invoke(prove_arguments(witness, receipt, segment_path), pass_fds=(*inherited, lock_fd))
+
+
+def public_prover_performance(prover_output):
+    result = {field: prover_output[field] for field in ('elapsed_seconds', 'segment_limit_po2')
+              if field in prover_output}
+    if 'segments' in prover_output.get('stats', {}):
+        result['stats'] = {'segments': prover_output['stats']['segments']}
+    return result
 
 
 def check_bundle(witness, verified):
@@ -59,6 +99,8 @@ def check_bundle(witness, verified):
 
 
 def execute(args):
+    # Reject invalid experimental settings before inspecting or proving a witness.
+    proof_settings()
     profile = load_profiles()[PROFILE]
     if profile['status'] != 'active':
         raise ZkProofError('证明程序已停用')
@@ -67,13 +109,17 @@ def execute(args):
         raise ZkProofError('本地执行器与已登记image ID不同；不会覆盖登记值')
     output = args.output.expanduser().resolve()
     if args.resume:
-        witness = json.loads((output / 'witness.private.json').read_text())
+        witness = read_proof_json(output / 'witness.private.json')
     else:
-        witness = json.loads(args.witness.read_text())
+        witness = read_proof_json(args.witness)
         if args.python_source:
             from app.zk_python import compile_strategy
             witness['strategy']['program'] = compile_strategy(args.python_source.read_text())
+        validate_witness_input(witness)
         output.mkdir(mode=0o700, parents=True, exist_ok=False)
+    validate_witness_input(witness)
+    if not cleanup_segments(output):
+        raise RuntimeError('同一任务已有证明进程，不能恢复或重复生成')
     # A copy stays on the AUTHOR machine, never in the platform database.
     draft = output / 'draft.private.json'
     if not args.resume:
@@ -131,10 +177,11 @@ def execute(args):
     if args.resume and receipt.is_file() and registered is None:
         try:verifier.verify(receipt, profile['image_id'])
         except ZkProofError:receipt.unlink()
+    prover_output = None
     if not receipt.is_file():
         print('开始本地真实证明；策略与witness不会发送给远程证明服务。', flush=True)
         staging=output/'.proof.r0.partial'
-        invoke(['prove', '--profile', PROFILE, '--witness', str(private), '--receipt', str(staging)])
+        prover_output = invoke_prove(private, staging, output, getattr(args, 'worker_lock_fd', None))
         verifier.verify(staging, profile['image_id'])
         os.chmod(staging,0o600)
         with staging.open('rb') as handle:os.fsync(handle.fileno())
@@ -172,6 +219,9 @@ def execute(args):
               'scope': 'execution_and_net_backtest_performance_of_private_bounded_program',
               'confidential_hosting_verified': False, 'exchange_fills_verified': False,
               'market_origin_cryptographically_verified': False, 'onchain_verified': False}
+    if prover_output is not None:
+        write_private(output / f'prover-performance-{time.time_ns()}.private.json', prover_output)
+        result['prover_performance'] = public_prover_performance(prover_output)
     if quant is not None:
         if registered is not None:
             # Authenticate saved identity and cryptographically recheck storage.
@@ -206,6 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True, help='New directory on author machine; never overwritten')
     parser.add_argument('--publish-local', action='store_true', help='Create a real local-project Agent and publish only its proof and public statement')
     parser.add_argument('--resume', action='store_true', help='Re-verify an unpublished existing receipt and saved author identity; never bypass cryptographic verification')
+    parser.add_argument('--worker-lock-fd', type=int, help=argparse.SUPPRESS)
     parser.add_argument('--python-source', type=Path, help='Author-local restricted Python source; only compiled integer program is proved, not CPython or this compiler')
     parser.add_argument('--name', default='私有程序 · 真实ZKP回测验收')
     args = parser.parse_args()

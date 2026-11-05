@@ -149,7 +149,7 @@ manifest = {
     "platform": "linux/amd64",
     "images": {"api": {"name": api_name, "id": api_id}, "web": {"name": web_name, "id": web_id}},
     "verifier": {
-        "sha256": "b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3",
+        "sha256": "ffe848a6bdd3e548a8cbfff59b3a87689498ecbbd323436c1b3dbc9d8a3d059f",
         "profile": "atlas_program_backtest_risc0_v2",
         "image_id": "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4",
     },

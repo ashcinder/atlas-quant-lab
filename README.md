@@ -6,6 +6,8 @@
 
 ## 文档入口
 
+2026-11-05新增：[完整回测Proof优化与安全修复](docs/proof-optimization.md)，包括已测guest源码、构建/验真工具、500根实测及尚未完成的验收。新guest仍为隔离实验，正式v2和旧Proof身份保持。
+
 | 任务 | 指南 |
 | --- | --- |
 | 当前已完成与待验 | [统一状态](docs/CURRENT_STATUS.md) |

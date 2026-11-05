@@ -13,7 +13,7 @@ import struct
 import subprocess
 from pathlib import Path
 
-EXPECTED_SHA256 = "b62a2d6ed3dd49e0f02762f8291aab2f075c4f0686290844113779d797d582b3"
+EXPECTED_SHA256 = "ffe848a6bdd3e548a8cbfff59b3a87689498ecbbd323436c1b3dbc9d8a3d059f"
 EXPECTED_IMAGE_ID = "02b08452a95d405b82b52dd475fc448639da4465123324711b369d7e18c27cd4"
 PROFILE = "atlas_program_backtest_risc0_v2"
 REPO = Path(__file__).resolve().parents[1]
