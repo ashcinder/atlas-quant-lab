@@ -1,0 +1,4 @@
+[
+  {"symbol":"BTC-USD","asset_class":"crypto","interval":"1d","adjustment":"auto","data_source":"auto","start":null,"end":null,"base_currencies":["USD","USDT"]},
+  {"symbol":"ETH-USD","asset_class":"crypto","interval":"1d","adjustment":"auto","data_source":"auto","start":null,"end":null,"base_currencies":["USD","USDT"]}
+]

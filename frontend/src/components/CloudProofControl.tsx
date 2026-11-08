@@ -53,6 +53,7 @@ export function CloudProofControl({
   const [job, setJob] = useState<Job | null>(null)
   const [config, setConfig] = useState<{
     configured: boolean
+    location?: string
     unavailable_reason?: string
     price_bkc: string
     recipient: string
@@ -113,6 +114,11 @@ export function CloudProofControl({
   const status = job?.status || proofStatus
   const proof = job?.proof_id || proofId
   const cfg = statusConfig[status] || statusConfig.unverified
+  if (config?.location === 'author_local') return <div className="trine-cloud-proof">
+    <span className={`proof-state is-${status}`}>{labels[status] || status}</span>
+    {proof && <a href={`#/proof/${proof}`} className="proof-link">验证 Proof <ExternalLink size={11} /></a>}
+    {owned && <details><summary>在我的电脑生成 Proof</summary><p>下载登记行情，在自己的电脑生成真实证明，再到策略证明页面上传 receipt。源码和私有输入留在自己的电脑。</p><p>本机工具：<code>python scripts/author-proof.py --help</code></p>{job && <p>历史任务：{job.id} · {labels[job.status] || job.status}。原订单保留，未完成付款任务须先核查恢复。</p>}<p>保存回测结果不会自动成为 ZKP。</p></details>}
+  </div>
 
   return (
     <div className="trine-cloud-proof">
@@ -134,7 +140,7 @@ export function CloudProofControl({
 
       {/* Toggle Button */}
       {owned && sourceKind === 'python' && (
-        <button className="proof-toggle-btn" onClick={() => setOpen(!open)}>
+        <button type="button" className="proof-toggle-btn" onClick={() => setOpen(!open)}>
           {open ? (
             <>收起 <ChevronUp size={14} /></>
           ) : (
@@ -152,7 +158,7 @@ export function CloudProofControl({
               <Cloud size={16} />
               <span>云端 ZKP 生成</span>
             </div>
-            <button className="trine-form-close" onClick={() => setOpen(false)} title="关闭">
+            <button type="button" className="trine-form-close" onClick={() => setOpen(false)} title="关闭">
               <X size={16} />
             </button>
           </div>
@@ -197,7 +203,7 @@ export function CloudProofControl({
                 <span>允许服务器读取此版本程序进行证明</span>
               </label>
 
-              <button
+              <button type="button"
                 className="trine-submit-btn"
                 disabled={busy || !config?.configured || !consent}
                 onClick={() => void create()}
@@ -233,7 +239,7 @@ export function CloudProofControl({
           {job?.status === 'awaiting_payment' && (
             <div className="trine-payment-actions">
               <PayOrderButton orderId={job.order_id} onConfirmed={() => void enqueue()} />
-              <button className="trine-secondary-btn" onClick={() => void enqueue()}>
+              <button type="button" className="trine-secondary-btn" onClick={() => void enqueue()}>
                 已支付，恢复生成
               </button>
             </div>
@@ -245,7 +251,7 @@ export function CloudProofControl({
               <p role="alert" className="trine-error-msg">
                 <AlertTriangle size={13} /> {job.error}
               </p>
-              <button className="trine-secondary-btn" onClick={() => void enqueue()}>
+              <button type="button" className="trine-secondary-btn" onClick={() => void enqueue()}>
                 使用原付款重试
               </button>
             </div>

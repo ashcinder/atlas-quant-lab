@@ -1,9 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { request } from '../request'
+import { advanceRuntimeRun } from '../compute/client'
 import TradingWorkspace from './TradingWorkspace'
 
 vi.mock('../request', async (importOriginal) => ({ ...await importOriginal<object>(), request: vi.fn() }))
+vi.mock('../compute/client', () => ({ advanceRuntimeRun: vi.fn() }))
 const caps = { authorized: true, user_id: 'test-user', venues: [{ venue: 'binance', mode: 'demo', configured: true, can_trade: true }] }
 const preview = { id: 'aq-test', order: { venue: 'binance', symbol: 'BTC-USDT', side: 'buy', quantity: '0.001', price: '10000' }, mode: 'demo', expires: 9999999999, state: 'preview', result: {} }
 const runtimeRun = (status = 'active', fillId = 'fill-current') => ({
@@ -24,6 +26,24 @@ beforeEach(() => {
   })
 })
 afterEach(cleanup)
+
+it('does not advance an in-flight run twice when another active run appears', async () => {
+  const first = { ...runtimeRun(), compute: { execution_location: 'browser' } }
+  const second = { ...first, id: 'run-second' }
+  let runs = [first]
+  vi.mocked(advanceRuntimeRun).mockReturnValue(new Promise<never>(() => {}))
+  vi.mocked(request).mockImplementation(async path => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return runs
+    return []
+  })
+  render(<TradingWorkspace />)
+  await waitFor(() => expect(advanceRuntimeRun).toHaveBeenCalledTimes(1))
+  runs = [first, second]
+  window.dispatchEvent(new Event('atlas-runtime-changed'))
+  await waitFor(() => expect(advanceRuntimeRun).toHaveBeenCalledWith('run-second', 'rel-actions', 'AAPL', 'equity', '1d', expect.any(AbortSignal)))
+  expect(vi.mocked(advanceRuntimeRun).mock.calls.filter(([id]) => id === first.id)).toHaveLength(1)
+})
 
 it('keeps unconfigured accounts disconnected and trading disabled', async () => {
   vi.mocked(request).mockResolvedValue({ ...caps, authorized: false, venues: [{ venue: 'binance', mode: 'demo', configured: false, can_trade: false }] })
@@ -457,4 +477,27 @@ it('enables automatic execution only for an exchange test run', async () => {
   expect(screen.getByRole('button', { name: '策略运行' }).getAttribute('aria-current')).toBe('page')
   const call = vi.mocked(request).mock.calls.find(([path]) => path === '/trading/runs')
   expect(JSON.parse(call?.[1]?.body as string)).toMatchObject({ release_id: 'test-release', account_id: 'test-account', market: 'CRYPTO', environment: 'exchange_test', demo_auto: true, symbol: 'BTC-USDT', initial_cash: '10000' })
+})
+
+it('does not compute or renew a lease while the retained workspace is hidden by navigation', async () => {
+  const run = { ...runtimeRun(), compute: { execution_location: 'browser' } }
+  vi.mocked(advanceRuntimeRun).mockResolvedValue(undefined as never)
+  window.history.replaceState(null, '', '#/journal/overview')
+  vi.mocked(request).mockImplementation(async path => {
+    if (path.endsWith('/capabilities')) return caps
+    if (path.startsWith('/trading/runs?')) return [run]
+    return []
+  })
+  render(<TradingWorkspace />)
+  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.stringContaining('/trading/runs?')))
+  expect(advanceRuntimeRun).not.toHaveBeenCalled()
+  expect(vi.mocked(request).mock.calls.some(([path]) => path.endsWith('/heartbeat'))).toBe(false)
+})
+
+it('aborts an in-flight demand when navigation hides the retained workspace',async()=>{
+ const run={...runtimeRun(),compute:{execution_location:'browser'}}
+ vi.mocked(advanceRuntimeRun).mockReturnValue(new Promise<never>(()=>{}))
+ vi.mocked(request).mockImplementation(async path=>path.endsWith('/capabilities')?caps:path.startsWith('/trading/runs?')?[run]:[])
+ render(<TradingWorkspace/>);await waitFor(()=>expect(advanceRuntimeRun).toHaveBeenCalledTimes(1));const signal=vi.mocked(advanceRuntimeRun).mock.calls[0][5]!
+ expect(signal.aborted).toBe(false);window.history.replaceState(null,'','#/journal/overview');act(()=>window.dispatchEvent(new Event('hashchange')));expect(signal.aborted).toBe(true)
 })

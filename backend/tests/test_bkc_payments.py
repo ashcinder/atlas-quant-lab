@@ -232,3 +232,112 @@ def test_signing_never_underfunds_calldata_when_node_estimate_omits_it(setup, mo
     monkeypatch.setattr(chain,'_call',rpc)
     tx=store.signing('bob',order['id'])['transaction']
     assert int(tx['gasLimit'],16)>=21000+68*len(raw)
+
+
+def test_retry_only_replaces_canonical_reverted_payment_and_preserves_history(setup):
+    runtime, runs, chain, store, release = setup
+    original = store.prepare('bob', 'subscription', release, BOB)
+    chain.mine(original)
+    chain.receipt['status'] = '0x0'
+    failed = store.confirm('bob', original['id'], HASH)
+    assert failed['status'] == 'failed'
+    assert failed['block_hash'] == BLOCK
+    replacement = store.retry('bob', original['id'], HASH)
+    assert replacement['id'] != original['id']
+    assert replacement['status'] == 'pending'
+    assert replacement['transaction_hash'] is None
+    assert replacement['previous_order_id'] == original['id']
+    assert replacement['previous_transaction_hash'] == HASH
+    assert replacement['payload']['order_id'] == replacement['id']
+    for key in ('signer', 'recipient', 'amount_wei', 'genesis', 'resource_id'):
+        assert replacement[key] == original[key]
+    assert store.get('bob', original['id'])['transaction_hash'] == HASH
+    assert store.get('bob', original['id'])['status'] == 'failed'
+    assert store.confirm('bob', original['id'], HASH)['status'] == 'failed'
+    assert store.retry('bob', original['id'], HASH)['id'] == replacement['id']
+    assert store.prepare('bob', 'subscription', release, BOB)['id'] == replacement['id']
+    assert runtime.list_subscriptions('bob') == []
+    with pytest.raises(HTTPException) as forbidden:
+        store.retry('charlie', original['id'], HASH)
+    assert forbidden.value.status_code == 404
+    # Legacy current rows and archived attempts remain readable after reopening.
+    reopened = BkcStore(runtime, runs, chain)
+    assert reopened.get('bob', original['id'])['current_order_id'] == replacement['id']
+    assert reopened.get('bob', replacement['id']) == replacement
+    chain.mine(replacement)
+    second_hash = '0x' + '6' * 64
+    chain.tx['hash'] = second_hash
+    chain.receipt['transactionHash'] = second_hash
+    confirmed = reopened.confirm('bob', replacement['id'], second_hash)
+    assert confirmed['status'] == 'confirmed'
+    assert reopened.confirm('bob', replacement['id'], second_hash)['subscription']['id'] == confirmed['subscription']['id']
+    assert len(runtime.list_subscriptions('bob')) == 1
+    assert reopened.confirm('bob', original['id'], HASH)['status'] == 'failed'
+
+
+@pytest.mark.parametrize('state', ['pending', 'missing_receipt', 'confirmed', 'noncanonical', 'wrong_network'])
+def test_retry_refuses_uncertain_successful_or_noncanonical_original_transaction(setup, state):
+    runtime, _, chain, store, release = setup
+    order = store.prepare('bob', 'subscription', release, BOB)
+    if state != 'pending':
+        chain.mine(order)
+        chain.receipt['status'] = '0x0'
+        assert store.confirm('bob', order['id'], HASH)['status'] == 'failed'
+    if state == 'missing_receipt':
+        chain.receipt = None
+    elif state == 'confirmed':
+        chain.receipt['status'] = '0x1'
+    elif state == 'noncanonical':
+        chain.tx['blockHash'] = GENESIS
+    elif state == 'wrong_network':
+        chain.genesis = '0x' + '9' * 64
+    with pytest.raises(HTTPException):
+        store.retry('bob', order['id'], HASH)
+    assert store.get('bob', order['id'])['id'] == order['id']
+    with runtime._connect() as db:
+        assert db.execute('SELECT count(*) FROM bkc_order_attempts').fetchone()[0] == 0
+
+
+def test_concurrent_retry_returns_one_replacement(setup, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    runtime, _, chain, store, release = setup
+    original = store.prepare('bob', 'subscription', release, BOB)
+    chain.mine(original)
+    chain.receipt['status'] = '0x0'
+    store.confirm('bob', original['id'], HASH)
+    barrier = Barrier(2)
+    receipt = chain.transaction_receipt
+    def simultaneous_receipt(value):
+        barrier.wait(timeout=5)
+        return receipt(value)
+    monkeypatch.setattr(chain, 'transaction_receipt', simultaneous_receipt)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        replacements = list(pool.map(lambda _: store.retry('bob', original['id'], HASH), range(2)))
+    assert replacements[0]['id'] == replacements[1]['id']
+    assert runtime.list_subscriptions('bob') == []
+    with runtime._connect() as db:
+        assert db.execute('SELECT count(*) FROM bkc_order_attempts').fetchone()[0] == 1
+        assert db.execute('SELECT count(*) FROM bkc_orders').fetchone()[0] == 1
+
+
+def test_two_reverted_attempts_preserve_the_full_chain_and_resolve_current_order(setup):
+    _, _, chain, store, release = setup
+    first = store.prepare('bob', 'subscription', release, BOB)
+    chain.mine(first)
+    chain.receipt['status'] = '0x0'
+    store.confirm('bob', first['id'], HASH)
+    second = store.retry('bob', first['id'], HASH)
+    chain.mine(second)
+    second_hash = '0x' + '7' * 64
+    chain.tx['hash'] = second_hash
+    chain.receipt.update(transactionHash=second_hash, status='0x0')
+    store.confirm('bob', second['id'], second_hash)
+    third = store.retry('bob', second['id'], second_hash)
+    assert len({first['id'], second['id'], third['id']}) == 3
+    assert store.get('bob', first['id'])['current_order_id'] == third['id']
+    assert store.get('bob', second['id'])['current_order_id'] == third['id']
+    assert store.get('bob', first['id'])['transaction_hash'] == HASH
+    assert store.get('bob', second['id'])['transaction_hash'] == second_hash
+    assert third['previous_order_id'] == second['id']
+    assert third['transaction_hash'] is None

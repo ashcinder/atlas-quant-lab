@@ -21,6 +21,8 @@ from app.config import DB_PATH
 from app.data.providers import ProviderError
 from app.models import CustomStrategySpec
 from app.private_runner import PrivateDecision, PrivateRunnerStore
+from app.compute_mode import browser_compute_enabled
+from app import browser_runtime
 from app.python_strategy import compile_program, generate_python_targets
 from app.strategies import generate_target_exposure, get_strategy
 from app.strategies.catalog import validate_params
@@ -67,6 +69,7 @@ class ReleaseCreate(BaseModel):
     markets: list[Market] = Field(min_length=1, max_length=3)
     description: str = Field(default="", max_length=300)
     published: bool = True
+    source_visibility: Literal["private", "public"] = "private"
     execution_mode: Literal["candles", "quote_probe", "private_runner"] = "candles"
     runner_public_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     code_commitment: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -280,6 +283,8 @@ class StrategyRuntimeStore:
                         f"ALTER TABLE strategy_runs ADD COLUMN {name} TEXT NOT NULL "
                         f"DEFAULT '{default}'"
                     )
+            if "demand_until" not in columns:
+                connection.execute("ALTER TABLE strategy_runs ADD COLUMN demand_until REAL NOT NULL DEFAULT 0")
             if "behavior_position_limit_bps" not in columns:
                 connection.execute(
                     "ALTER TABLE strategy_runs ADD COLUMN behavior_position_limit_bps INTEGER"
@@ -344,6 +349,8 @@ class StrategyRuntimeStore:
                 "runner_public_key": request.runner_public_key,
                 "code_commitment": request.code_commitment,
             }
+        if request.source_visibility == "public":
+            snapshot["source_visibility"] = "public"
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
         key = f"{request.source_kind}:{request.strategy_id}"
@@ -1031,6 +1038,13 @@ class StrategyRuntimeStore:
             result["valuation_status"] = "update_failed"
         else:
             result["valuation_status"] = "recorded"
+        if browser_compute_enabled():
+            full_release = self._release_for(connection, row["release_id"])
+            execution_location = browser_runtime.location(full_release, row["owner_id"])
+            result["compute"] = {"execution_location": execution_location, "proof_status": "unverified"}
+            result["browser_connected"] = float(row["demand_until"]) > _now().timestamp()
+            if execution_location == "server_private":
+                browser_runtime.sanitize_run(result)
         return result
 
     def get_run(self, owner: str, identifier: str, detail: bool = False):
@@ -1105,6 +1119,14 @@ class StrategyRuntimeStore:
                 result["behavior_check"] = self._behavior_check(
                     result, result["curve"], result["valuation_complete"]
                 )
+            if browser_compute_enabled():
+                release = self._release_for(connection, row["release_id"])
+                execution_location = browser_runtime.location(release, owner)
+                result["compute"] = {"execution_location": execution_location, "proof_status": "unverified"}
+                result["demand_until"] = row["demand_until"]
+                result["browser_connected"] = float(row["demand_until"]) > _now().timestamp()
+                if execution_location == "server_private":
+                    browser_runtime.sanitize_run(result)
             return result
 
     def list_runs(self, owner: str, market: str | None = None, environment: str | None = None):
@@ -1214,7 +1236,9 @@ class StrategyRuntimeStore:
         }[interval]
         return frame[frame.index <= pd.Timestamp.now(tz="UTC") - duration]
 
-    def tick(self, owner: str, identifier: str):
+    def tick(self, owner: str, identifier: str, browser_signal=None):
+        if browser_compute_enabled():
+            browser_runtime.demand_check(self, owner, identifier, browser_signal)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -1228,12 +1252,16 @@ class StrategyRuntimeStore:
                 raise HTTPException(409, "策略正在运行")
             connection.execute(
                 "UPDATE strategy_runs SET lease_until=? WHERE id=?",
-                (_now().timestamp() + 45, identifier),
+                (_now().timestamp() + (135 if browser_compute_enabled() else 45), identifier),
             )
         try:
-            return self._tick_locked(owner, identifier)
+            return self._tick_locked(owner, identifier, browser_signal)
         except (ProviderError, ValueError, HTTPException) as exc:
             message = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            if browser_compute_enabled() and isinstance(exc, HTTPException) and exc.status_code in {409, 429}:
+                with self._connect() as connection:
+                    connection.execute("UPDATE strategy_runs SET lease_until=0 WHERE id=? AND owner_id=?", (identifier, owner))
+                raise
             with self._connect() as connection:
                 connection.execute(
                     "UPDATE strategy_runs SET status='error',latest_error=?,"
@@ -1244,7 +1272,7 @@ class StrategyRuntimeStore:
                 raise
             raise HTTPException(422, message) from exc
 
-    def _tick_locked(self, owner: str, identifier: str):
+    def _tick_locked(self, owner: str, identifier: str, browser_signal=None):
         with self._connect() as connection:
             run = connection.execute(
                 "SELECT * FROM strategy_runs WHERE id=? AND owner_id=?", (identifier, owner)
@@ -1271,9 +1299,19 @@ class StrategyRuntimeStore:
 
             return tick_probe(self, owner, identifier, release, run)
         asset_class = "crypto" if run["market"] == "CRYPTO" else "equity"
-        bundle = self.data_service.fetch(
-            run["symbol"], asset_class, run["interval"], None, None, "auto", "auto", True
-        )
+        if browser_compute_enabled():
+            manifest = self.publications.lookup(dict(symbol=run["symbol"], asset_class=asset_class, interval=run["interval"], adjustment="auto", data_source="auto"))
+            if manifest is None:
+                raise HTTPException(409, "行情版本尚未发布")
+            if browser_signal and browser_signal["dataset_id"] != manifest["dataset_id"]:
+                raise HTTPException(409, "运行信号必须引用当前服务端登记的原币种行情版本")
+            if manifest["asset"]["symbol"] != run["symbol"] or manifest["interval"] != run["interval"] or manifest["asset"]["asset_class"] != asset_class:
+                raise HTTPException(422, "行情版本与运行标的不匹配")
+            bundle = self.publications.bundle(manifest["dataset_id"])
+        else:
+            bundle = self.data_service.fetch(
+                run["symbol"], asset_class, run["interval"], None, None, "auto", "auto", True
+            )
         if bundle.source == "demo" or bundle.source.startswith("demo:"):
             raise HTTPException(422, "演示行情不能产生正式模拟成交")
         if bundle.is_stale:
@@ -1281,10 +1319,24 @@ class StrategyRuntimeStore:
         frame = self._completed_frame(bundle.frame.sort_index(), run["interval"])
         if len(frame) < 40:
             raise HTTPException(422, "至少需要40根已完成K线才能运行")
-        targets, reasons = self._targets(
-            release, frame, _decimal(run["initial_cash"]), schedule_history
-        )
+        if browser_signal is not None:
+            targets, reasons = browser_runtime.signal_series(self, release, frame, browser_signal, schedule_history)
+        elif browser_compute_enabled():
+            from dataclasses import replace
+            targets, reasons = self.private_compute.targets(owner, release["id"], replace(bundle, frame=frame), _decimal(run["initial_cash"]), schedule_history)
+            targets, reasons = targets.reindex(frame.index), reasons.reindex(frame.index)
+        else:
+            targets, reasons = self._targets(
+                release, frame, _decimal(run["initial_cash"]), schedule_history
+            )
+        if browser_compute_enabled() and run["last_bar_time"] is not None and sum(int(stamp.timestamp()) > run["last_bar_time"] for stamp in frame.index) > 1:
+            with self._connect() as connection:
+                connection.execute("UPDATE strategy_runs SET needs_reanchor='1' WHERE id=?", (identifier,))
+            run = dict(run)
+            run["needs_reanchor"] = '1'
         times = [int(index.timestamp()) for index in frame.index]
+        if browser_compute_enabled():
+            browser_runtime.demand_check(self, owner, identifier, browser_signal)
         if run["last_bar_time"] is None or run["needs_reanchor"] == "1":
             index = len(frame) - 1
             mark = _decimal(frame.iloc[index]["close"])
@@ -1297,9 +1349,14 @@ class StrategyRuntimeStore:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 latest_run = connection.execute(
-                    "SELECT status,last_bar_time,needs_reanchor FROM strategy_runs WHERE id=?",
+                    "SELECT status,last_bar_time,needs_reanchor,demand_until FROM strategy_runs WHERE id=?",
                     (identifier,),
                 ).fetchone()
+                if browser_compute_enabled():
+                    if float(latest_run["demand_until"]) <= _now().timestamp():
+                        raise HTTPException(409, "浏览器在线租约已过期，结果不记入运行")
+                    if release["owner_id"] != owner and not connection.execute("SELECT 1 FROM strategy_subscriptions WHERE owner_id=? AND release_id=? AND status='active'", (owner, release["id"])).fetchone():
+                        raise HTTPException(403, "策略订阅授权已失效")
                 if latest_run["status"] != "active" or (
                     latest_run["last_bar_time"] != run["last_bar_time"]
                     or latest_run["needs_reanchor"] != run["needs_reanchor"]
@@ -1426,6 +1483,11 @@ class StrategyRuntimeStore:
             run = connection.execute(
                 "SELECT * FROM strategy_runs WHERE id=? AND owner_id=?", (identifier, owner)
             ).fetchone()
+            if browser_compute_enabled():
+                if float(run["demand_until"]) <= _now().timestamp():
+                    return False
+                if release["owner_id"] != owner and not connection.execute("SELECT 1 FROM strategy_subscriptions WHERE owner_id=? AND release_id=? AND status='active'", (owner, release["id"])).fetchone():
+                    return False
             if (
                 run["status"] != "active"
                 or times[index] <= (run["last_bar_time"] or 0)
@@ -1978,6 +2040,10 @@ class StrategyRuntimeScheduler:
             ).fetchall()
         for row in rows:
             try:
+                if browser_compute_enabled():
+                    run, release = browser_runtime.authorized_run(self.store, row["owner_id"], row["id"])
+                    if float(run["demand_until"]) <= _now().timestamp() or browser_runtime.location(release, row["owner_id"]) == "browser":
+                        continue
                 if row["status"] == "active":
                     self.store.tick(row["owner_id"], row["id"])
                     from app.demo_execution import execute_demo_signal

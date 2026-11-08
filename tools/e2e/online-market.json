@@ -1,0 +1,5 @@
+[
+ {"symbol":"BTC-USD","asset_class":"crypto","interval":"1d","adjustment":"auto","data_source":"auto","base_currencies":["USD","CNY"]},
+ {"symbol":"ETH-USD","asset_class":"crypto","interval":"1h","adjustment":"auto","data_source":"auto","base_currencies":["USD"]},
+ {"symbol":"SPY","asset_class":"etf","interval":"1d","adjustment":"auto","data_source":"yahoo","base_currencies":["USD","CNY"]}
+]

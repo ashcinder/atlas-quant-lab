@@ -1,6 +1,6 @@
 import { SupervisorWalletSettings } from './SupervisorWalletSettings'
 import { SupervisorStatusButton } from './SupervisorStatusButton'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Activity, BarChart3, Bell, CandlestickChart, Clock3, History, Play, Settings2, X } from 'lucide-react'
 import type { Adjustment, Asset, BaseCurrency, DataSource, Interval } from '../types'
 import { AISettings } from './AISettings'
@@ -38,6 +38,24 @@ const intervals: Array<{ value: Interval; label: string }> = [
 
 export function TopBar(props: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsTrigger = useRef<HTMLButtonElement>(null)
+  const settingsPanel = useRef<HTMLDivElement>(null)
+  const closeSettings=()=>{setSettingsOpen(false);settingsTrigger.current?.focus()}
+  useEffect(() => {
+    if (!settingsOpen) return
+    settingsPanel.current?.querySelector<HTMLElement>('button,select,input')?.focus()
+    const close = (event: KeyboardEvent) => {
+      const focusedDialog = document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')
+      if (event.defaultPrevented || (focusedDialog && focusedDialog !== settingsPanel.current)) return
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSettingsOpen(false)
+        settingsTrigger.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [settingsOpen])
   return (
     <header className="topbar">
       <div className="symbol-block">
@@ -76,16 +94,16 @@ export function TopBar(props: Props) {
           <option value="demo">演示数据</option>
         </select>
       </label> : null}
-      {props.mode !== 'quantjudge' ? <><button className="icon-button" aria-label="回测历史" onClick={props.onHistory} title="回测历史"><History size={16} /></button>
-      <button className="icon-button alert-button" aria-label={`提醒中心${props.unreadAlerts > 0 ? `，${props.unreadAlerts} 条未读` : ''}`} onClick={props.onAlerts} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button></> : null}
-      <button className="icon-button" aria-label="本地设置" title="外观与 AI 设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button>
+      {props.mode !== 'quantjudge' ? <><button className="icon-button" aria-label="回测历史" onClick={event => { event.currentTarget.focus(); props.onHistory() }} title="回测历史"><History size={16} /></button>
+      <button className="icon-button alert-button" aria-label={`提醒中心${props.unreadAlerts > 0 ? `，${props.unreadAlerts} 条未读` : ''}`} onClick={event => { event.currentTarget.focus(); props.onAlerts() }} title="提醒中心"><Bell size={16} />{props.unreadAlerts > 0 ? <em>{Math.min(99, props.unreadAlerts)}</em> : null}</button></> : null}
+      <button ref={settingsTrigger} className="icon-button" aria-label="本地设置" title="外观与 AI 设置" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings2 size={16} /></button>
       {props.mode !== 'research' && props.mode !== 'quantjudge' ? <button className="run-button" disabled={props.loading} onClick={props.onRun}>
         {props.loading ? <Clock3 size={15} className="spin" /> : <Play size={15} fill="currentColor" />}
         {props.loading ? '计算中' : '运行回测'}
       </button> : null}
       {settingsOpen ? (
-        <div className="settings-popover" role="dialog" aria-label="本地设置">
-          <div><strong>本地研究设置</strong><button className="settings-close" aria-label="关闭本地设置" onClick={() => setSettingsOpen(false)}><X size={16} /></button></div>
+        <div ref={settingsPanel} className="settings-popover" role="dialog" aria-label="本地设置">
+          <div><strong>本地研究设置</strong><button className="settings-close" aria-label="关闭本地设置" onClick={closeSettings}><X size={16} /></button></div>
           <AppearanceSettings /><details><summary>Supervisor 账户与私钥</summary><SupervisorWalletSettings /></details>
           <details><summary>AI 服务配置</summary><AISettings /></details>
           <details><summary>交易所账户连接</summary><ExchangeAccountSettings /></details>

@@ -1,4 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useDialogKeyboard } from './dialogKeyboard'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Check, ChevronDown, CircleAlert, FolderKanban, LockKeyhole, Pencil, Plus,
   ShieldCheck, X,
@@ -6,6 +7,7 @@ import {
 import type { Asset, Interval, StrategyProject, StrategyProjectCreate } from '../types'
 import type { StrategyLabTab } from './StrategyLabWorkspace'
 import { api } from '../api'
+import { LabConfirmDialog } from './LabConfirmDialog'
 
 interface Props {
   projects: StrategyProject[]
@@ -54,11 +56,20 @@ export function StrategyProjectBar({
   const [formError, setFormError] = useState('')
   const [freezeArmed, setFreezeArmed] = useState(false)
   const editorRef = useRef<HTMLFormElement>(null)
-  const returnFocusRef = useRef<HTMLElement | null>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const barRef = useRef<HTMLElement>(null)
+  const initialEditor = useRef('')
+  const [discardOpen, setDiscardOpen] = useState(false)
 
   const openEditor = (mode: 'create' | 'edit') => {
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const existing = mode === 'edit' ? project : null
+    initialEditor.current = JSON.stringify([
+      existing?.asset_symbol ?? asset?.symbol ?? '', existing?.interval ?? interval,
+      existing?.name ?? `${asset?.symbol ?? '新标的'} 策略研究`,
+      existing?.thesis ?? '当市场出现可解释且可重复的信号时，在真实交易成本后取得稳定的风险调整收益。',
+      existing?.benchmark ?? (asset?.asset_class === 'crypto' ? 'BTC-USD' : 'SPY'),
+      existing?.objective ?? 'sharpe',
+    ])
     setEditorMode(mode)
     setSymbol(existing?.asset_symbol ?? asset?.symbol ?? '')
     setResearchInterval(existing?.interval ?? interval)
@@ -70,6 +81,22 @@ export function StrategyProjectBar({
     setEditorOpen(true)
   }
 
+  const closeEditor = useCallback(() => {
+    if (busy) return
+    if (initialEditor.current !== JSON.stringify([symbol, researchInterval, name, thesis, benchmark, objective])) {
+      setDiscardOpen(true)
+    } else {
+      setEditorOpen(false)
+    }
+  }, [busy, symbol, researchInterval, name, thesis, benchmark, objective])
+
+  useEffect(() => {
+    if (!editorOpen || initialEditor.current === JSON.stringify([symbol, researchInterval, name, thesis, benchmark, objective])) return
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [editorOpen, symbol, researchInterval, name, thesis, benchmark, objective])
+
   useEffect(() => {
     if (!editorOpen) return
     let active = true
@@ -77,35 +104,17 @@ export function StrategyProjectBar({
     return () => { active = false }
   }, [deferredSymbol, editorOpen])
 
+  useDialogKeyboard(editorOpen, editorRef, closeEditor, nameRef)
+
   useEffect(() => {
-    if (!editorOpen && !gateOpen) return undefined
+    if (!gateOpen) return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (editorOpen) setEditorOpen(false)
-      else setGateOpen(false)
+      if (event.defaultPrevented || event.key !== 'Escape' || !barRef.current?.getClientRects().length) return
+      setGateOpen(false)
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [editorOpen, gateOpen])
-
-  useEffect(() => {
-    if (!editorOpen) return undefined
-    const editor = editorRef.current
-    const keepFocusInside = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || !editor) return
-      const focusable = Array.from(editor.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])'))
-      const first = focusable[0]
-      const last = focusable.at(-1)
-      if (!first || !last) return
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    window.addEventListener('keydown', keepFocusInside)
-    return () => {
-      window.removeEventListener('keydown', keepFocusInside)
-      returnFocusRef.current?.focus()
-    }
-  }, [editorOpen])
+  }, [gateOpen])
 
   const passed = project?.gates.filter((gate) => gate.passed).length ?? 0
   const readyToFreeze = useMemo(
@@ -134,17 +143,17 @@ export function StrategyProjectBar({
   }
 
   return <>
-    <section className="strategy-project-bar">
+    <section ref={barRef} className="strategy-project-bar">
       <div className="project-switcher">
         <FolderKanban size={14} aria-hidden="true" />
         <span><small>项目</small><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
-        <button aria-label="新建策略项目" title="新建策略项目" onClick={() => openEditor('create')}><Plus size={12} /></button>
-        {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={() => openEditor('edit')}><Pencil size={12} /></button> : null}
+        <button aria-label="新建策略项目" title="新建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}><Plus size={12} /></button>
+        {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={event => { event.currentTarget.focus(); openEditor('edit') }}><Pencil size={12} /></button> : null}
       </div>
       {project ? <>
         <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
         <button className="project-gate-button" aria-label={`${passed}/${project.gates.length} 门禁，${project.next_gate ? `待完成：${project.next_gate.label}` : '可发布'}`} title={project.next_gate ? `待完成：${project.next_gate.label}` : '发布门禁已完成'} onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong></span><ChevronDown size={11} /></button>
-      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>未创建项目</strong></span><button aria-label="创建策略项目" onClick={() => openEditor('create')}>创建项目</button></div>}
+      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>未创建项目</strong></span><button aria-label="创建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}>创建项目</button></div>}
     </section>
 
     {gateOpen && project ? <aside className="project-gate-popover">
@@ -159,17 +168,18 @@ export function StrategyProjectBar({
       {project.commitment ? <code title={project.commitment}>COMMIT {project.commitment.slice(0, 24)}…</code> : null}
     </aside> : null}
 
-    {editorOpen ? <div className="project-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditorOpen(false) }}>
+    {editorOpen ? <div className="project-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor() }}>
       <form ref={editorRef} className="project-editor" role="dialog" aria-modal="true" aria-labelledby="project-editor-title" onSubmit={(event) => { event.preventDefault(); void submit() }}>
-        <header><div><FolderKanban size={16} /><span><strong id="project-editor-title">{editorMode === 'edit' ? '编辑策略项目' : '创建策略项目'}</strong><small>先写清楚假设，再进入参数与模型。</small></span></div><button aria-label="关闭项目编辑器" type="button" onClick={() => setEditorOpen(false)}><X size={14} /></button></header>
-        <label><span>项目名称</span><input name="project-name" autoComplete="off" autoFocus value={name} onChange={(event) => { setName(event.target.value); setFormError('') }} maxLength={100} placeholder="例如 BTC 趋势与风险控制…" /></label>
+        <header><div><FolderKanban size={16} /><span><strong id="project-editor-title">{editorMode === 'edit' ? '编辑策略项目' : '创建策略项目'}</strong><small>先写清楚假设，再进入参数与模型。</small></span></div><button aria-label="关闭项目编辑器" type="button" onClick={closeEditor}><X size={14} /></button></header>
+        <label><span>项目名称</span><input ref={nameRef} name="project-name" autoComplete="off" value={name} onChange={(event) => { setName(event.target.value); setFormError('') }} maxLength={100} placeholder="例如 BTC 趋势与风险控制…" /></label>
         <label><span>可证伪的投资假设<small>{thesis.length}/800 · 至少 12 字</small></span><textarea name="project-thesis" autoComplete="off" value={thesis} onChange={(event) => { setThesis(event.target.value); setFormError('') }} maxLength={800} rows={5} placeholder="说明信号为何有效、计入哪些成本，以及样本外应达到什么结果…" /></label>
         <div><label><span>研究标的</span><input name="asset-symbol" autoComplete="off" spellCheck={false} list="project-research-assets" value={symbol} onChange={(event) => { setSymbol(event.target.value); setFormError('') }} maxLength={40} placeholder="搜索代码或名称，如 BTC-USD、贵州茅台" /></label><label><span>研究周期</span><select name="interval" value={researchInterval} onChange={(event) => setResearchInterval(event.target.value as Interval)}>{Object.entries({ '15m': '15分钟', '1h': '1小时', '4h': '4小时', '1d': '日线', '1wk': '周线' }).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label></div>
         <div><label><span>基准</span><input name="benchmark" autoComplete="off" spellCheck={false} list="project-research-assets" value={benchmark} onChange={(event) => setBenchmark(event.target.value.toUpperCase())} maxLength={40} /></label><label><span>主目标</span><select name="objective" value={objective} onChange={(event) => setObjective(event.target.value as StrategyProject['objective'])}>{Object.entries(objectiveLabel).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
         <datalist id="project-research-assets">{choices.map(item => <option key={item.symbol} value={item.symbol}>{item.name}</option>)}</datalist>
         {formError ? <p className="project-editor-error" role="alert"><CircleAlert size={13} />{formError}</p> : null}
-        <footer><button type="button" onClick={() => setEditorOpen(false)}>取消</button><button className="is-primary" disabled={busy}>{busy ? '保存中…' : editorMode === 'edit' ? '保存并递增修订' : '创建策略项目'}</button></footer>
+        <footer><button type="button" onClick={closeEditor}>取消</button><button className="is-primary" disabled={busy}>{busy ? '保存中…' : editorMode === 'edit' ? '保存并递增修订' : '创建策略项目'}</button></footer>
       </form>
     </div> : null}
+    {discardOpen && <LabConfirmDialog title="放弃未保存的项目修改？" description="关闭后将放弃本次编辑。可以取消并继续修改，再保存项目。" confirmLabel="放弃修改并关闭" onCancel={() => setDiscardOpen(false)} onConfirm={() => { setDiscardOpen(false); setEditorOpen(false) }} />}
   </>
 }

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import workerPath from 'tesseract.js/dist/worker.min.js?url';
-import corePath from 'tesseract.js-core/tesseract-core-lstm.wasm.js?url';
+import { recognizePortfolioImage } from '@/journal/lib/recognize-portfolio-image';
 import {
   CheckCircle2,
   ImageUp,
@@ -180,6 +179,8 @@ export default function PortfolioOcrForm({
     (holding) => holding.accountId === accountId && !holding.archived,
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const recognition = useRef<AbortController | null>(null);
+  useEffect(() => () => recognition.current?.abort(), []);
   const [rows, setRows] = useState<PortfolioOcrRow[]>([]);
   const [processing, setProcessing] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -209,9 +210,12 @@ export default function PortfolioOcrForm({
     );
 
   const recognize = async (file: File) => {
-    if (!file.type.startsWith("image/"))
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type))
       throw Error("请选择 PNG、JPG 或 WebP 截图");
     if (file.size > 15 * 1024 * 1024) throw Error("截图不能超过 15 MB");
+    recognition.current?.abort();
+    const controller = new AbortController();
+    recognition.current = controller;
     setError("");
     setRows([]);
     setProcessing(true);
@@ -219,38 +223,18 @@ export default function PortfolioOcrForm({
     setStatus("正在优化图片清晰度");
     if (preview) URL.revokeObjectURL(preview);
     setPreview(URL.createObjectURL(file));
-    let worker: Awaited<
-      ReturnType<(typeof import("tesseract.js"))["createWorker"]>
-    > | null = null;
     try {
       const canvas = await imageCanvas(file);
+      if (controller.signal.aborted) return;
       setStatus("正在加载本地识别引擎");
-      const { createWorker, PSM } = await import("tesseract.js");
-      worker = await createWorker("eng", 1, {
-        // Version-locked executable code is served by Atlas, not a remote CDN.
-        workerPath, corePath, workerBlobURL: false,
-        logger: (message) => {
-          if (typeof message.progress === "number")
-            setProgress(message.progress);
-          if (message.status === "recognizing text")
-            setStatus("正在识别资产和金额");
-          else if (message.status === "loading language traineddata")
-            setStatus("首次使用正在加载英文数字模型");
-        },
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('图片无法读取')), 'image/png'));
+      const tsv = await recognizePortfolioImage(await blob.arrayBuffer(), controller.signal, message => {
+        if (typeof message.progress === 'number') setProgress(message.progress);
+        if (message.status === 'recognizing text') setStatus('正在识别资产和金额');
+        else if (message.status === 'loading language traineddata') setStatus('首次使用正在加载英文数字模型');
       });
-      await worker.setParameters({
-        tessedit_pageseg_mode: PSM.SPARSE_TEXT,
-        preserve_interword_spaces: "1",
-      });
-      const result = await worker.recognize(
-        canvas,
-        {},
-        { text: true, tsv: true },
-      );
-      const parsed = parsePortfolioWords(
-        wordsFromTsv(result.data.tsv ?? ""),
-        canvas.width,
-      );
+      if (controller.signal.aborted) return;
+      const parsed = parsePortfolioWords(wordsFromTsv(tsv), canvas.width);
       if (!parsed.length)
         throw Error("没有识别到资产行，请上传包含资产名称和金额的完整清晰截图");
       const currencies = parsed.map((asset) => asset.currency);
@@ -264,10 +248,9 @@ export default function PortfolioOcrForm({
       setProgress(1);
       setStatus("识别完成，请逐行核对");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "图片识别失败，请重试");
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "图片识别失败，请重试");
     } finally {
-      await worker?.terminate();
-      setProcessing(false);
+      if (recognition.current === controller) { recognition.current = null; setProcessing(false); }
     }
   };
 
@@ -603,7 +586,7 @@ export default function PortfolioOcrForm({
                   type="number"
                   min="-100"
                   max="100000"
-                  step="0.0001"
+                  step="any"
                   value={row.roi}
                   disabled={!row.selected}
                   onChange={(event) =>

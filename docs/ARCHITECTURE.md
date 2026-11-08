@@ -1,6 +1,6 @@
 # Atlas Quant Lab 系统架构
 
-> 编号章节对应 QuantJudge 公开分支的架构与 API。本机 r23 已完成 Docker 验收，发布状态见[统一状态](CURRENT_STATUS.md)。
+> r23 的完整架构与 API 见[系统架构全景](SYSTEM_ARCHITECTURE_20261105.md)。下方编号章节保留旧版服务端计算架构，便于维护旧接口与数据。
 
 ## 本机 r23 的执行架构
 

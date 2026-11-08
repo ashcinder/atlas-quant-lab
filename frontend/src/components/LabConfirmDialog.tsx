@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react'
 import { CircleAlert, X } from 'lucide-react'
 import './lab-experience.css'
+import { cycleDialogTab, useDialogKeyboard } from './dialogKeyboard'
 
 interface Props {
   title: string
@@ -19,21 +20,19 @@ export function LabConfirmDialog({ title, description, confirmLabel, onConfirm, 
   const cancelRef = useRef<HTMLButtonElement>(null)
   const cancelAction = useRef(onCancel)
 
+  useDialogKeyboard(true, dialogRef, onCancel, cancelRef)
+
   useEffect(() => { cancelAction.current = onCancel }, [onCancel])
   useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    cancelRef.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
+      if (!dialogRef.current || dialogRef.current.closest('[hidden], [inert]')) return
+      const focusedDialog = document.activeElement?.closest('[role="dialog"], [role="alertdialog"]')
+      if (focusedDialog && focusedDialog !== dialogRef.current) return
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancelAction.current(); return }
-      if (event.key !== 'Tab') return
-      const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')
-      const first = buttons?.[0]
-      const last = buttons?.[buttons.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+      cycleDialogTab(event, dialogRef.current)
     }
     window.addEventListener('keydown', handleKey, true)
-    return () => { window.removeEventListener('keydown', handleKey, true); previous?.focus() }
+    return () => { window.removeEventListener('keydown', handleKey, true) }
   }, [])
 
   return <div className="lab-confirm-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onCancel() }}>

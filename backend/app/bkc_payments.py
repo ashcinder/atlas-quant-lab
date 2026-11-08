@@ -47,6 +47,10 @@ class BkcStore:
                 status TEXT NOT NULL DEFAULT 'pending', transaction_hash TEXT UNIQUE,
                 block_number INTEGER, block_hash TEXT,
                 UNIQUE(owner_id,kind,resource_id));
+            CREATE TABLE IF NOT EXISTS bkc_order_attempts (
+                id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+                transaction_hash TEXT NOT NULL UNIQUE,
+                order_json TEXT NOT NULL, next_order_id TEXT NOT NULL);
             ''')
 
             columns={r[1] for r in conn.execute('PRAGMA table_info(bkc_orders)')}
@@ -135,7 +139,7 @@ class BkcStore:
                 row = conn.execute('SELECT * FROM backtest_runs WHERE id=? AND owner_id=?', (resource_id, owner)).fetchone()
             if not row:
                 raise HTTPException(404, '回测记录不存在，请先保存回测')
-            result, request = json.loads(row['result_json']), json.loads(row['request_json'])
+            result, request = self.runs.get(owner, resource_id), json.loads(row['request_json'])
             safe_keys = ['symbol', 'asset_class', 'interval', 'start', 'end', 'data_source', 'initial_capital', 'commission_rate', 'slippage_rate', 'spread_rate', 'max_position', 'max_participation_rate', 'stop_loss', 'take_profit', 'adjustment', 'base_currency']
             payload = {'domain': 'atlas.backtest-report/v1', 'run_id': resource_id,
                        'strategy_id': row['strategy_id'], 'request_hash': digest(request),
@@ -199,6 +203,8 @@ class BkcStore:
         with self.runtime._connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             latest=conn.execute('SELECT transaction_hash,status FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
+            if latest is None:
+                raise HTTPException(409, '此失败订单已替换，请读取新订单')
             if latest['transaction_hash'] and latest['transaction_hash']!=tx['hash']:
                 raise HTTPException(409,'订单已有交易，请恢复核验')
             if latest['transaction_hash']==tx['hash'] and latest['status']=='confirmed':
@@ -223,12 +229,73 @@ class BkcStore:
     def get(self, owner, identifier):
         with self.runtime._connect() as conn:
             row = conn.execute('SELECT * FROM bkc_orders WHERE id=? AND owner_id=?', (identifier, owner)).fetchone()
-        if not row:
+            if row:
+                result = self.order_result(dict(row))
+                previous = conn.execute(
+                    'SELECT id,transaction_hash FROM bkc_order_attempts WHERE next_order_id=? AND owner_id=?',
+                    (identifier, owner),
+                ).fetchone()
+                if previous:
+                    result.update(previous_order_id=previous['id'], previous_transaction_hash=previous['transaction_hash'])
+                return result
+            previous = conn.execute('SELECT * FROM bkc_order_attempts WHERE id=? AND owner_id=?', (identifier, owner)).fetchone()
+            if previous:
+                result = self.order_result(json.loads(previous['order_json']))
+                current = conn.execute(
+                    'SELECT id FROM bkc_orders WHERE owner_id=? AND kind=? AND resource_id=?',
+                    (owner, result['kind'], result['resource_id']),
+                ).fetchone()
+                result.update(retry_order_id=previous['next_order_id'], current_order_id=current['id'])
+                return result
             raise HTTPException(404, '订单不存在')
-        return self.order_result(dict(row))
+
+    def retry(self, owner, identifier, transaction_hash):
+        order = self.get(owner, identifier)
+        if order['kind'] != 'subscription' or order['transaction_hash'] != transaction_hash.lower():
+            raise HTTPException(409, '仅可重试已失败的原订阅交易')
+        if order.get('retry_order_id'):
+            return self.get(owner, order['retry_order_id'])
+        # Re-read the matching transaction and its canonical receipt. A cached
+        # failure or a missing/pending receipt never authorizes a new payment.
+        try:
+            checked = self.confirm(owner, identifier, transaction_hash)
+        except HTTPException as error:
+            if error.status_code == 409:
+                replaced = self.get(owner, identifier)
+                if replaced.get('retry_order_id'):
+                    return self.get(owner, replaced['retry_order_id'])
+            raise
+        if checked['status'] != 'failed':
+            raise HTTPException(409, '原交易未确认回滚，请继续核验原交易')
+        with self.runtime._connect() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            row = conn.execute('SELECT * FROM bkc_orders WHERE id=? AND owner_id=?', (identifier, owner)).fetchone()
+            if row is None:
+                previous = conn.execute('SELECT next_order_id FROM bkc_order_attempts WHERE id=? AND owner_id=?', (identifier, owner)).fetchone()
+                if previous:
+                    return self.get(owner, previous['next_order_id'])
+                raise HTTPException(409, '订单状态已改变，请刷新')
+            if row['status'] != 'failed' or row['transaction_hash'] != checked['transaction_hash']:
+                raise HTTPException(409, '订单状态已改变，请核验原交易')
+            new_id = 'bkc_' + uuid4().hex
+            payload = json.loads(bytes.fromhex(row['data'][2:]))
+            payload['order_id'] = new_id
+            data = '0x' + canonical(payload).encode().hex()
+            conn.execute('INSERT INTO bkc_order_attempts VALUES (?,?,?,?,?)',
+                         (identifier, owner, row['transaction_hash'], json.dumps(dict(row)), new_id))
+            conn.execute(
+                """UPDATE bkc_orders SET id=?,data=?,status='pending',transaction_hash=NULL,
+                   signed_raw=NULL,block_number=NULL,block_hash=NULL WHERE id=? AND owner_id=?""",
+                (new_id, data, identifier, owner),
+            )
+        return self.get(owner, new_id)
 
     def confirm(self, owner, identifier, tx_hash):
         order = self.get(owner, identifier)
+        if order.get('retry_order_id'):
+            if order['transaction_hash'] != tx_hash.lower():
+                raise HTTPException(409, '此失败订单已替换，请读取新订单')
+            return order
         tx_hash = tx_hash.lower()
         if order['transaction_hash'] not in (None, tx_hash):
             raise HTTPException(409, '请核验原交易，避免重复付款')
@@ -247,20 +314,20 @@ class BkcStore:
             if receipt:
                 if not tx or str(receipt.get('transactionHash', '')).lower() != tx_hash:
                     raise HTTPException(422, '回执缺少匹配交易')
-                if receipt.get('status') == '0x0':
-                    state = 'failed'
-                elif receipt.get('status') == '0x1':
+                if receipt.get('status') in {'0x0', '0x1'}:
                     block, block_hash = int(receipt['blockNumber'], 16), receipt['blockHash']
                     canonical_block = self.client._call('eth_getBlockByNumber', [hex(block), False])
                     if (not canonical_block or canonical_block.get('hash') != block_hash or tx.get('blockHash') != block_hash
                             or int(tx.get('blockNumber', '-1'), 16) != block or status.block_number < block):
                         raise HTTPException(409, '交易尚未被当前规范链确认')
-                    state = 'confirmed'
+                    state = 'confirmed' if receipt['status'] == '0x1' else 'failed'
         except (SupervisorRPCError, ValueError, KeyError, TypeError) as exc:
             raise HTTPException(503, '链上核验暂不可用，请保留交易哈希后重试') from exc
         with self.runtime._connect() as conn:
             conn.execute('BEGIN IMMEDIATE')
             latest = conn.execute('SELECT transaction_hash FROM bkc_orders WHERE id=?', (identifier,)).fetchone()
+            if latest is None:
+                raise HTTPException(409, '此失败订单已替换，请读取新订单')
             if latest['transaction_hash'] not in (None, tx_hash):
                 raise HTTPException(409, '订单已关联另一笔交易')
             duplicate = conn.execute('SELECT id FROM bkc_orders WHERE transaction_hash=? AND id<>?', (tx_hash, identifier)).fetchone()
@@ -300,11 +367,15 @@ def bkc_router(runtime, runs):
     def broadcast(identifier: str, value: BroadcastInput, request: Request):
         return store.broadcast(request.state.user.id,identifier,value.raw_transaction)
 
+    @router.post('/bkc-orders/{identifier}/retry')
+    def retry(identifier: str, value: ConfirmInput, request: Request):
+        return store.retry(request.state.user.id, identifier, value.transaction_hash)
+
     @router.post('/bkc-orders/{identifier}/rebroadcast')
     def rebroadcast(identifier: str, request: Request):
         store.get(request.state.user.id,identifier)
         with runtime._connect() as c: row=c.execute('SELECT signed_raw FROM bkc_orders WHERE id=?',(identifier,)).fetchone()
-        if not row['signed_raw']:raise HTTPException(409,'没有可恢复的签名交易')
+        if row is None or not row['signed_raw']:raise HTTPException(409,'没有可恢复的签名交易')
         return store.broadcast(request.state.user.id,identifier,row['signed_raw'])
 
     @router.get('/strategy-releases/{release_id}/bkc-offer')

@@ -1,0 +1,1154 @@
+[
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "AAPL",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "MSFT",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "NVDA",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SPY",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "QQQ",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "TLT",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "IEF",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GLD",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "DBC",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "600519.SS",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "000001.SZ",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "510300.SS",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "AAPL",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "MSFT",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "NVDA",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SPY",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "QQQ",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "TLT",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "IEF",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GLD",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "DBC",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "600519.SS",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "000001.SZ",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "510300.SS",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GC=F",
+    "asset_class": "commodity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "auto",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GC=F",
+    "asset_class": "commodity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "demo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "BTC-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "ETH-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "15m",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "4h",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SOL-USD",
+    "asset_class": "crypto",
+    "interval": "1wk",
+    "adjustment": "auto",
+    "data_source": "binance",
+    "base_currencies": [
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "AAPL",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "MSFT",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "NVDA",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "SPY",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "QQQ",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "TLT",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "IEF",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GLD",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "DBC",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "600519.SS",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "000001.SZ",
+    "asset_class": "equity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "510300.SS",
+    "asset_class": "etf",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  },
+  {
+    "symbol": "GC=F",
+    "asset_class": "commodity",
+    "interval": "1d",
+    "adjustment": "auto",
+    "data_source": "yahoo",
+    "base_currencies": [
+      "CNY",
+      "USD",
+      "USDT"
+    ]
+  }
+]

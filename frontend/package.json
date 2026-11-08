@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "test": "vitest run && npm run test:journal",
     "lint": "eslint .",
-    "test:journal": "node --test tests/*.test.mjs"
+    "test:journal": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -26,6 +28,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.0",
     "@tailwindcss/postcss": "4.2.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",

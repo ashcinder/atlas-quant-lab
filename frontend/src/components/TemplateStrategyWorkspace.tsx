@@ -5,6 +5,14 @@ import { api } from '../api'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import type { ExecutionPipeline } from './executionPipeline'
+import type { Strategy } from '../types'
+
+function parameterStep(parameter:Strategy['parameters'][number]):number|'any' {
+  if(parameter.kind==='integer')return 1
+  if(!parameter.step)return 'any'
+  const steps=(Number(parameter.default)-(parameter.minimum??0))/parameter.step
+  return Math.abs(steps-Math.round(steps))<1e-8 ? parameter.step : 'any'
+}
 
 interface Preset { name: string; strategy_id: string; params: Record<string, unknown> }
 export function TemplateStrategyWorkspace({ pipeline, storageKey, ...props }: ResearchWorkspaceProps & { pipeline: ExecutionPipeline; storageKey: string }) {
@@ -53,7 +61,7 @@ export function TemplateStrategyWorkspace({ pipeline, storageKey, ...props }: Re
     <div className="template-parameter-grid">{strategy.parameters.map(p => <label key={p.key}><span>{p.label}</span>
       {p.kind === 'select' ? <select value={String(params[p.key])} onChange={e => update(p.key, e.target.value)}>{p.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
         : p.kind === 'boolean' ? <input type="checkbox" checked={Boolean(params[p.key])} onChange={e => update(p.key, e.target.checked)} />
-        : <input required type="number" min={p.minimum ?? undefined} max={p.maximum ?? undefined} step={p.step ?? (p.kind === 'integer' ? 1 : 'any')} value={Number(params[p.key])} onChange={e => update(p.key, Number(e.target.value))} />}
+        : <input required type="number" min={p.minimum ?? undefined} max={p.maximum ?? undefined} step={parameterStep(p)} value={Number(params[p.key])} onChange={e => update(p.key, Number(e.target.value))} />}
       {p.help ? <small>{p.help}</small> : null}
     </label>)}</div>
     <ParameterSweep key={strategy.id} disabled={busy || !props.asset} fields={strategy.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(params[p.key]), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ symbol: props.asset?.symbol, asset_class: props.asset?.asset_class, interval: props.interval, data_source: props.source, strategy_id: strategy.id, params, initial_capital: props.initialCapital, commission_rate: props.commission, slippage_rate: props.slippage, spread_rate: props.spread, max_position: props.maxPosition, max_participation_rate: props.maxParticipation }} onApply={values => { const next = applySweep({ params }, values); setDrafts(current => ({ ...current, [strategy.id]: next.params })); setNotice('已应用搜索参数，可保存副本或运行模板回测。') }} />

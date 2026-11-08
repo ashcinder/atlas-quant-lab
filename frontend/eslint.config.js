@@ -6,6 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   { ignores: ['dist'] },
+  { files: ['e2e/**/*.ts', 'playwright.config.ts'], languageOptions: { globals: globals.node } },
   {
     files: ['**/*.{ts,tsx}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

@@ -9,6 +9,14 @@ case "$proxy_ip" in
     ;;
 esac
 
-sed "s/__ATLAS_TLS_PROXY_IP__/$proxy_ip/g" \
+cdn_origins=${ATLAS_PUBLIC_CDN_ORIGINS:-}
+for origin in $cdn_origins; do
+  if ! printf '%s\n' "$origin" | grep -Eq '^https://[a-zA-Z0-9.-]+(:[0-9]{1,5})?$'; then
+    printf '%s\n' 'ATLAS_PUBLIC_CDN_ORIGINS must contain HTTPS origins without paths' >&2
+    exit 1
+  fi
+done
+sed -e "s/__ATLAS_TLS_PROXY_IP__/$proxy_ip/g" \
+  -e "s|__ATLAS_PUBLIC_CDN_ORIGINS__|$cdn_origins|g" \
   /etc/nginx/nginx.conf.template > /tmp/nginx.conf
 exec nginx -c /tmp/nginx.conf -g 'daemon off;'

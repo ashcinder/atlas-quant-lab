@@ -124,7 +124,18 @@ export interface EquityPoint {
   exposure: number
 }
 
+export interface ComputeProvenance {
+  execution_location: 'browser' | 'server_private'
+  proof_status: 'unverified'
+  engine_version?: string
+  period_start?: number | null
+  period_end?: number | null
+  dataset_ids?: string[]
+  strategy_version?: string | null
+}
+
 export interface BacktestResult {
+  compute?: ComputeProvenance
   valuation_currency?: string | null
   run_id: string
   created_at: string
@@ -145,6 +156,7 @@ export interface BacktestResult {
 }
 
 export interface PortfolioResult {
+  compute?: ComputeProvenance
   valuation_currency?: string | null
   run_id: string
   created_at: string
@@ -162,6 +174,7 @@ export interface PortfolioResult {
 }
 
 export interface RunSummary {
+  compute?: ComputeProvenance
   id: string
   mode: 'single' | 'portfolio'
   strategy_id: string
@@ -238,6 +251,9 @@ export interface BehaviorCheck {
   deviation_count: number; first_deviation_at: number | null; points: Array<{ time: number; ratio: string }>
 }
 export interface StrategyRun {
+  compute?: ComputeProvenance
+  demand_until?: number
+  browser_connected?: boolean
   execution_mode?: "candles" | "quote_probe" | "private_runner"
   valuation_at?: number | null; valuation_status?: 'missing' | 'incomplete' | 'update_failed' | 'recorded'; behavior_check?: BehaviorCheck
   commission_rate?: string; slippage_rate?: string; behavior_position_limit_bps?: number | null
@@ -315,6 +331,7 @@ export interface ResearchResult {
 }
 
 export interface ResearchJob {
+  context?: {project_id:string;symbol:string;interval:string;session_scope:string}
   id: string
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   progress: number

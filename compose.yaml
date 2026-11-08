@@ -2,6 +2,7 @@ name: atlas-quant
 
 services:
   api:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: deploy/backend.Dockerfile
@@ -44,6 +45,7 @@ services:
       options: {max-size: 10m, max-file: '3'}
 
   web:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile

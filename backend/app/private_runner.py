@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app import quote_probe
+from app.compute_mode import browser_compute_enabled
 
 
 class PrivateDecision(BaseModel):
@@ -72,6 +73,7 @@ class PrivateRunnerStore:
             ).fetchone()[0]
             if (
                 current["status"] != "active"
+                or (browser_compute_enabled() and float(current["demand_until"]) <= now)
                 or current["environment"] != "platform_sim"
                 or current["symbol"] != "BTC-USDT"
                 or current["lease_until"] > now

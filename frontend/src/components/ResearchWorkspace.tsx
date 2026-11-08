@@ -23,6 +23,7 @@ import type {
 } from '../types'
 
 export interface ResearchWorkspaceProps {
+  projectContextId?: string
   executionPipeline?: ExecutionPipeline
   asset: Asset | null
   strategies: Strategy[]
@@ -225,6 +226,14 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
     catch (reason) { setTemplateLoadError(reason instanceof Error ? reason.message : '无法读取已保存策略') }
   }
 
+  const onRestoreError = props.onError
+  const restoreContext = JSON.stringify({project_id:props.projectContextId??'',symbol:props.asset?.symbol??'',interval:props.interval})
+  useEffect(() => {
+    let active = true
+    api.getLatestResearchJob(JSON.parse(restoreContext)).then(previous => { if(active) setJob(current => current?.context && JSON.stringify({project_id:current.context.project_id,symbol:current.context.symbol,interval:current.context.interval})===restoreContext ? current : previous) }).catch(() => { if(active) onRestoreError('无法恢复此浏览器的研究记录，请检查登录与浏览器存储后重试。') })
+    return () => { active = false }
+  }, [onRestoreError,restoreContext])
+
   useEffect(() => {
     let active = true
     api.listCustomStrategies().then((records) => {
@@ -300,6 +309,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         symbol: props.asset.symbol, asset_class: props.asset.asset_class,
         interval: props.interval, data_source: props.source, adjustment: 'auto', objective,
         holdout_ratio: holdout,
+        research_context: {project_id:props.projectContextId??''},
         experiments: [
           ...chosen.map((strategy) => ({ strategy_id: strategy.id, base_params: strategyDefaults(strategy), parameter_grid: strategy.id === gridStrategy ? parameterGrid : {} })),
           ...customChosen.map((record) => ({ strategy_id: record.id, base_params: {}, parameter_grid: {}, custom_strategy: record.spec })),
@@ -417,6 +427,7 @@ export const ResearchWorkspace = memo(function ResearchWorkspace(props: Research
         {job && ['queued', 'running'].includes(job.status) ? <div className="research-progress"><span><LoaderCircle size={13} className="spin" />{job.message}</span><div><i style={{ width: `${job.progress * 100}%` }} /></div><button onClick={cancelJob}><X size={12} />取消</button></div> : <button className="research-run" onClick={runResearch} disabled={!props.asset}><Play size={14} fill="currentColor" />运行稳健性研究</button>}
       </aside>
       <section className="research-results">
+        {job && <p role={job.status === 'failed' ? 'alert' : 'status'}>{job.result ? `${job.result.symbol} · ${job.result.interval} · ` : ''}{job.message}{job.error ? `：${job.error}` : ''}</p>}
         {job?.result ? <><ValidationRibbon result={job.result} /><div className="research-summary"><div><small>平均 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.average_oos_sharpe ?? 0))}</strong></div><div><small>最差 OOS Sharpe</small><strong>{metricText(Number(job.result.summary.worst_oos_sharpe ?? 0))}</strong></div><div><small>盈利窗口比例</small><strong>{metricText(Number(job.result.summary.profitable_window_ratio ?? 0), true)}</strong></div></div><div className="research-table-wrap"><table className="research-table"><thead><tr><th>#</th><th>策略 / 胜出参数</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS收益</th><th>OOS回撤</th><th>修正p值</th><th>稳健分</th></tr></thead><tbody>{bestCandidates.map((candidate) => <tr key={`${candidate.strategy_id}-${candidate.rank}`}><td>{candidate.rank}</td><td><strong>{props.strategies.find((item) => item.id === candidate.strategy_id)?.name ?? templates.find((item) => item.id === candidate.strategy_id)?.spec.name ?? candidate.strategy_id}</strong><small>{Object.entries(candidate.params).map(([key, value]) => `${key}=${value}`).join(' · ') || '固定规则版本'}</small>{candidate.warnings.length ? <em title={candidate.warnings.join('\n')}>{candidate.warnings.length}项风险</em> : <em className="pass"><Check size={10} />无硬性警告</em>}</td><td>{metricText(metric(candidate.train_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'sharpe'))}</td><td>{metricText(metric(candidate.test_metrics, 'total_return'), true)}</td><td>{metricText(metric(candidate.test_metrics, 'max_drawdown'), true)}</td><td>{metricText(candidate.adjusted_p_value)}</td><td><b>{candidate.robustness_score.toFixed(0)}</b></td></tr>)}</tbody></table></div>{heatmapKeys.length >= 2 && heatmapCandidates.length ? <section className="parameter-map"><header><strong>训练集参数地形</strong><small>颜色只表示 IS {objective}，不代表样本外结论</small></header><div className="heat-grid">{heatmapCandidates.map((candidate, index) => { const value = candidate.objective_train ?? heatMin; const intensity = (value - heatMin) / Math.max(heatMax - heatMin, 1e-9); return <div key={index} style={{ '--heat': intensity } as React.CSSProperties}><span>{heatmapKeys.map((key) => `${key} ${candidate.params[key]}`).join(' / ')}</span><strong>{metricText(value)}</strong></div> })}</div></section> : null}</> : <div className="research-empty"><FlaskConical size={28} /><strong>让策略离开样本内</strong><span>选择策略和参数网格，Atlas 会完成留出测试、多重测试修正与 Walk-forward 滚动验证。</span></div>}
       </section>
     </div> : <div className="builder-layout">

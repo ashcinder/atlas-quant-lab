@@ -559,12 +559,20 @@ class StrategyStudioStore:
         now = utc_now().isoformat()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            scoped_id = f"{agent_id}:{workflow.id}"
             current = connection.execute(
-                "SELECT revision, created_at FROM qj_workflows WHERE id = ? AND agent_id = ?",
-                (workflow.id, agent_id),
+                "SELECT id, revision FROM qj_workflows WHERE id IN (?, ?) AND agent_id = ?",
+                (workflow.id, scoped_id, agent_id),
             ).fetchone()
+            # Keep existing IDs valid for project links and encrypted revisions.
+            # The graph slug is reusable across agents, so disambiguate a collision.
+            record_id = current["id"] if current else workflow.id
+            if not current and connection.execute(
+                "SELECT 1 FROM qj_workflows WHERE id = ?", (workflow.id,)
+            ).fetchone():
+                record_id = scoped_id
             revision = (current["revision"] + 1) if current else 1
-            associated_data = f"workflow:{agent_id}:{workflow.id}:{revision}".encode()
+            associated_data = f"workflow:{agent_id}:{record_id}:{revision}".encode()
             encrypted = self.artifacts.seal(graph_json.encode(), associated_data)
             if current:
                 connection.execute(
@@ -578,7 +586,7 @@ class StrategyStudioStore:
                         canonical_json(validation),
                         "validated" if validation["valid"] else "invalid",
                         now,
-                        workflow.id,
+                        record_id,
                         agent_id,
                     ),
                 )
@@ -589,7 +597,7 @@ class StrategyStudioStore:
                         validation_json, status, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        workflow.id,
+                        record_id,
                         agent_id,
                         workflow.name,
                         revision,
@@ -605,9 +613,9 @@ class StrategyStudioStore:
                 """INSERT INTO qj_workflow_revisions (
                     workflow_id, revision, graph_hash, encrypted_graph, change_note, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?)""",
-                (workflow.id, revision, validation["graph_hash"], encrypted, change_note, now),
+                (record_id, revision, validation["graph_hash"], encrypted, change_note, now),
             )
-        return self.get_workflow(agent_id, workflow.id, token)
+        return self.get_workflow(agent_id, record_id, token)
 
     def _decrypt_workflow(self, row: sqlite3.Row) -> dict[str, Any]:
         encrypted = row["encrypted_graph"]
@@ -619,7 +627,8 @@ class StrategyStudioStore:
         self._assert_token(agent_id, token)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT * FROM qj_workflows WHERE id = ? AND agent_id = ?", (workflow_id, agent_id)
+                "SELECT * FROM qj_workflows WHERE id IN (?, ?) AND agent_id = ?",
+                (workflow_id, f"{agent_id}:{workflow_id}", agent_id),
             ).fetchone()
         if row is None:
             raise KeyError(workflow_id)

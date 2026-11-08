@@ -1,6 +1,6 @@
 # 项目目录说明
 
-> 目录以 QuantJudge 公开分支为准。本机 r23 的服务与发布状态另见[统一状态](CURRENT_STATUS.md)。
+> r23 增加 `frontend/src/compute` 浏览器计算层、`backend/app/data/publish_market.py` 行情发布器和 `tools/e2e` 隔离验收工具。完整导航见[系统架构全景](SYSTEM_ARCHITECTURE_20261105.md)。
 
 Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链。根目录只保留能够独立说明职责的一级模块。
 

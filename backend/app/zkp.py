@@ -386,7 +386,7 @@ class ZkProofStore:
         if row is None:
             raise KeyError(market_hash)
         path = Path(row["dataset_path"])
-        if path.parent.resolve() != self.market_root.resolve() or not path.is_file():
+        if path.is_symlink() or path.parent.resolve() != self.market_root.resolve() or not path.is_file():
             raise ZkProofError("市场数据文件路径越界或文件丢失")
         payload = json.loads(path.read_text(encoding="utf-8"))
         if market_commitment(payload["dataset"]) != market_hash:
@@ -613,7 +613,7 @@ class ZkProofStore:
         if row is None:
             raise KeyError(proof_id)
         path = Path(row["receipt_path"])
-        if path.parent.resolve() != self.receipt_root.resolve() or not path.is_file():
+        if path.is_symlink() or path.parent.resolve() != self.receipt_root.resolve() or not path.is_file():
             raise ZkProofError("证明文件路径越界或文件丢失")
         actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         if not hmac.compare_digest(actual_hash, row["proof_hash"]):

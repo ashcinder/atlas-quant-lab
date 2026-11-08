@@ -1,13 +1,13 @@
 # 私有部署与运维
 
-本文说明公开分支的私有部署及既有离线镜像的运维流程。r23 本机验收及版本范围见[当前版本](CURRENT_STATUS.md)。源码分享见[DEPLOY](../DEPLOY.md)。
+r23 源码启动步骤见[浏览器计算与行情发布](BROWSER_COMPUTE.md)。本文记录构建前提、持久化及既有离线镜像运维。源码分享见[DEPLOY](../DEPLOY.md)。
 
 ## 运行路线
 
-- `compose.yaml`：源码构建的Web/API基础栈，默认只映射 `127.0.0.1:8080`；不自行启动Supervisor。
+- `compose.yaml` 与 `compose.browser.yaml`：源码构建的 r23 浏览器栈，运行 Web、API 和独立行情发布器。Web 默认映射到 `127.0.0.1:8080`。
 - `compose.release.yaml`：固定镜像Web/API，目标机禁止现场build/pull，具体变量和账户管理见[基础离线部署](LAB_OFFLINE_DEPLOYMENT.md)。
 - `compose.release.yaml` 加 `compose.chain.yaml`：Supervisor/MySQL完整四镜像实验室测试链，见[完整链部署](LAB_CHAIN_DEPLOYMENT.md)。不要将只含两镜像的包当作完整包。
-- 三种路线均单API worker。共享任务预算每账号1项、全局2项；真实TEE、一般Python Runner和交易所接入另有前提。当前不承诺公网多租户生产就绪。
+- API 使用单 worker。r23 的浏览器任务和私密服务端任务分别调度。真实 TEE、一般 Python Runner 和交易所接入另有前提。
 
 ## 构建前置条件
 
@@ -28,14 +28,15 @@ Dockerfile还会检查架构、哈希与profile。重新源码编译不保证相
 
 ## 运行
 
-基础源码容器从仓库根目录执行，先审查 `.env`、项目名和数据卷：
+r23 源码容器从仓库根目录执行，先审查 `.env`、项目名和数据卷。首次安装使用独立项目：
 
 ```bash
 cp .env.example .env
 # 编辑实际来源/端口；公网TLS代理需配置Secure Cookie和明确可信代理地址。
-docker compose config --quiet
-docker compose up --build --detach --wait --wait-timeout 180
-docker compose ps
+docker compose -p atlas-browser -f compose.yaml -f compose.browser.yaml config --quiet
+docker compose -p atlas-browser -f compose.yaml -f compose.browser.yaml build api web
+docker compose -p atlas-browser -f compose.yaml -f compose.browser.yaml up -d --no-build --wait --wait-timeout 600
+docker compose -p atlas-browser -f compose.yaml -f compose.browser.yaml ps
 ```
 
 `.env.example`当前demo=false、测试私钥空。前端Dockerfile拒绝开启demo或携带测试私钥。默认本机HTTP Cookie不设Secure；HTTPS发布必须设 `ATLAS_COOKIE_SECURE=true`，Origin含实际非默认端口。Web仅信任配置的宿主代理，API仅信任Web，禁止用星号扩大代理信任。

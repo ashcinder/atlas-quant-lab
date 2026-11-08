@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def manifest():
     tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     new = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-    prefixes = ('backend/app/', 'backend/tests/', 'frontend/src/', 'deploy/', 'scripts/')
+    prefixes = ('backend/app/', 'backend/tests/', 'frontend/src/', 'deploy/', 'scripts/', 'config/')
     names = set(tracked) | {name for name in new if name.startswith(prefixes)}
-    names |= {'compose.release.yaml', 'compose.chain.yaml', '.env.lab.example', '.env.chain.lab.example', 'docs/LAB_OFFLINE_DEPLOYMENT.md', 'docs/LAB_CHAIN_DEPLOYMENT.md'}
+    names |= {'compose.release.yaml', 'compose.chain.yaml', 'compose.browser.yaml', '.env.lab.example', '.env.chain.lab.example', 'docs/LAB_OFFLINE_DEPLOYMENT.md', 'docs/LAB_CHAIN_DEPLOYMENT.md'}
     files = {}
     for name in sorted(names):
         if '/.build/' in name:

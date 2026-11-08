@@ -29,7 +29,7 @@ export const MarketSidebar = memo(function MarketSidebar({ assets, selectedSymbo
     <aside className="market-sidebar" aria-label="标的列表">
       <div className="sidebar-heading">
         <span>市场</span>
-        <button className="icon-button" aria-label="收藏标的"><Star size={15} /></button>
+        <button className="icon-button" aria-label="收藏标的（尚未接入）" title="收藏功能尚未接入" disabled><Star size={15} /></button>
       </div>
       <label className="search-field" aria-label="搜索市场标的">
         <Search size={14} />

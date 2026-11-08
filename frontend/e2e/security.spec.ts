@@ -1,0 +1,13 @@
+import {test,expect,login,route,resetLedger} from './helpers'
+import {readFile} from 'node:fs/promises'
+
+test('SEC-04 synthetic XSS strings render as text and never execute after persistence',async({page,account})=>{
+ await login(page,account);await resetLedger(page);await route(page,'#/journal/journal');await page.getByRole('button',{name:/^投资手记/}).click();await page.getByRole('button',{name:'写手记',exact:true}).click();const attack='<img src=x onerror="window.__qaXss=1">';await page.getByLabel('标题',{exact:true}).fill(attack);await page.getByLabel('正文',{exact:true}).fill('<script>window.__qaXss=1</script>');await page.getByRole('button',{name:'保存手记'}).click();await expect(page.getByRole('heading',{name:attack,exact:true})).toBeVisible();await page.reload();await page.getByRole('button',{name:/^投资手记/}).click();await expect(page.getByRole('heading',{name:attack,exact:true})).toBeVisible();expect(await page.evaluate(()=>Reflect.get(window,'__qaXss'))).toBeUndefined()
+})
+test('SEC-05 CSV escapes formulas quotes newlines Chinese and preserves decimal precision',async({page,account})=>{
+ await login(page,account);await resetLedger(page);const old=await (await page.request.get('/api/ledger')).json();const state=old.state;state.accounts.push({id:'csv-account',name:'=CSV 测试',platform:'合成',category:'crypto',currency:'USD',archived:false,note:''});state.entries.push({id:'csv-entry',accountId:'csv-account',kind:'deposit',amount:123.456789,date:'2026-11-08',fx:7.2,note:'=SUM(1,2)\n"中文"',createdAt:'2026-11-08T00:00:00Z'});const saved=await page.request.put('/api/ledger',{data:{revision:old.revision,state}});expect(saved.ok()).toBeTruthy();await page.reload();await route(page,'#/journal/settings');const pending=page.waitForEvent('download');await page.getByRole('button',{name:'导出流水 CSV'}).click();const file=await pending;const csv=await readFile((await file.path())!,'utf8');expect(csv).toContain("'=CSV 测试");expect(csv).toContain("'=SUM(1,2)");expect(csv).toContain('123.456789');expect(csv).toContain('""中文""');expect(csv).toContain('\n')
+})
+test('SEC-06 cookie cache and local secret storage boundaries remain explicit',async({page,account,context})=>{
+ await login(page,account);const cookies=await context.cookies();expect(cookies.some(c=>c.httpOnly&&['Lax','Strict'].includes(c.sameSite))).toBe(true);const identity=await page.request.get('/api/v1/compute/identity');expect(identity.headers()['cache-control']).toContain('no-store');const response=await page.request.get('/api/v1/market/files/'+('0'.repeat(64))+'.json');expect(response.status()).toBe(404)
+ const traversal=await page.request.get('/api/v1/market/files/%2e%2e%2fquantjudge_package.key');expect([400,404,422]).toContain(traversal.status())
+})

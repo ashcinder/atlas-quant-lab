@@ -453,9 +453,13 @@ class ResearchService:
             ).fetchone()
         if row is None:
             raise KeyError(job_id)
-        result = (
-            ResearchResult.model_validate_json(row["result_json"]) if row["result_json"] else None
-        )
+        result = None
+        if row["result_json"]:
+            saved = json.loads(row["result_json"])
+            if "_object_sha256" in saved:
+                from app.compute_objects import ComputeObjects
+                saved = ComputeObjects().read("private", saved["_object_sha256"])
+            result = ResearchResult.model_validate(saved)
         return ResearchJob(
             id=row["id"],
             status=row["status"],

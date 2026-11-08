@@ -8,7 +8,7 @@ from threading import BoundedSemaphore
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.demo_accounts_api import router as demo_accounts_router
@@ -89,6 +89,11 @@ from app.cloud_ai import router as cloud_ai_router, get_config as cloud_ai_confi
 from app.trading_api import ManualTradeSyncScheduler, router as trading_router
 from app.strategy_runtime import StrategyRuntimeScheduler, StrategyRuntimeStore, runtime_router
 from app.work_limits import expensive_request, work_limits
+from app.compute_mode import browser_compute_enabled
+from app.market_publication import MarketPublication
+from app.browser_compute import browser_router
+from app.private_compute import PrivateCompute
+from app.public_artifacts import PublicArtifacts, public_artifact_router
 
 data_service = MarketDataService()
 market_history_slots = BoundedSemaphore(2)
@@ -107,14 +112,21 @@ strategy_runtime_store = StrategyRuntimeStore(data_service)
 strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
 manual_trade_sync_scheduler = ManualTradeSyncScheduler()
 cloud_proof_service = CloudProofService(strategy_runtime_store, run_store, zk_proof_store)
+market_publications = MarketPublication()
+strategy_runtime_store.publications = market_publications
+private_compute = PrivateCompute(strategy_runtime_store, market_publications)
+strategy_runtime_store.private_compute = private_compute
+public_artifacts = PublicArtifacts(quantjudge_store, zk_proof_store, market_publications.objects)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     cloud_proof_service.start()
-    alert_monitor.start()
+    if not browser_compute_enabled():
+        alert_monitor.start()
     journal_scheduler.start()
-    strategy_runtime_scheduler.start()
+    if not browser_compute_enabled():
+        strategy_runtime_scheduler.start()
     manual_trade_sync_scheduler.start()
     yield
     cloud_proof_service.stop()
@@ -143,6 +155,8 @@ app.include_router(runtime_router(strategy_runtime_store))
 app.include_router(bkc_router(strategy_runtime_store, run_store))
 app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
+app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store))
+app.include_router(public_artifact_router(public_artifacts))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(ALLOWED_ORIGINS),
@@ -171,10 +185,12 @@ async def invalid_value(_request, error):
 
 @app.middleware("http")
 async def require_atlas_user(request: Request, call_next):
+    public_market_file = request.method in {'GET', 'HEAD'} and re.fullmatch(r'/api/v1/(?:market/files/[a-f0-9]{64}\.json|public-artifacts/[a-f0-9]{64}\.(?:json|r0))', request.url.path) is not None
     if (
         request.method != "OPTIONS"
         and request.url.path.startswith("/api/v1/")
         and request.url.path != "/api/v1/health"
+        and not public_market_file
         and not (request.method == "POST" and request.url.path == "/api/v1/private-runner/signals")
     ):
         if not _origin_ok(request):
@@ -197,7 +213,7 @@ async def require_atlas_user(request: Request, call_next):
             r'/api/v1/quantjudge/agents/[^/]+/zk-proofs', request.url.path
         ) is not None
         content_type = request.headers.get('content-type', '').split(';')[0].strip()
-        body_limit = MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000
+        body_limit = (16 * 1024 * 1024 if request.url.path == '/api/v1/compute/runs' else MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000)
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
@@ -220,7 +236,7 @@ async def require_atlas_user(request: Request, call_next):
     finally:
         if owner is not None:
             work_limits.release(owner)
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/") and not public_market_file:
         response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -254,6 +270,8 @@ def market_bars(
     start: datetime | None = None,
     end: datetime | None = None,
 ):
+    if browser_compute_enabled():
+        raise HTTPException(410, '行情请通过数据清单和不可变分块下载；指标在浏览器计算')
     bounded_window = start is not None or end is not None
     if provider is not None and not bounded_window:
         raise HTTPException(status_code=422, detail="锁定行情来源时必须提供历史窗口")
@@ -355,6 +373,8 @@ def market_fundamentals(
 
 @app.post("/api/v1/backtests", response_model=BacktestResult)
 def create_backtest(request: BacktestRequest, http_request: Request):
+    if browser_compute_enabled():
+        raise HTTPException(410, '普通回测已迁到浏览器；保密订阅策略请使用按需执行接口')
     supplied_program=None
     if request.release_id:
         strategy_id,snapshot=strategy_runtime_store.backtest_release(http_request.state.user.id,request.release_id)
@@ -387,6 +407,8 @@ def create_backtest(request: BacktestRequest, http_request: Request):
 
 @app.post("/api/v1/portfolio/backtests", response_model=PortfolioResult)
 def create_portfolio_backtest(request: PortfolioBacktestRequest, http_request: Request):
+    if browser_compute_enabled():
+        raise HTTPException(410, '组合回测已迁到浏览器，不提供服务器回退计算')
     try:
         bundles = [
             data_service.fetch(
@@ -451,6 +473,8 @@ def delete_run(run_id: str, http_request: Request):
     status_code=status.HTTP_202_ACCEPTED,
 )
 def create_research_job(request: ResearchRequest, http_request: Request):
+    if browser_compute_enabled():
+        raise HTTPException(410, '参数研究已迁到浏览器，不提供服务器批量研究')
     try:
         return research_service.submit(http_request.state.user.id, request)
     except ValueError as exc:
@@ -579,6 +603,8 @@ def delete_alert(alert_id: str, http_request: Request):
 
 @app.post("/api/v1/alerts/evaluate", response_model=list[AlertNotification])
 def evaluate_alerts(http_request: Request):
+    if browser_compute_enabled():
+        raise HTTPException(410, '提醒条件在浏览器计算，请提交当前账号的提醒观察值')
     return alert_monitor.evaluate_all(http_request.state.user.id)
 
 
@@ -637,11 +663,37 @@ def publish_quant_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.publish_report(agent_id, request, developer_token)
+        result = quantjudge_store.publish_report(agent_id, request, developer_token)
+        return published_distribution(result)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 不存在") from exc
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def published_distribution(result):
+    try:
+        result["distribution"] = {"status": "ready", **public_artifacts.publish_report(result["id"])}
+    except (ValueError, KeyError, OSError, ZkProofError, ZkVerifierUnavailable):
+        # The report is already committed. A CDN failure must not invite creating
+        # another report or charging again; export can be retried independently.
+        result["distribution"] = {"status": "pending", "message": "报告已发布，公共文件分发尚未就绪，可单独重试"}
+    return result
+
+
+@app.post("/api/v1/quantjudge/reports/{report_id}/distribution")
+def retry_report_distribution(report_id: str, developer_token: str | None = Header(default=None, alias="X-Developer-Token")):
+    try:
+        with quantjudge_store._connect() as db:
+            report = db.execute("SELECT agent_id FROM qj_reports WHERE id=?", (report_id,)).fetchone()
+        if report is None:
+            raise KeyError(report_id)
+        quantjudge_store._assert_token(report["agent_id"], developer_token)
+        return {"status": "ready", **public_artifacts.publish_report(report_id)}
+    except PermissionError:
+        raise HTTPException(403, "仅报告作者可以重新发布公共制品") from None
+    except KeyError:
+        raise HTTPException(404, "报告不存在") from None
 
 
 @app.get("/api/v1/quantjudge/zkp/profiles")
@@ -666,10 +718,16 @@ def create_zkp_market_dataset(
     try:
         from app.zkp_dataset import validate_period, closed_frame
         validate_period(start, end)
-        bundle = data_service.fetch(
-            symbol, asset_class, interval, start, end, adjustment, source, refresh,
-            minimum_bars=3
-        )
+        if browser_compute_enabled():
+            manifest = market_publications.lookup(dict(symbol=symbol, asset_class=asset_class, interval=interval, adjustment=adjustment, data_source=source))
+            if manifest is None:
+                raise HTTPException(409, "证明行情尚未由独立发布器登记")
+            bundle = market_publications.bundle(manifest["dataset_id"], start, end)
+        else:
+            bundle = data_service.fetch(
+                symbol, asset_class, interval, start, end, adjustment, source, refresh,
+                minimum_bars=3
+            )
         frame = closed_frame(bundle.frame, interval, start, end)
         dataset = make_market_dataset(
             source=bundle.source,
@@ -779,6 +837,10 @@ def get_zk_proof(proof_id: str):
 @app.get("/api/v1/quantjudge/zk-proofs/{proof_id}/receipt")
 def download_zk_receipt(proof_id: str):
     try:
+        distribution = public_artifacts.for_proof(proof_id)
+        if distribution and distribution.get("receipt_url"):
+            # Only receipts deliberately published with a verified public report.
+            return RedirectResponse(distribution["receipt_url"], status_code=307)
         path = zk_proof_store.receipt_path(proof_id)
         content = path.read_bytes()
     except KeyError as exc:
@@ -802,7 +864,8 @@ def publish_zkp_report(
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
     try:
-        return quantjudge_store.publish_zk_report(agent_id, request.proof_id, developer_token)
+        result = quantjudge_store.publish_zk_report(agent_id, request.proof_id, developer_token)
+        return published_distribution(result)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent 或 ZKP 证明不存在") from exc
     except PermissionError as exc:
@@ -974,7 +1037,7 @@ def save_quant_workflow(
     request: WorkflowSaveRequest,
     developer_token: str | None = Header(default=None, alias="X-Developer-Token"),
 ):
-    if workflow_id != request.workflow.id:
+    if workflow_id not in {request.workflow.id, f"{agent_id}:{request.workflow.id}"}:
         raise HTTPException(status_code=422, detail="路径中的工作流 ID 与内容不一致")
     try:
         return strategy_studio_store.save_workflow(

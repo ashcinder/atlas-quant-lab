@@ -302,6 +302,7 @@ class RunSummary(BaseModel):
     total_return: float | None = None
     max_drawdown: float | None = None
     status: str
+    compute: dict[str, Any] | None = None
 
 
 class IndicatorSpec(BaseModel):

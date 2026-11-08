@@ -1,4 +1,5 @@
-import { useEffect } from 'react'
+import { useRef } from 'react'
+import { useDialogKeyboard } from './dialogKeyboard'
 import { Clock3, History, Trash2, X } from 'lucide-react'
 import { formatDate, formatPercent } from '../format'
 import type { RunSummary } from '../types'
@@ -12,16 +13,12 @@ interface Props {
 }
 
 export function HistoryDrawer({ open, runs, onClose, onOpen, onDelete }: Props) {
-  useEffect(() => {
-    if (!open) return
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose, open])
+  const dialogRef = useRef<HTMLElement>(null)
+  useDialogKeyboard(open, dialogRef, onClose)
 
   return (
     <div className={`drawer-backdrop ${open ? 'is-open' : ''}`} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <aside className="history-drawer" role="dialog" aria-modal="true" aria-label="回测历史" aria-hidden={!open}>
+      <aside ref={dialogRef} className="history-drawer" role="dialog" aria-modal="true" aria-label="回测历史" aria-hidden={!open}>
         <div className="drawer-heading"><span><History size={17} />回测历史</span><button className="icon-button" aria-label="关闭回测历史" onClick={onClose}><X size={17} /></button></div>
         <p className="drawer-intro">结果保存在本机 SQLite。打开记录不会重新计算。</p>
         <div className="run-list">

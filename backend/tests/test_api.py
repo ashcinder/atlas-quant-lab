@@ -32,6 +32,57 @@ def test_health_and_catalog(client):
     assert dynamic[0]["symbol"] == "TSLA"
 
 
+def test_workflow_api_accepts_returned_id_for_subsequent_revision(client):
+    from app.strategy_studio import workflow_templates
+
+    workflow = workflow_templates()[0]["workflow"]
+    agent_input = {
+        "name": "Workflow revision contract",
+        "developer_alias": "Test author",
+        "category": "allocation",
+        "asset_classes": ["crypto"],
+        "description": "A test identity for saving and reading independent workflow revisions.",
+        "strategy_commitment": "e" * 64,
+    }
+    results = []
+    for _ in range(2):
+        created = client.post("/api/v1/quantjudge/agents", json=agent_input)
+        assert created.status_code == 201
+        agent = created.json()
+        path = f"/api/v1/quantjudge/agents/{agent['agent']['id']}/workflows/"
+        headers = {"X-Developer-Token": agent["developer_token"]}
+        initial = client.put(path + workflow["id"], headers=headers, json={"workflow": workflow})
+        assert initial.status_code == 200
+        results.append(initial.json())
+
+    first, second = results
+    assert first["id"] != second["id"]
+    assert first["revision"] == second["revision"] == 1
+    payload = {"workflow": {**workflow, "name": "Second author's revised workflow"}}
+    scoped_path = path + second["id"]
+    revised = client.put(scoped_path, headers=headers, json=payload)
+    assert revised.status_code == 200
+    assert revised.json()["revision"] == 2
+    assert client.get(scoped_path, headers=headers).json() == revised.json()
+    assert client.put(path + first["id"] + "-other", headers=headers, json=payload).status_code == 422
+    created_project = client.post("/api/v1/strategy-projects", json={
+        "name": "Scoped workflow project",
+        "thesis": "Confirm that a scoped workflow can be linked to a strategy project.",
+        "asset_symbol": "BTC-USD",
+        "asset_class": "crypto",
+    })
+    assert created_project.status_code == 201
+    project = created_project.json()
+    linked = client.post(
+        f"/api/v1/strategy-projects/{project['id']}/artifacts",
+        headers=headers,
+        json={"expected_revision": project["revision"], "kind": "workflow", "artifact_id": second["id"]},
+    )
+    assert linked.status_code == 200
+    assert linked.json()["workflow_id"] == second["id"]
+    assert linked.json()["workflow_revision"] == 2
+
+
 def test_demo_market_and_backtest_endpoints(client):
     market = client.get(
         "/api/v1/market/bars",

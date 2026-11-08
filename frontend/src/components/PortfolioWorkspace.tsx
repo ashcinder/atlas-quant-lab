@@ -1,3 +1,4 @@
+import { useDialogKeyboard } from './dialogKeyboard'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Equal, Plus, Scale, Search, Trash2, X } from 'lucide-react'
 import { api } from '../api'
@@ -61,6 +62,7 @@ function PortfolioAssetPicker({ catalog, excludedSymbols, availableSlots, onAdd,
   const [assetClass, setAssetClass] = useState('all')
   const [pending, setPending] = useState<Set<string>>(() => new Set())
   const searchRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLElement>(null)
   const excluded = useMemo(() => new Set(excludedSymbols), [excludedSymbols])
   const candidates = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -73,12 +75,7 @@ function PortfolioAssetPicker({ catalog, excludedSymbols, availableSlots, onAdd,
     })
   }, [assetClass, catalog, excluded, query])
 
-  useEffect(() => {
-    searchRef.current?.focus()
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+  useDialogKeyboard(true, dialogRef, onClose, searchRef)
 
   const toggle = (symbol: string) => {
     setPending((current) => {
@@ -91,7 +88,7 @@ function PortfolioAssetPicker({ catalog, excludedSymbols, availableSlots, onAdd,
   const confirm = () => onAdd(catalog.filter((asset) => pending.has(asset.symbol)))
 
   return <div className="asset-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="asset-picker" role="dialog" aria-modal="true" aria-labelledby="asset-picker-title">
+    <section ref={dialogRef} className="asset-picker" role="dialog" aria-modal="true" aria-labelledby="asset-picker-title">
       <header><div><small>ASSET UNIVERSE</small><strong id="asset-picker-title">选择组合标的</strong><span>搜索并批量加入，最多 {maximumAssets} 项资产</span></div><button aria-label="关闭资产选择器" onClick={onClose} title="关闭资产选择器"><X size={16} /></button></header>
       <div className="asset-picker-search"><Search size={15} /><input aria-label="搜索可添加资产" ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索代码、名称、市场或类别" /><kbd>{candidates.length} 项可选</kbd></div>
       <nav aria-label="资产类别">{assetClasses.map((item) => <button key={item.value} aria-pressed={assetClass === item.value} className={assetClass === item.value ? 'is-active' : ''} onClick={() => setAssetClass(item.value)}>{item.label}</button>)}</nav>
@@ -252,7 +249,7 @@ export function PortfolioWorkspace(props: Props) {
           <label><span>组合策略</span><select value={strategyId} onChange={(event) => selectStrategy(event.target.value)}>{strategies.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
           <div><strong>参数已在右侧展开</strong><span>成本、再平衡、风险约束与当前策略参数均可编辑。</span></div>
         </div>
-        <div className="allocation-header"><span>组合成分</span><div><button onClick={normalize} title="保持各资产相对比例，将合计权重调整为100%"><Equal size={14} />归一化至100%</button><button disabled={activeSelected.length >= maximumAssets} onClick={() => setAssetPickerOpen(true)}><Plus size={14} />选择资产</button></div></div>
+        <div className="allocation-header"><span>组合成分</span><div><button onClick={normalize} title="保持各资产相对比例，将合计权重调整为100%"><Equal size={14} />归一化至100%</button><button disabled={activeSelected.length >= maximumAssets} onClick={event => { event.currentTarget.focus(); setAssetPickerOpen(true) }}><Plus size={14} />选择资产</button></div></div>
         {allocationNotice ? <div className="allocation-feedback" role="status"><Check size={13} /><span>{allocationNotice}</span><button onClick={() => setAllocationNotice(null)} title="关闭提示"><X size={12} /></button></div> : null}
         <div className="allocation-table">
           <div className="allocation-row header"><span>标的</span><span>市场</span><span>币种</span><span>目标权重</span><span /></div>

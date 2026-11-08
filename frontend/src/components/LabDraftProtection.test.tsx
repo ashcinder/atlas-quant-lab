@@ -9,7 +9,7 @@ import { QuantStrategyStudio } from './QuantStrategyStudio'
 import { ResearchWorkspace, type ResearchWorkspaceProps } from './ResearchWorkspace'
 
 vi.mock('../api', () => ({ api: {
-  listCustomStrategies: vi.fn(), saveCustomStrategy: vi.fn(), deleteCustomStrategy: vi.fn(),
+  getLatestResearchJob: vi.fn().mockResolvedValue(null), listCustomStrategies: vi.fn(), saveCustomStrategy: vi.fn(), deleteCustomStrategy: vi.fn(),
   getStudioSpec: vi.fn(), getStudioTemplates: vi.fn(), listQuantAgents: vi.fn(), listZkProfiles: vi.fn(),
   validateStudioWorkflow: vi.fn(), saveStudioWorkflow: vi.fn(), listStrategyPackages: vi.fn(),
   createZkMarketDataset: vi.fn(), uploadZkProof: vi.fn(), publishZkReport: vi.fn(),
@@ -67,6 +67,7 @@ const dataset: ZkMarketDataset = {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(api.getLatestResearchJob).mockResolvedValue(null)
   vi.mocked(api.listCustomStrategies).mockResolvedValue([rule])
   vi.mocked(api.getStudioSpec).mockResolvedValue({ native_format: '', archive: '', required_files: [],
     languages: [], limits: { archive_bytes: 100, expanded_bytes: 200, files: 2 }, security: {},

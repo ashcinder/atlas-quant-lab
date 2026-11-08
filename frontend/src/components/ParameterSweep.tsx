@@ -1,7 +1,7 @@
 import { BacktestPeriod } from './BacktestPeriod'
 import { SlidersHorizontal, ChevronDown } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { request } from '../request'
+import { api } from '../api'
 import { formatSweepValue, sweepGrid, type SweepField, type SweepRange } from '../parameterSweep'
 import type { BacktestResult } from '../types'
 import './parameter-sweep.css'
@@ -54,7 +54,7 @@ export function ParameterSweep({ fields, payload, onApply, disabled = false }: {
         }
         const body = { ...candidate, start: start ? new Date(start).toISOString() : null, end: end ? new Date(end).toISOString() : null, persist: false }
         try {
-          const result = await request<BacktestResult>('/backtests', { method: 'POST', body: JSON.stringify(body), signal: abort.signal })
+          const result = await api.runBacktest(body,abort.signal)
           if (abort.signal.aborted) break
           const data = JSON.stringify(result.bars)
           if (barsSnapshot !== null && data !== barsSnapshot) throw new Error('行情数据已变化，这组不计入排名，请重新比较')

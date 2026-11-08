@@ -72,10 +72,19 @@ class RunStore:
                 ),
             )
 
+    def save_computed(self, owner_id: str, mode: str, request: dict, result: dict, objects) -> None:
+        digest = objects.put("private", result)
+        # Keep only small searchable fields in SQLite. History and anchor callers
+        # still use the same owner-checked store; large payloads live separately.
+        index = {key: result[key] for key in ("run_id", "created_at", "metrics", "compute") if key in result}
+        index["_object_sha256"] = digest
+        normalized = {**request, "strategy_id": request.get("strategy_id", "research")}
+        self.save(owner_id, mode, normalized, index)
+
     def list(self, owner_id: str, limit: int = 50) -> list[RunSummary]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM backtest_runs WHERE owner_id=? ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM backtest_runs WHERE owner_id=? AND mode IN ('single','portfolio') ORDER BY created_at DESC LIMIT ?",
                 (owner_id, limit),
             ).fetchall()
         output = []
@@ -92,6 +101,7 @@ class RunStore:
                     total_return=metrics.get("total_return"),
                     max_drawdown=metrics.get("max_drawdown"),
                     status=row["status"],
+                    compute=result.get("compute"),
                 )
             )
         return output
@@ -102,7 +112,13 @@ class RunStore:
                 "SELECT result_json FROM backtest_runs WHERE id = ? AND owner_id = ?",
                 (run_id, owner_id),
             ).fetchone()
-        return json.loads(row["result_json"]) if row else None
+        if row is None:
+            return None
+        result = json.loads(row["result_json"])
+        if "_object_sha256" in result:
+            from app.compute_objects import ComputeObjects
+            return ComputeObjects().read("private", result["_object_sha256"])
+        return result
 
     def delete(self, owner_id: str, run_id: str) -> bool:
         with self._connect() as connection:

@@ -54,6 +54,10 @@ def tick_probe(store, owner, identifier, release, run):
         if run["last_bar_time"] and stamp - run["last_bar_time"] < 10:
             return store.get_run(owner, identifier, True)
         book = quote()
+        from app.compute_mode import browser_compute_enabled
+        if browser_compute_enabled():
+            from app.browser_runtime import demand_check
+            demand_check(store, owner, identifier)
         stamp = int(_now().timestamp())  # Receipt time, never a past candle's open.
         with store._connect() as connection:
             connection.execute(

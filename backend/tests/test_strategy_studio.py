@@ -171,6 +171,33 @@ def test_workflow_revisions_are_encrypted_at_rest(tmp_path):
     assert studio.get_workflow(agent_id, workflow.id, token)["workflow"]["nodes"][-1]["config"]["private_instruction"] == "never expose this position policy"
 
 
+def test_agents_can_save_the_same_workflow_slug_without_colliding(tmp_path):
+    studio, first = create_private_agent(tmp_path)
+    second = create_private_agent(tmp_path)[1]
+    workflow = StrategyWorkflow.model_validate(workflow_templates()[0]["workflow"])
+    first_agent, first_token = first["agent"]["id"], first["developer_token"]
+    second_agent, second_token = second["agent"]["id"], second["developer_token"]
+
+    old = studio.save_workflow(first_agent, workflow, "First author", first_token)
+    duplicate = studio.save_workflow(second_agent, workflow, "Second author", second_token)
+    assert old["id"] == workflow.id
+    assert duplicate["id"] != old["id"]
+    assert duplicate["revision"] == old["revision"] == 1
+    assert studio.get_workflow(second_agent, workflow.id, second_token) == duplicate
+    assert studio.get_workflow(first_agent, old["id"], first_token) == old
+    with pytest.raises(KeyError):
+        studio.get_workflow(first_agent, duplicate["id"], first_token)
+    with pytest.raises(PermissionError):
+        studio.get_workflow(second_agent, duplicate["id"], first_token)
+
+    workflow.name = "Second author's next revision"
+    updated = studio.save_workflow(second_agent, workflow, "Private update", second_token)
+    assert updated["id"] == duplicate["id"]
+    assert updated["revision"] == 2
+    assert studio.get_workflow(second_agent, updated["id"], second_token) == updated
+    assert studio.get_workflow(first_agent, old["id"], first_token) == old
+
+
 def test_workflow_cannot_bind_another_or_missing_package(tmp_path):
     studio, created = create_private_agent(tmp_path)
     workflow = StrategyWorkflow.model_validate(workflow_templates()[0]["workflow"])

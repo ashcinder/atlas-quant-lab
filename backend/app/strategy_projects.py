@@ -440,6 +440,9 @@ class StrategyProjectStore:
                 raise ProjectGateError("研究任务尚未完成")
             request = json.loads(row["request_json"])
             result = json.loads(row["result_json"])
+            if "_object_sha256" in result:
+                from app.compute_objects import ComputeObjects
+                result = ComputeObjects().read("private", result["_object_sha256"])
             if (
                 request["symbol"] != project["asset_symbol"]
                 or request["interval"] != project["interval"]

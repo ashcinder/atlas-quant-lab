@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Activity, ArrowUpRight, Check, CircleAlert, LockKeyhole, RefreshCw, X } from 'lucide-react'
 import { api } from '../api'
 import type { QuantChainStatus, ZkProfile } from '../types'
+import { useDialogKeyboard } from './dialogKeyboard'
 
 interface Snapshot {
   execution: Awaited<ReturnType<typeof api.executionCapabilities>> | null
@@ -41,21 +42,7 @@ export function SystemStatus({ onClose }: { onClose: () => void }) {
     return () => { active = false; controller.abort() }
   }, [refresh])
 
-  useEffect(() => {
-    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const dialog = dialogRef.current
-    dialog?.querySelector<HTMLElement>('button')?.focus()
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-      if (event.key !== 'Tab' || !dialog) return
-      const items = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href]')]
-      const first = items[0], last = items.at(-1)
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => { window.removeEventListener('keydown', onKey); returnFocus?.focus() }
-  }, [onClose])
+  useDialogKeyboard(true, dialogRef, onClose)
 
   const online = snapshot?.health?.status === 'ok'
   const zkReady = snapshot?.profiles?.some((profile) => profile.status === 'active' && profile.verifier_ready) ?? false

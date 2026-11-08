@@ -185,7 +185,7 @@ export function StrategyLabWorkspace({ initialTab = 'workflow', assets = [], onR
 
     {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
       <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究引擎…</div>}>
-        <ResearchWorkspace {...researchProps} executionPipeline={pipeline} view={tab === 'builder' ? 'builder' : 'optimize'} showHeader={false} onStrategySaved={(record: CustomStrategyRecord) => void linkArtifact('strategy', record.id)} onResearchCompleted={(job: ResearchJob) => void linkArtifact('research', job.id)} />
+        <ResearchWorkspace {...researchProps} projectContextId={projectId} executionPipeline={pipeline} view={tab === 'builder' ? 'builder' : 'optimize'} showHeader={false} onStrategySaved={(record: CustomStrategyRecord) => void linkArtifact('strategy', record.id)} onResearchCompleted={(job: ResearchJob) => void linkArtifact('research', job.result?.job_id ?? job.id)} />
       </Suspense>
     </section> : null}
     {studioVisited && tab !== 'workflow' ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>

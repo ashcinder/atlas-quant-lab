@@ -5,7 +5,6 @@ import type {
   DataSource,
   FundamentalsResponse,
   Interval,
-  MarketData,
   PortfolioResult,
   RunSummary,
   Strategy,
@@ -14,7 +13,6 @@ import type {
   AlertRuleInput,
   CustomStrategyRecord,
   CustomStrategySpec,
-  ResearchJob,
   QuantAgent,
   QuantChainStatus,
   QuantJudgeOverview,
@@ -36,6 +34,8 @@ import type {
 } from './types'
 
 import { request } from './request'
+import * as browserCompute from './compute/client'
+import { evaluateBrowserAlerts } from './compute/alerts'
 
 export const api = {
   getHealth(signal?: AbortSignal) {
@@ -55,18 +55,7 @@ export const api = {
     adjustment: Adjustment,
     options: { signal?: AbortSignal; refresh?: boolean; start?: string; end?: string; provider?: string } = {},
   ) {
-    const params = new URLSearchParams({
-      symbol,
-      asset_class: assetClass,
-      interval,
-      source,
-      adjustment,
-      refresh: String(Boolean(options.refresh)),
-    })
-    if (options.start) params.set('start', options.start)
-    if (options.end) params.set('end', options.end)
-    if (options.provider) params.set('provider', options.provider)
-    return request<MarketData>(`/market/bars?${params.toString()}`, { signal: options.signal })
+    return browserCompute.getMarket(symbol, assetClass, interval, source, adjustment, options)
   },
   getFundamentals(
     symbol: string,
@@ -82,35 +71,32 @@ export const api = {
       signal: options.signal,
     })
   },
-  runBacktest(payload: Record<string, unknown>) {
-    return request<BacktestResult>('/backtests', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
+  runBacktest(payload: Record<string, unknown>, signal?:AbortSignal) {
+    return browserCompute.runBacktest(payload,signal)
   },
   runPortfolio(payload: Record<string, unknown>) {
-    return request<PortfolioResult>('/portfolio/backtests', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
+    return browserCompute.runPortfolio(payload)
   },
   listRuns() {
     return request<RunSummary[]>('/runs')
   },
   getRun<T extends BacktestResult | PortfolioResult>(id: string) {
-    return request<T>(`/runs/${id}`)
+    return browserCompute.getRunHydrated<T>(id)
   },
   deleteRun(id: string) {
     return request<void>(`/runs/${id}`, { method: 'DELETE' })
   },
   createResearchJob(payload: Record<string, unknown>) {
-    return request<ResearchJob>('/research/jobs', { method: 'POST', body: JSON.stringify(payload) })
+    return browserCompute.createResearchJob(payload)
   },
   getResearchJob(id: string, signal?: AbortSignal) {
-    return request<ResearchJob>(`/research/jobs/${id}`, { signal })
+    return browserCompute.getResearchJob(id, signal)
+  },
+  getLatestResearchJob(context?:{project_id:string;symbol:string;interval:string}) {
+    return browserCompute.getLatestResearchJob(context)
   },
   cancelResearchJob(id: string) {
-    return request<ResearchJob>(`/research/jobs/${id}`, { method: 'DELETE' })
+    return browserCompute.cancelResearchJob(id)
   },
   listCustomStrategies() {
     return request<CustomStrategyRecord[]>('/custom-strategies')
@@ -134,7 +120,7 @@ export const api = {
     return request<void>(`/alerts/${id}`, { method: 'DELETE' })
   },
   evaluateAlerts() {
-    return request<AlertNotification[]>('/alerts/evaluate', { method: 'POST' })
+    return evaluateBrowserAlerts()
   },
   listNotifications() {
     return request<AlertNotification[]>('/notifications')

@@ -1,7 +1,7 @@
 import { request } from './request'
 export type WalletProvider = { isMetaMask?: boolean; providers?: WalletProvider[]; request: (value: { method: string; params?: unknown[] }) => Promise<unknown>; on?: (name: string, fn: (...args: unknown[]) => void) => void; removeListener?: (name: string, fn: (...args: unknown[]) => void) => void }
 export type WalletNetwork = { chain_id: number; chain_name: string; currency: string; rpc_url: string; genesis_hash: string }
-export type ChainOrder = { id: string; status: string; transaction_hash: string | null; block_number: number | null; genesis: string; signer: string; transaction: Record<string, string>; payload: Record<string, unknown> }
+export type ChainOrder = { kind?: string; current_order_id?: string; retry_order_id?: string; previous_order_id?: string; previous_transaction_hash?: string; id: string; status: string; transaction_hash: string | null; block_number: number | null; genesis: string; signer: string; transaction: Record<string, string>; payload: Record<string, unknown> }
 export function walletProvider(): WalletProvider {
   const injected = (window as Window & { ethereum?: WalletProvider }).ethereum
   const provider = injected?.providers?.find(x => x.isMetaMask) ?? injected

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from app.bkc_payments import BkcStore, CHAIN_ID, canonical
 from app.config import DATA_DIR
+from app.compute_mode import cloud_generation_enabled
 from app.zk_author import PROFILE, WORKFLOW
 from app.zkp import load_profiles
 from app.work_limits import work_limits
@@ -114,6 +115,11 @@ class CloudProofService:
             market_hash TEXT NOT NULL, inputs TEXT NOT NULL, order_id TEXT UNIQUE,
             status TEXT NOT NULL, proof_id TEXT, error TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL)''')
     def config(self):
+        if not cloud_generation_enabled():
+            return {'configured':False, 'unavailable_reason':'Proof 请在作者本机生成后上传验真；主站不生成新证明',
+                    'price_bkc':None, 'recipient':None, 'currency':'BKC', 'max_bars':20000,
+                    'location':'author_local', 'local_tools_preserved':True,
+                    'pending_paid_count':len(self.pending_paid_jobs())}
         recipient=os.getenv('TRINE_PROOF_RECIPIENT','')
         price=os.getenv('TRINE_PROOF_PRICE_BKC','')
         valid=bool(re.fullmatch(r'0x[0-9a-fA-F]{40}',recipient) and int(recipient,16) and re.fullmatch(r'[0-9]+(?:\.[0-9]{1,18})?',price) and Decimal(price)>0)
@@ -155,6 +161,8 @@ class CloudProofService:
         with self.runtime._connect() as c: rows=c.execute('SELECT id FROM cloud_proof_jobs WHERE owner_id=? AND release_id=? ORDER BY created_at DESC',(owner,release)).fetchall()
         return [self.get(owner,r['id']) for r in rows]
     def create(self,owner,release_id,body):
+        if not cloud_generation_enabled():
+            raise HTTPException(410,'服务器证明建单已停用，请使用作者本机工具')
         config=self.config()
         if not config['configured']: raise HTTPException(503,'云端证明价格、收款地址或证明执行器尚未配置')
         if not body.consent_cloud_source: raise HTTPException(422,'请确认服务器将读取策略程序以生成 Proof')
@@ -193,6 +201,8 @@ class CloudProofService:
             c.execute('INSERT INTO cloud_proof_jobs VALUES (?,?,?,?,?,?,?,NULL,NULL,?,?)',(identifier,owner,release_id,body.market_data_hash,json.dumps(inputs),order,'awaiting_payment',now,now))
         return self.get(owner,identifier)
     def enqueue(self,owner,identifier):
+        if not cloud_generation_enabled():
+            raise HTTPException(409,'旧订单仅保留查询；未完付费任务须先通过旧版本完成恢复，不会重复收费')
         job=self.get(owner,identifier);order=self.payments.get(owner,job['order_id'])
         if job['status'] in ('queued','proving','verified'):return job
         if not order['transaction_hash']: raise HTTPException(402,'请先支付证明服务费用')
@@ -202,6 +212,8 @@ class CloudProofService:
             c.execute("UPDATE cloud_proof_jobs SET status='queued',error=NULL,updated_at=? WHERE id=? AND status IN ('awaiting_payment','failed')",(time.time(),identifier))
         return self.get(owner,identifier)
     def tick(self):
+        if not cloud_generation_enabled():
+            return
         with self.runtime._connect() as c:
             c.execute('BEGIN IMMEDIATE')
             row=c.execute("SELECT j.* FROM cloud_proof_jobs j JOIN bkc_orders o ON o.id=j.order_id WHERE j.status='queued' AND o.status='confirmed' ORDER BY j.created_at LIMIT 1").fetchone()
@@ -283,7 +295,15 @@ class CloudProofService:
                 except (OSError, ValueError, RuntimeError):
                     logging.getLogger(__name__).warning('跳过不安全或仍活动的分段任务')
 
+    def pending_paid_jobs(self):
+        with self.runtime._connect() as c:
+            return [dict(row) for row in c.execute("SELECT j.id,j.status FROM cloud_proof_jobs j JOIN bkc_orders o ON o.id=j.order_id WHERE j.status<>'verified' AND (o.status IN ('submitted','confirmed') OR o.transaction_hash IS NOT NULL OR o.signed_raw IS NOT NULL)").fetchall()]
+
     def start(self):
+        if not cloud_generation_enabled():
+            if self.pending_paid_jobs():
+                raise RuntimeError('存在未完成且已付款或已签名提交的历史Proof任务，阻止停用旧执行器；先用旧版本核查并完成任务')
+            return
         def run():
             import fcntl
             with open(self.root/'worker.lock','a') as lock:

@@ -43,15 +43,15 @@ export function ChainOrderPanel({ kind, resourceId, onConfirmed }: { kind: 'subs
   const value = order ? BigInt(order.transaction.value) : 0n
   const amount = `${value / 10n ** 18n}.${(value % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '') || '0'}`
   return <div className="bkc-order-panel">
-    <small>{address ? `支付账户 ${address.slice(0,8)}…${address.slice(-6)}` : "请在设置中配置并解锁 Supervisor 账户"}</small><button disabled={busy || !!hash || order?.status === 'confirmed'} onClick={() => void act(prepare)}>{busy ? '处理中…' : kind === 'report' ? '公开回测收益并上链' : '使用 BKC 订阅此版本'}</button>
-    {order && <><PayOrderButton orderId={order.id} onConfirmed={()=>{onConfirmed?.();void act(async()=>{setOrder(await request<ChainOrder>(`/bkc-orders/${order.id}`))})}}/><small role="status">{stateLabels[order.status] || order.status}{order.block_number != null ? ` · 区块 ${order.block_number}` : ''}</small><label>交易哈希<input aria-label="BKC交易哈希" value={hash} onChange={e => setHash(e.target.value)} placeholder="Supervisor 已广播的交易哈希" /></label><button disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash)} onClick={() => void act(() => confirm())}>核验交易 / 恢复订单</button></>}
+    <small>{address ? `支付账户 ${address.slice(0,8)}…${address.slice(-6)}` : "请在设置中配置并解锁 Supervisor 账户"}</small><button type="button" disabled={busy || !!hash || order?.status === 'confirmed'} onClick={() => void act(prepare)}>{busy ? '处理中…' : kind === 'report' ? '公开回测收益并上链' : '使用 BKC 订阅此版本'}</button>
+    {order && <><PayOrderButton orderId={order.id} onConfirmed={next=>{onConfirmed?.();void act(async()=>{const value=next ?? await request<ChainOrder>(`/bkc-orders/${order.id}`);setOrder(value);setHash(value.transaction_hash ?? '');remember(value,value.transaction_hash ?? '')})}}/><small role="status">{stateLabels[order.status] || order.status}{order.block_number != null ? ` · 区块 ${order.block_number}` : ''}</small><label>交易哈希<input aria-label="BKC交易哈希" value={hash} onChange={e => setHash(e.target.value)} placeholder="Supervisor 已广播的交易哈希" /></label><button type="button" disabled={busy || !/^0x[0-9a-f]{64}$/i.test(hash)} onClick={() => void act(() => confirm())}>核验交易 / 恢复订单</button></>}
     {error && <p role="alert">{error}</p>}
     <dialog ref={dialog} className="atlas-indicator-dialog" onCancel={() => setReview(false)} aria-label="核对链上交易">
       <h3>{kind === 'report' ? '公开回测报告' : '订阅订单'}</h3>
       <p>{kind === 'report' ? '公开收益指标、回测配置和报告摘要。记录在 Supervisor 上；此操作是报告存证，不代表收益已通过零知识验证。' : `支付 ${amount} BKC，获得当前策略版本的使用授权。新版本单独订阅，不自动续费。`}</p>
       <p>网络：Supervisor · 1051</p><p className="break-anywhere">收款地址：{order?.transaction.to}</p>
       {kind === 'report' && <pre>{JSON.stringify(order?.payload, null, 2)}</pre>}
-      <p>使用本地 Supervisor 账户工具签名并广播以下交易，再回到此处粘贴交易哈希。平台直接向节点核验收款、金额和数据。</p><pre>{JSON.stringify(order?.transaction, null, 2)}</pre><button onClick={() => setReview(false)}>已查看，填写交易哈希</button>
+      <p>使用本地 Supervisor 账户工具签名并广播以下交易，再回到此处粘贴交易哈希。平台直接向节点核验收款、金额和数据。</p><pre>{JSON.stringify(order?.transaction, null, 2)}</pre><button type="button" onClick={() => setReview(false)}>已查看，填写交易哈希</button>
     </dialog>
   </div>
 }
@@ -71,7 +71,7 @@ export function BkcSubscription({ releaseId, owned, subscribed, onChanged }: { r
   }
   return <div className="bkc-offer">
     {offer && <><strong>{offer.amount_bkc} BKC / 当前版本</strong><small>{offer.terms}</small><small className="break-anywhere">收款 {offer.recipient}</small></>}
-    {owned && loaded && !offer && <details><summary>设置 BKC 订阅价格</summary><p>指定 Supervisor 收款账户。保存后此版本价格固定；已有订阅保留。</p><label>Supervisor 收款地址<input value={recipient} onChange={e=>setRecipient(e.target.value)} placeholder="0x…" /></label><label>BKC 金额<input aria-label="BKC订阅价格" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} /></label><button disabled={busy} onClick={() => void setPriceOffer()}>固定价格与收款地址</button></details>}
+    {owned && loaded && !offer && <details><summary>设置 BKC 订阅价格</summary><p>指定 Supervisor 收款账户。保存后此版本价格固定；已有订阅保留。</p><label>Supervisor 收款地址<input value={recipient} onChange={e=>setRecipient(e.target.value)} placeholder="0x…" /></label><label>BKC 金额<input aria-label="BKC订阅价格" inputMode="decimal" value={price} onChange={e => setPrice(e.target.value)} /></label><button type="button" disabled={busy} onClick={() => void setPriceOffer()}>固定价格与收款地址</button></details>}
     {!owned && (subscribed ? <small>已订阅此版本</small> : offer ? <ChainOrderPanel kind="subscription" resourceId={releaseId} onConfirmed={onChanged} /> : loaded ? <small>作者尚未设置 BKC 价格</small> : <small>读取订阅价格…</small>)}
     {error && <small role="alert">{error}</small>}
   </div>

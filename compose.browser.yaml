@@ -1,0 +1,54 @@
+# Apply after compose.yaml for a new, independently validated browser deployment.
+# Do not apply to a running legacy volume with unfinished paid Proof work.
+services:
+  api:
+    cpus: 1.9
+    mem_limit: 1792m
+    memswap_limit: 1792m
+    pids_limit: 128
+    environment:
+      ATLAS_COMPUTE_MODE: browser
+      ATLAS_CLOUD_PROOF_GENERATION: 'false'
+      ATLAS_OBJECT_ROOT: /app/backend/.data/objects
+      ATLAS_PUBLIC_DATA_URL: ${ATLAS_PUBLIC_DATA_URL:-/api/v1/market/files}
+      ATLAS_PUBLIC_ARTIFACT_URL: ${ATLAS_PUBLIC_ARTIFACT_URL:-/api/v1/public-artifacts}
+  web:
+    cpus: 0.1
+    mem_limit: 128m
+    memswap_limit: 128m
+    environment:
+      ATLAS_PUBLIC_CDN_ORIGINS: ${ATLAS_PUBLIC_CDN_ORIGINS:-}
+  market-publisher:
+    image: ${ATLAS_API_IMAGE:-atlas-quant-api:local}
+    platform: linux/amd64
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    cpus: 0.5
+    mem_limit: 512m
+    memswap_limit: 512m
+    environment:
+      ATLAS_OBJECT_ROOT: /app/backend/.data/objects
+      ATLAS_PUBLIC_DATA_URL: ${ATLAS_PUBLIC_DATA_URL:-/api/v1/market/files}
+    command: [python, -m, app.data.publish_market, --config, /app/market-publication.json, --interval, '300']
+    volumes:
+      - atlas-data:/app/backend/.data
+      - ${ATLAS_MARKET_CONFIG:-./config/market-publication.example.json}:/app/market-publication.json:ro
+    networks:
+      atlas-internal:
+        ipv4_address: ${ATLAS_MARKET_PUBLISHER_IP:-172.30.120.4}
+    tmpfs:
+      - /tmp:size=64m,mode=1777,noexec,nosuid
+    healthcheck:
+      test: [CMD, python, -c, "import json; from app.market_publication import MarketPublication; p = MarketPublication(); assert all((m := p.lookup(q)) and set(q.get('base_currencies', [])) <= set(m.get('conversions', {})) for q in json.load(open('/app/market-publication.json')))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 4
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}

@@ -1,13 +1,13 @@
 # Atlas Quant Lab 部署与源码分享
 
-更新于 2026-11-09。下面的源码与离线安装路线对应公开分支和既有镜像包。r23 本机验收见[当前版本](docs/CURRENT_STATUS.md)。
+更新于 2026-11-09。公开分支包含 r23 源码。既有离线镜像包使用各自的手册。r23 本机验收见[当前版本](docs/CURRENT_STATUS.md)。
 
 ## 选择运行方式
 
 | 需求 | 入口 |
 | --- | --- |
 | 本机修改源码 | [README 本地启动](README.md#本地启动)，前后端双终端；不需要链 |
-| 从源码构建Web/API容器 | [构建前置条件](docs/DEPLOYMENT.md#构建前置条件)，准备固定Linux验证器，再使用 `compose.yaml` |
+| 从源码运行 r23 Docker | [构建前置条件](docs/DEPLOYMENT.md#构建前置条件)和[浏览器计算说明](docs/BROWSER_COMPUTE.md)，叠加 `compose.browser.yaml` 运行行情发布器 |
 | 固定镜像离线安装 | [基础离线部署](docs/LAB_OFFLINE_DEPLOYMENT.md)，Web/API两镜像、默认关闭新付款 |
 | 完整实验室测试链 | [完整链部署](docs/LAB_CHAIN_DEPLOYMENT.md)，四镜像及三卷持久化，支持测试BKC流程 |
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { cycleDialogTab } from './dialogKeyboard'
 import { indicatorCatalog, type IndicatorSettings } from '../chartIndicators'
 export function IndicatorPicker({ toolbar, onToolbar, selected, settings, onToggle, onSettings, onClose, volume, macd, onVolume, onMacd }: {
   toolbar: Set<string>; onToolbar: (key: string) => void;
@@ -7,10 +8,16 @@ export function IndicatorPicker({ toolbar, onToolbar, selected, settings, onTogg
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [search, setSearch] = useState('')
-  useEffect(() => { const node = dialog.current; node?.showModal(); return () => node?.close() }, [])
-  return <dialog className="atlas-indicator-dialog" ref={dialog} onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose() }} aria-labelledby="indicator-title">
+  useEffect(() => {
+    const node = dialog.current
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    node?.showModal()
+    node?.querySelector<HTMLInputElement>('input')?.focus()
+    return () => { node?.close(); previous?.focus() }
+  }, [])
+  return <dialog className="atlas-indicator-dialog" ref={dialog} onKeyDown={event => cycleDialogTab(event.nativeEvent, event.currentTarget)} onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose() }} aria-labelledby="indicator-title">
     <header><div><h3 id="indicator-title">技术指标</h3><small>勾选指标控制图表显示；“显示在顶部”独立控制快捷按钮。</small></div><button onClick={onClose} aria-label="关闭指标选择">×</button></header>
-    <input autoFocus aria-label="搜索技术指标" placeholder="搜索名称，例如 RSI、均线" value={search} onChange={e => setSearch(e.target.value)} />
+    <input aria-label="搜索技术指标" placeholder="搜索名称，例如 RSI、均线" value={search} onChange={e => setSearch(e.target.value)} />
     <div className="indicator-picker-list">
       {[{ key: 'volume', label: 'VOL · 成交量', enabled: volume, toggle: onVolume }, { key: 'macd', label: 'MACD (12, 26, 9)', enabled: macd, toggle: onMacd }].filter(x => x.label.toLowerCase().includes(search.toLowerCase())).map(x => <div className="indicator-picker-row" key={x.key}><label><input type="checkbox" checked={x.enabled} onChange={e => x.toggle(e.target.checked)} />{x.label}<small>副图</small></label><label className="indicator-pin"><input type="checkbox" checked={toolbar.has(x.key)} onChange={() => onToolbar(x.key)} />显示在顶部</label></div>)}
       {indicatorCatalog.filter(x => x.label.toLowerCase().includes(search.toLowerCase())).map(x => <div className="indicator-picker-row" key={x.key}>

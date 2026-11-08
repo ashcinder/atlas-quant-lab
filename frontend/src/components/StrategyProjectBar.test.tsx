@@ -16,6 +16,20 @@ beforeEach(() => { vi.mocked(api.searchAssets).mockResolvedValue([asset, stock])
 afterEach(cleanup)
 
 describe('StrategyProjectBar', () => {
+  it('asks before discarding an edited project and preserves it when cancelled', () => {
+    render(<StrategyProjectBar projects={[project]} project={project} asset={asset} interval="1d" busy={false} onSelect={vi.fn()} onCreate={vi.fn()} onUpdate={vi.fn()} onFreeze={vi.fn()} onGoTab={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '编辑项目定义' }))
+    fireEvent.change(screen.getByLabelText('项目名称'), { target: { value: 'Unstored project title' } })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByRole('alertdialog').textContent).toContain('未保存')
+    fireEvent.click(screen.getByRole('button', { name: '取消，保留当前内容' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect((screen.getByLabelText('项目名称') as HTMLInputElement).value).toBe('Unstored project title')
+    fireEvent.click(screen.getByRole('button', { name: '关闭项目编辑器' }))
+    fireEvent.click(screen.getByRole('button', { name: '放弃修改并关闭' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('creates a project from an explicit, falsifiable thesis', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
     render(<StrategyProjectBar

@@ -251,3 +251,86 @@ def test_report_metrics_must_match_proof_even_if_resigned(tmp_path):
     assert result['record_integrity_valid']
     assert not result['external_proof_verified']
     assert not result['verification_claims']['bounded_program_backtest']
+
+
+def test_proof_outage_returns_503_and_original_receipt_can_be_reverified(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.zkp import Risc0ReceiptVerifier
+    from app.zkp_api import proof_inspection_router
+
+    _, proofs, created, _ = setup(tmp_path)
+    proof = proofs.register_receipt(
+        created["agent"]["id"], "atlas_sma_backtest_risc0_v1", b"receipt", created["developer_token"]
+    )
+    app = FastAPI()
+    app.include_router(proof_inspection_router(proofs))
+    client = TestClient(app)
+    path = f"/api/v1/quantjudge/zk-proofs/{proof['id']}/verify"
+    with monkeypatch.context() as unavailable:
+        unavailable.setattr(proofs, "verifier", Risc0ReceiptVerifier(tmp_path / "missing-verifier"))
+        response = client.post(path)
+        assert response.status_code == 503
+        assert response.json() == {"detail": "真实证明验证器不可用"}
+    assert client.post(path).json()["valid"] is True
+
+
+@pytest.mark.parametrize("artifact", ["receipt", "market"])
+def test_matching_bytes_behind_a_symlink_do_not_bypass_proof_storage_boundary(tmp_path, artifact):
+    _, proofs, created, verifier = setup(tmp_path)
+    proof = proofs.register_receipt(
+        created["agent"]["id"], "atlas_sma_backtest_risc0_v1", b"receipt", created["developer_token"]
+    )
+    market_hash = verifier.statement["market_data_hash"]
+    read = (lambda: proofs.receipt_path(proof["id"])) if artifact == "receipt" else (lambda: proofs.market_dataset(market_hash)[1])
+    path = read()
+    outside = tmp_path / "outside"
+    path.rename(outside)
+    path.symlink_to(outside)
+    with pytest.raises(ZkProofError, match="文件路径越界"):
+        read()
+
+
+def test_proof_endpoint_rejects_a_bound_report_with_resigned_wrong_metrics(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.quantjudge import canonical_json
+    from app.zkp_api import proof_inspection_router
+
+    quant, proofs, created, _ = setup(tmp_path)
+    proof = proofs.register_receipt(
+        created["agent"]["id"], "atlas_sma_backtest_risc0_v1", b"receipt", created["developer_token"]
+    )
+    report = quant.publish_zk_report(created["agent"]["id"], proof["id"], created["developer_token"])
+    with quant._connect() as db:
+        row = db.execute("SELECT receipt_payload_json FROM qj_reports WHERE id=?", (report["id"],)).fetchone()
+        payload = json.loads(row["receipt_payload_json"])
+        payload["metrics"]["total_return"] = 9.99
+        encoded = canonical_json(payload)
+        digest = sha256_hex(encoded)
+        db.execute(
+            "UPDATE qj_reports SET receipt_payload_json=?,receipt_hash=?,attestation_signature=?,metrics_json=? WHERE id=?",
+            (encoded, digest, quant.attestor.sign(digest), canonical_json(payload["metrics"]), report["id"]),
+        )
+    app = FastAPI()
+    app.include_router(proof_inspection_router(proofs))
+    response = TestClient(app).post(f"/api/v1/quantjudge/zk-proofs/{proof['id']}/verify")
+    assert response.status_code == 409
+    assert "市场公开收益与证明报告不一致" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("output", ["timeout", "broken_json"])
+def test_verifier_failure_does_not_return_a_successful_receipt(tmp_path, monkeypatch, output):
+    import subprocess
+    from app.zkp import Risc0ReceiptVerifier
+
+    binary = tmp_path / "verifier"
+    binary.write_text("placeholder")
+    binary.chmod(0o700)
+    def invoke(*args, **kwargs):
+        if output == "timeout":
+            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+        return subprocess.CompletedProcess(args[0], 0, stdout="{broken", stderr="")
+    monkeypatch.setattr("app.zkp.subprocess.run", invoke)
+    with pytest.raises(ZkProofError):
+        Risc0ReceiptVerifier(binary).verify(tmp_path / "receipt", IMAGE_ID)
