@@ -1,8 +1,8 @@
 # QuantJudge 证明与 Supervisor 接入
 
-> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+> 下面的 API 和测试 BKC 流程对应公开分支。本机 r23 的新 Proof 由作者设备生成，平台验证 receipt。[版本与验收边界](CURRENT_STATUS.md)
 
-QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。说明于2026-10-30按 `4be31bf` 核对。证据需区分平台验算、真正的zkVM执行证明与链上存证。当前界面仍有 `LIVE/实盘类报告` 标签，它来自报告自报分类，不是交易所来源或真实收益已验证的保证；应以实际核验结论为准。
+QuantJudge 是 Atlas Quant Lab 的量化策略 / AI Agent 展示、跑分与订阅市场。证据需区分平台验算、真正的zkVM执行证明与链上存证。当前界面仍有 `LIVE/实盘类报告` 标签，它来自报告自报分类，不是交易所来源或真实收益已验证的保证；应以实际核验结论为准。
 
 ## 隐私层级
 

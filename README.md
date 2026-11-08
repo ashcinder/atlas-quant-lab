@@ -1,12 +1,12 @@
-# Atlas Quant Lab · QuantJudge
+# DeAI Quant Hub · QuantJudge
 
-多用户量化策略研究、历史回测与资产账本平台。前端为React/TypeScript，业务后端为FastAPI/SQLite；完整实验室测试链另运行Supervisor与MySQL。
+DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平台，代码仓库沿用 Atlas Quant Lab 名称。前端使用 React / TypeScript，业务后端使用 FastAPI / SQLite，完整实验室栈另运行 Supervisor 与 MySQL。
 
-当前实现基线为 [4be31bf](https://github.com/ashcinder/atlas-quant-lab/commit/4be31bf4a4457829cd5581c0463d198948f09aa9)，文档更新于2026-10-30。各指南与历史记录的适用范围见[当前版本与验收边界](docs/CURRENT_STATUS.md)和[全量文档清单](docs/DOCUMENTATION_SYNC_20261030.md)。本项目用于研究和历史模拟；实盘默认关闭，接口存在不代表真实资金联调完成。
+本页启动步骤对应 `QuantJudge` 分支的公开源码，应用基线为 `f10358f`。更新于 2026-11-09。本机另有通过验收的 r23 构建，采用浏览器计算和独立行情发布器。r23 的源码与镜像尚未在此分支发布。版本差异见[当前版本与验收边界](docs/CURRENT_STATUS.md)。
 
 ## 文档入口
 
-2026-11-05新增：[完整回测Proof优化与安全修复](docs/proof-optimization.md)，包括已测guest源码、构建/验真工具、500根实测及尚未完成的验收。新guest仍为隔离实验，正式v2和旧Proof身份保持。
+公开分支包含[完整回测 Proof 优化实验](docs/proof-optimization.md)，包括 guest 源码、构建与验真工具和 500 根 K 线实测。优化 guest 仍用于独立实验，正式登记继续使用原有 v2 验证身份。
 
 | 任务 | 指南 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | 评分与证据 | [QuantJudge](docs/QUANTJUDGE.md)、[执行与隐私](docs/EXECUTION_TRUST.md)、[ZKP协议](docs/ZKP.md)、[本地代码到Proof](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
 | 结构与产品 | [项目结构](docs/PROJECT_STRUCTURE.md)、[架构](docs/ARCHITECTURE.md)、[产品范围](docs/PRD.md) |
 
-## 已有功能
+## 公开分支功能
 
 - **行情与回测**：加密货币、A/H股、美股、ETF、指数、外汇和商品，当前A股目录20只；15m/1h/4h/日/周线。提供均线、动量、网格、定投等规则及受限Python单标的回测，另有全天候/风险平价/60-40组合实验。真实源失败明确报错，演示数据需显式选择。
 - **成本与风控**：收盘生成信号、下一根开盘成交，费用、滑点、价差、仓位和参与率约束；图表、成交记录与净值使用实际引擎结果。完整A股成交规则和券商接入尚未完成。
@@ -73,13 +73,13 @@ cd backend && .venv/bin/pytest
 cd ../frontend && npm test && npm run lint && npm run build
 ```
 
-4be31bf已有后端609、前端149及账本63项通过和源码CI成功；本地完整Docker、DeepSeek、测试链新付款/Proof与冷备恢复亦有记录。它们各有独立验收范围，见[统一状态](docs/CURRENT_STATUS.md#已有验收与待验证)。CI不自动构建镜像或验收真实模型/链/TEE。24小时观察及目标服务器原生/HTTPS/成员环境仍需另验，本次文档修订不宣称上线完成。
+既有源码 CI、完整 Docker、DeepSeek、测试链 Proof 与冷备恢复结果各有对应的版本和环境。本机 r23 的三引擎验收、50 个浏览器会话持续一小时和本机 Docker 更新另行记录。[验收与待验证事项](docs/CURRENT_STATUS.md#已有验收与待验证)
 
 ## 运行约束
 
 API必须单worker；重计算任务共享每账号1项、全局2项预算，超额429。后台研究和Proof生成持有额度至结束，轮询状态不占额度。前端、API代理信任地址需明确配置，HTTPS使用Secure Cookie。云模型Key只在当前会话内存最多8小时，重启需重新配置。
 
-金融指标为当前带时间戳快照，不自动回填历史回测；K线使用原始报价币种，多资产组合另做基准币种换算。研究/提醒/定投依赖后端持续运行，浏览器关闭不等于后端停止。
+金融指标是带时间戳的快照。单标的 K 线使用原报价币种，多资产组合按基准币种换算。公开分支的后端研究、提醒和定投依赖服务持续运行；本机 r23 的浏览器任务与页面生命周期绑定。[版本差异](docs/CURRENT_STATUS.md#版本与交付状态)
 
 ## 界面预览
 

@@ -1,6 +1,6 @@
 # 实验室离线镜像部署
 
-> 当前指南：2026-10-31整改实现，基于20261030运行版；最终验收以交付清单和随包报告为准；环境验收与限制见[统一状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)。
+> 本文适用于 2026-10-31 整改后的既有离线镜像包，验收以交付清单及随包报告为准。版本范围见[统一状态](CURRENT_STATUS.md)。
 
 本文为基础Web/API两镜像路线。需要测试链付款、新Proof和存证时使用[完整四镜像路线](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/LAB_CHAIN_DEPLOYMENT.md)，不要将基础模板原样当作完整服务配置。
 

@@ -1,6 +1,6 @@
 # 实验室完整链依赖交付
 
-> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](https://github.com/ashcinder/atlas-quant-lab/blob/QuantJudge/docs/CURRENT_STATUS.md)。
+> 本文适用于既有完整测试链镜像包。版本范围见[统一状态](CURRENT_STATUS.md)。
 
 本模式在Web/API之外增加Supervisor和MySQL两套固定Linux amd64镜像。它创建独立实验室单节点测试链，BKC余额为初始化测试额度；不能接入真实资金或称为正式共识网络。已有服务器的正式Supervisor网络及旧订单不自动迁移。空卷会产生新的创世块，不能核验绑定另一创世块的旧订单。
 

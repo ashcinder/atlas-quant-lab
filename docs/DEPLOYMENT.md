@@ -1,6 +1,6 @@
 # 私有部署与运维
 
-更新：2026-10-30，实现基线 `4be31bf`。当前能力见[版本说明](CURRENT_STATUS.md)；源码分享见[DEPLOY](../DEPLOY.md)。
+本文说明公开分支的私有部署及既有离线镜像的运维流程。r23 本机验收及版本范围见[当前版本](CURRENT_STATUS.md)。源码分享见[DEPLOY](../DEPLOY.md)。
 
 ## 运行路线
 

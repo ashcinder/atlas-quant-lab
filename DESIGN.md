@@ -1,8 +1,6 @@
 # 策略实验室设计记录
 
-> 设计/准备材料：按4be31bf核对适用边界，设想与代码准备不等于已完成部署；已验收能力见[当前状态](docs/CURRENT_STATUS.md)。
-
-> 当前能力说明于2026-10-30按QuantJudge `4be31bf` 校准；各日期保留设计沿革，不代表本轮浏览器或外部账户验收。当前使用见 [README](README.md)。
+> 本文保留策略实验室的交互设计及沿革。已验收的界面、浏览器和执行环境见[当前状态](docs/CURRENT_STATUS.md)，使用入口见 [README](README.md)。
 
 **范围**：仅 `策略实验室 / 工作流`（`GuidedWorkflow`）surface；不定义或替换全站样式。
 

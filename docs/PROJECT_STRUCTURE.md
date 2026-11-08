@@ -1,6 +1,6 @@
 # 项目目录说明
 
-> 当前指南：按QuantJudge实现4be31bf核对（2026-10-30）；环境验收与限制见[统一状态](CURRENT_STATUS.md)。
+> 目录以 QuantJudge 公开分支为准。本机 r23 的服务与发布状态另见[统一状态](CURRENT_STATUS.md)。
 
 Atlas Quant Lab 采用一个仓库管理前端、后端和策略开发工具链。根目录只保留能够独立说明职责的一级模块。
 
