@@ -24,7 +24,7 @@ const post = <T,>(path: string, body = {}) => request<T>(`/trading${path}`, { me
 const money = (value: string | number, currency: string) => `${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })} ${currency}`
 const balanceAmount = (value: string) => value.replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')
 const pct = (value: string) => `${Number(value) >= 0 ? '+' : ''}${(Number(value) * 100).toFixed(2)}%`
-const intervalNames: Record<Interval, string> = { '15m': '15 分钟', '1h': '1 小时', '4h': '4 小时', '1d': '日线', '1wk': '周线' }
+const intervalNames: Record<Interval, string> = { '1m': '1 分钟', '5m': '5 分钟', '15m': '15 分钟', '1h': '1 小时', '4h': '4 小时', '1d': '日线', '1wk': '周线' }
 const signalStates: Record<string, string> = { queued: '待执行', filled: '已成交', partially_filled: '部分成交', recommendation: '待人工确认' }
 const runCurrency = (run: StrategyRun) => run.currency ?? (run.market === 'CN' ? 'CNY' : run.market === 'US' || run.symbol.endsWith('-USD') ? 'USD' : 'USDT')
 const moment = (value: number | string) => new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(typeof value === 'number' ? value * 1000 : value))

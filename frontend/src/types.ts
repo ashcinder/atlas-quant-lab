@@ -1,4 +1,4 @@
-export type Interval = '15m' | '1h' | '4h' | '1d' | '1wk'
+export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk'
 export type DataSource = 'auto' | 'yahoo' | 'binance' | 'demo'
 export type Adjustment = 'auto' | 'raw' | 'forward' | 'backward'
 export type BaseCurrency = 'CNY' | 'USD' | 'USDT'

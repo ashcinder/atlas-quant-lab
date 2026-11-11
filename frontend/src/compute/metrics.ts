@@ -3,7 +3,7 @@ import type { MetricMap, RegimeMap } from './model'
 import { finite, mean, std, rolling, pctChange } from './indicators'
 export function periodsPerYear(interval:Interval,assetClass:string):number {
   const crypto=assetClass==='crypto', days=crypto?365:252
-  const factors:Record<Interval,number>={'15m':days*(crypto?96:26),'1h':days*(crypto?24:6.5),'4h':days*(crypto?6:1.625),'1d':days,'1wk':52}
+  const factors:Record<Interval,number>={'1m':days*1440,'5m':days*288,'15m':days*(crypto?96:26),'1h':days*(crypto?24:6.5),'4h':days*(crypto?6:1.625),'1d':days,'1wk':52}
   return factors[interval]
 }
 export function drawdownSeries(equity:number[]):number[] { let peak=-Infinity;return equity.map(x=>{peak=Math.max(peak,x);return peak?x/peak-1:NaN}) }

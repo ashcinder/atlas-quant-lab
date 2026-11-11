@@ -19,7 +19,7 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  const bars=market.bars;if(bars.length<40)throw new Error('至少需要40根K线才能回测')
  for(let i=0;i<bars.length;i++){const b=bars[i];if(![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||b.open<=0||b.close<=0||b.high<=0||b.low<=0||b.volume<0||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||(i>0&&b.time<=bars[i-1].time))throw new Error('行情存在缺失、非有限值、无效价格或重复/乱序时间，不能回测')}
  const interval=String(request.interval??market.interval??'1d') as Interval
- if(!['15m','1h','4h','1d','1wk'].includes(interval))throw new Error('不支持的K线周期')
+ if(!['1m','5m','15m','1h','4h','1d','1wk'].includes(interval))throw new Error('不支持的K线周期')
  const adjustment=String(request.adjustment??market.adjustment??'auto') as Adjustment
  if(!['auto','raw','forward','backward'].includes(adjustment))throw new Error('不支持的复权方式')
  const initial=requestNumber(request,'initial_capital',100000,0,Infinity,false),spread=requestNumber(request,'spread_rate',.0005,0,.1)

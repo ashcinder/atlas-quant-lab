@@ -36,7 +36,7 @@ class DataBundle:
 
 
 class MarketDataService:
-    CACHE_TTL_SECONDS = {"15m": 15, "1h": 30, "4h": 60, "1d": 120, "1wk": 300}
+    CACHE_TTL_SECONDS = {"1m": 5, "5m": 10, "15m": 15, "1h": 30, "4h": 60, "1d": 120, "1wk": 300}
 
     def __init__(self, cache_dir: Path = CACHE_DIR):
         self.cache_dir = cache_dir
@@ -126,6 +126,10 @@ class MarketDataService:
         asset = find_asset(symbol, asset_class)
         if asset.asset_class == "unknown":
             asset.asset_class = asset_class
+        if interval in {"1m", "5m"} and asset.asset_class != "crypto":
+            raise ProviderError("1分钟和5分钟K线目前仅支持加密货币")
+        if interval in {"1m", "5m"} and provider_hint not in {None, "binance"}:
+            raise ProviderError("该来源暂不支持1分钟和5分钟K线")
         if provider_hint is not None:
             if provider_hint not in self.providers or provider_hint == "demo":
                 raise ValueError("不支持的行情来源")
@@ -134,7 +138,7 @@ class MarketDataService:
             candidates = [source]
         if provider_hint is None and source in {"auto", "yahoo"}:
             if asset.asset_class == "crypto":
-                candidates = ["binance", "yahoo"]
+                candidates = ["binance"] if interval in {"1m", "5m"} else ["binance", "yahoo"]
             elif asset.exchange == "HKEX":
                 candidates = ["tencent", "yahoo"]
             else:

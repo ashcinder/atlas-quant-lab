@@ -258,11 +258,53 @@ def strategies(mode: str | None = Query(default=None, pattern="^(single|portfoli
     return list_strategies(mode)
 
 
+@app.get("/api/v1/market/chart", response_model=MarketDataResponse)
+def crypto_chart(
+    symbol: str = Query(min_length=1, max_length=64),
+    interval: str = Query(pattern="^(1m|5m|15m|1h|4h|1d|1wk)$"),
+    adjustment: str = Query(default="auto", pattern="^(auto|raw|forward|backward)$"),
+    before: int | None = Query(default=None, gt=0, le=253402300799),
+):
+    """Read one live Binance chart page without changing published backtest data."""
+    asset = find_asset(symbol, "crypto")
+    if asset.asset_class != "crypto":
+        raise HTTPException(400, "此图表接口仅支持加密货币")
+    if not market_history_slots.acquire(blocking=False):
+        raise HTTPException(429, "行情请求较多，请稍后重试")
+    now = datetime.now(UTC)
+    try:
+        try:
+            end = datetime.fromtimestamp(before - 0.001, UTC) if before is not None else None
+            frame = data_service.providers["binance"].fetch_bars(asset, interval, None, end, adjustment)
+        except NoMarketData as exc:
+            if before is None:
+                raise HTTPException(502, "币安未返回该交易对的行情") from exc
+            frame = None
+        except ProviderError as exc:
+            raise HTTPException(502, str(exc)) from exc
+    finally:
+        market_history_slots.release()
+    bars = []
+    if frame is not None:
+        import math
+        for index, row in frame.iterrows():
+            bar = {"time": int(index.timestamp()), "open": float(row.open), "high": float(row.high),
+                   "low": float(row.low), "close": float(row.close), "volume": float(row.volume)}
+            if not all(math.isfinite(bar[key]) for key in ("open", "high", "low", "close", "volume")) or min(bar["open"], bar["high"], bar["low"], bar["close"]) <= 0 or bar["volume"] < 0 or bar["high"] < max(bar["open"], bar["close"]) or bar["low"] > min(bar["open"], bar["close"]):
+                raise HTTPException(502, "交易所返回了无效K线")
+            if before is None or bar["time"] < before:
+                bars.append(bar)
+    return MarketDataResponse(asset=asset, interval=interval, adjustment=adjustment, source="binance",
+        source_note="币安实时图表；历史回测使用已发布数据", fetched_at=int(now.timestamp()),
+        last_bar_time=bars[-1]["time"] if bars else int((end or now).timestamp()),
+        cache_hit=False, is_stale=False, bars=bars, indicators={})
+
+
 @app.get("/api/v1/market/bars", response_model=MarketDataResponse)
 def market_bars(
     symbol: str = "BTC-USD",
     asset_class: str = "crypto",
-    interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$"),
+    interval: str = Query(default="1d", pattern="^(1m|5m|15m|1h|4h|1d|1wk)$"),
     source: str = Query(default="auto", pattern="^(auto|yahoo|binance|demo)$"),
     provider: str | None = Query(default=None, pattern="^(binance|yahoo|sina|tencent)$"),
     adjustment: str = Query(default="auto", pattern="^(auto|raw|forward|backward)$"),
@@ -283,6 +325,8 @@ def market_bars(
         if start >= end:
             raise HTTPException(status_code=422, detail="开始时间必须早于结束时间")
         interval_seconds = {
+            "1m": 60,
+            "5m": 5 * 60,
             "15m": 15 * 60,
             "1h": 60 * 60,
             "4h": 4 * 60 * 60,
@@ -708,7 +752,7 @@ def list_zkp_profiles():
 def create_zkp_market_dataset(
     symbol: str = Query(default="BTC-USD", min_length=1, max_length=40),
     asset_class: str = Query(default="crypto", min_length=1, max_length=40),
-    interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$"),
+    interval: str = Query(default="1d", pattern="^(1m|5m|15m|1h|4h|1d|1wk)$"),
     source: str = Query(default="auto", pattern="^(auto|yahoo|binance)$"),
     adjustment: str = Query(default="raw", pattern="^(auto|raw|forward|backward)$"),
     refresh: bool = False,
@@ -765,7 +809,7 @@ def create_zkp_market_dataset(
 
 
 @app.post("/api/v1/quantjudge/zkp/database-history")
-def create_database_history(symbol: str = "BTC-USD", interval: str = Query(default="1d", pattern="^(15m|1h|4h|1d|1wk)$")):
+def create_database_history(symbol: str = "BTC-USD", interval: str = Query(default="1d", pattern="^(1m|5m|15m|1h|4h|1d|1wk)$")):
     """Freeze all closed Binance candles already stored for this instrument."""
     from app.catalog import find_asset
     from app.zkp_dataset import closed_frame

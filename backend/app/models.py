@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.backtest.pipeline import ExecutionPipeline
 
-Interval = Literal["15m", "1h", "4h", "1d", "1wk"]
+Interval = Literal["1m", "5m", "15m", "1h", "4h", "1d", "1wk"]
 Adjustment = Literal["auto", "raw", "forward", "backward"]
 
 

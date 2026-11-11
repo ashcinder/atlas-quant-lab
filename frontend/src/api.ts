@@ -5,6 +5,7 @@ import type {
   DataSource,
   FundamentalsResponse,
   Interval,
+  MarketData,
   PortfolioResult,
   RunSummary,
   Strategy,
@@ -55,6 +56,11 @@ export const api = {
     adjustment: Adjustment,
     options: { signal?: AbortSignal; refresh?: boolean; start?: string; end?: string; provider?: string } = {},
   ) {
+    if (assetClass === 'crypto' && (options.provider === 'binance' || (!options.provider && (source === 'auto' || source === 'binance')))) {
+      const params = new URLSearchParams({ symbol, interval, adjustment })
+      if (options.end) params.set('before', String(Math.floor(Date.parse(options.end) / 1000) + 1))
+      return request<MarketData>(`/market/chart?${params}`, { signal: options.signal })
+    }
     return browserCompute.getMarket(symbol, assetClass, interval, source, adjustment, options)
   },
   getFundamentals(

@@ -29,6 +29,8 @@ interface Props {
 }
 
 const intervals: Array<{ value: Interval; label: string }> = [
+  { value: '1m', label: '1分' },
+  { value: '5m', label: '5分' },
   { value: '15m', label: '15分' },
   { value: '1h', label: '1时' },
   { value: '4h', label: '4时' },
@@ -69,7 +71,7 @@ export function TopBar(props: Props) {
       {props.mode === 'single' ? (
         <>
           <div className="segmented compact" aria-label="K线周期">
-            {intervals.map((item) => (
+            {intervals.filter((item) => props.asset?.asset_class === 'crypto' || !['1m', '5m'].includes(item.value)).map((item) => (
               <button key={item.value} aria-pressed={props.interval === item.value} className={props.interval === item.value ? 'is-active' : ''} onClick={() => props.onInterval(item.value)}>
                 {item.label}
               </button>

@@ -5,7 +5,7 @@ import { generatePythonTargets } from './pythonProgram'
 import type { PythonInstruction } from './pythonProgram'
 export interface RuntimeSignal {bar_time:number;target:number;reason:string}
 export function computeRuntimeSignal(request:Record<string,unknown>,market:MarketInput,nowSeconds=Date.now()/1000):RuntimeSignal{
- const interval=(request.interval??market.interval??'1d') as Interval,duration=({'15m':900,'1h':3600,'4h':14400,'1d':86400,'1wk':604800})[interval]
+ const interval=(request.interval??market.interval??'1d') as Interval,duration=({'1m':60,'5m':300,'15m':900,'1h':3600,'4h':14400,'1d':86400,'1wk':604800})[interval]
  if(!duration)throw new Error('不支持的K线周期')
  const bars=market.bars.filter(b=>b.time<=nowSeconds-duration)
  if(!bars.length)throw new Error('没有已收盘K线，无法生成信号')

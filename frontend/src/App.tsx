@@ -216,7 +216,8 @@ export default function App() {
     setFundamentals(null)
     setFundamentalsError(null)
     setAsset(nextAsset)
-    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class, interval: researchInterval, source: sourceForAssetClass(preferences.source, nextAsset.asset_class) }
+    const safeInterval = nextAsset.asset_class !== 'crypto' && ['1m', '5m'].includes(researchInterval) ? '15m' : researchInterval
+    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class, interval: safeInterval, source: sourceForAssetClass(preferences.source, nextAsset.asset_class) }
     setPreferences(next)
     loadMarket(nextAsset, next.interval, next.source, next.adjustment)
   }, [loadMarket, preferences])
@@ -275,7 +276,7 @@ export default function App() {
 
   useEffect(() => {
     if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo') return
-    const refreshMs = preferences.interval === '15m' ? 20_000 : preferences.interval === '1h' ? 30_000 : 60_000
+    const refreshMs = ['1m', '5m'].includes(preferences.interval) ? 10_000 : preferences.interval === '15m' ? 20_000 : preferences.interval === '1h' ? 30_000 : 60_000
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadMarket(
@@ -299,7 +300,7 @@ export default function App() {
       setError('回测开始时间必须早于结束时间'); return
     }
     if (start && end) {
-      const intervals = { '15m': { minutes: 15, label: '15分钟' }, '1h': { minutes: 60, label: '小时线' }, '4h': { minutes: 240, label: '4小时线' }, '1d': { minutes: 1440, label: '日线' }, '1wk': { minutes: 10080, label: '周线' } }
+      const intervals = { '1m': { minutes: 1, label: '1分钟' }, '5m': { minutes: 5, label: '5分钟' }, '15m': { minutes: 15, label: '15分钟' }, '1h': { minutes: 60, label: '小时线' }, '4h': { minutes: 240, label: '4小时线' }, '1d': { minutes: 1440, label: '日线' }, '1wk': { minutes: 10080, label: '周线' } }
       const interval = intervals[preferences.interval]
       // Conservative upper bound: missing bars and market closures can only reduce it.
       const maximumBars = Math.ceil((Date.parse(end) - Date.parse(start)) / (interval.minutes * 60_000)) + 1
@@ -365,7 +366,7 @@ export default function App() {
   const historyAdjustment = chartAdjustment && ['auto', 'raw', 'forward', 'backward'].includes(chartAdjustment) ? chartAdjustment as Adjustment : undefined
   const loadChartHistory = useCallback<LoadChartHistory>(async (before, signal) => {
     if (!asset || !historyAdjustment) return []
-    const seconds = { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }[preferences.interval]
+    const seconds = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }[preferences.interval]
     const provider = chartSource?.split(':')[0]
     const data = await api.getMarket(asset.symbol, asset.asset_class, preferences.interval,
       provider === 'binance' ? 'binance' : preferences.source, historyAdjustment, {

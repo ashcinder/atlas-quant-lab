@@ -174,7 +174,7 @@ function number(request: Record<string, unknown>, key: string, fallback: number,
 
 export function runPortfolio(request: Record<string, unknown>, markets: MarketInput[], context?: ComputeContext): PortfolioResult {
   const interval = (request.interval ?? '1d') as Interval
-  if (!['15m', '1h', '4h', '1d', '1wk'].includes(interval)) throw new Error('无效K线周期')
+  if (!['1m', '5m', '15m', '1h', '4h', '1d', '1wk'].includes(interval)) throw new Error('无效K线周期')
   const strategy = getStrategy(String(request.strategy_id ?? 'all_weather'))
   if (strategy.mode !== 'portfolio') throw new Error('该策略不支持多资产组合')
   const params = validateParams(strategy.id, (request.params ?? {}) as Record<string, unknown>)

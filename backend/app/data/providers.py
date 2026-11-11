@@ -597,7 +597,7 @@ class BinanceProvider(MarketDataProvider):
         "https://data-api.binance.vision/api/v3/klines",
         "https://api.binance.com/api/v3/klines",
     )
-    INTERVAL_MAP = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d", "1wk": "1w"}
+    INTERVAL_MAP = {"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d", "1wk": "1w"}
 
     def __init__(self) -> None:
         self.client = httpx.Client(timeout=12, follow_redirects=True)
@@ -647,7 +647,7 @@ class BinanceProvider(MarketDataProvider):
                 break
             rows.extend(batch)
             next_cursor = int(batch[-1][0]) + 1
-            if len(batch) < 1000 or (end_ms is not None and next_cursor >= end_ms):
+            if start_ms is None or len(batch) < 1000 or (end_ms is not None and next_cursor >= end_ms):
                 break
             cursor = next_cursor
         if not rows:
@@ -677,8 +677,8 @@ class DemoProvider(MarketDataProvider):
     """Deterministic, clearly-labelled data for offline use and tests."""
 
     name = "demo"
-    FREQUENCY = {"15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D", "1wk": "7D"}
-    DEFAULT_PERIODS = {"15m": 900, "1h": 1000, "4h": 900, "1d": 900, "1wk": 520}
+    FREQUENCY = {"1m": "1min", "5m": "5min", "15m": "15min", "1h": "1h", "4h": "4h", "1d": "1D", "1wk": "7D"}
+    DEFAULT_PERIODS = {"1m": 1000, "5m": 1000, "15m": 900, "1h": 1000, "4h": 900, "1d": 900, "1wk": 520}
 
     def fetch_bars(
         self,
@@ -691,6 +691,8 @@ class DemoProvider(MarketDataProvider):
         end_ts = pd.Timestamp(end or datetime.now(UTC))
         end_ts = end_ts.tz_localize("UTC") if end_ts.tzinfo is None else end_ts.tz_convert("UTC")
         floor_frequency = {
+            "1m": "1min",
+            "5m": "5min",
             "15m": "15min",
             "1h": "1h",
             "4h": "4h",

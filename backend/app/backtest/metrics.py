@@ -10,6 +10,8 @@ from scipy import stats
 def periods_per_year(interval: str, asset_class: str) -> float:
     days = 365 if asset_class == "crypto" else 252
     return {
+        "1m": days * 1440,
+        "5m": days * 288,
         "15m": days * (96 if asset_class == "crypto" else 26),
         "1h": days * (24 if asset_class == "crypto" else 6.5),
         "4h": days * (6 if asset_class == "crypto" else 1.625),
