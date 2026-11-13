@@ -54,3 +54,5 @@
 
 .template-strategy-workspace button:hover:not(:disabled), .pipeline-edit-rules:hover { background: var(--surface-selected); border-color: var(--accent); }
 .template-strategy-workspace button:disabled { opacity: 1; background: var(--panel); color: var(--muted); cursor: not-allowed; border-style: dashed; }
+
+:where(.quant-workspace) .lab-code-heading { display: flex; align-items: center; gap: 8px; padding: 0 18px; flex: 0 0 auto; min-width: 112px; border-right: 1px solid var(--border); color: var(--text); font-size: 13px; font-weight: 600; }

@@ -24,7 +24,7 @@ beforeEach(() => {
   mock.fit.mockClear(); mock.setRange.mockClear()
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   vi.stubGlobal('requestAnimationFrame', (fn: FrameRequestCallback) => { fn(0); return 0 })
-  localStorage.clear()
+  vi.stubGlobal('localStorage', { getItem: vi.fn(() => null), setItem: vi.fn(), clear: vi.fn() })
 })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 

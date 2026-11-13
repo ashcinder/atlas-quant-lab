@@ -47,6 +47,6 @@ export function indicatorValues(bars:Bar[]):Record<string,number[]> {
   const k=ewm(rsv,1/3),d=ewm(k,1/3)
   return {sma20:middle,sma50:rolling(close,50),ema12:e12,ema26:e26,macd,macd_signal:signal,macd_hist:macd.map((v,i)=>v-signal[i]),rsi14:rsi(close),boll_mid:middle,boll_upper:middle.map((v,i)=>v+2*deviation[i]),boll_lower:middle.map((v,i)=>v-2*deviation[i]),atr14:atr(bars),kdj_k:k,kdj_d:d,kdj_j:k.map((v,i)=>3*v-2*d[i])}
 }
-export function calculateIndicators(bars:Bar[]):Record<string,IndicatorPoint[]> {
-  return Object.fromEntries(Object.entries(indicatorValues(bars)).map(([key,values])=>[key,values.map((value,i)=>({time:bars[i].time,value:finite(value)}))]))
+export function calculateIndicators(bars:Bar[],maximumPoints=Infinity):Record<string,IndicatorPoint[]> {
+  return Object.fromEntries(Object.entries(indicatorValues(bars)).map(([key,values])=>[key,values.slice(Math.max(0,bars.length-maximumPoints)).map((value,i)=>({time:bars[Math.max(0,bars.length-maximumPoints)+i].time,value:finite(value)}))]))
 }

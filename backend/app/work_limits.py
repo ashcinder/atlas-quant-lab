@@ -32,7 +32,7 @@ def expensive_request(method: str, path: str) -> bool:
     import re
 
     if method == "POST" and path in {
-        "/api/v1/backtests", "/api/v1/portfolio/backtests",
+        "/api/v1/backtests", "/api/v1/backtests/native", "/api/v1/portfolio/backtests",
         "/api/v1/strategy-code/assist", "/api/v1/ai-settings/test",
     }:
         return True

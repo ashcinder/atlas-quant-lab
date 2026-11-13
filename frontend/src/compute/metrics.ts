@@ -1,7 +1,8 @@
 import type { Interval, Trade } from '../types'
 import type { MetricMap, RegimeMap } from './model'
 import { finite, mean, std, rolling, pctChange } from './indicators'
-export function periodsPerYear(interval:Interval,assetClass:string):number {
+export function periodsPerYear(interval:Interval,assetClass:string,exchange?:string):number {
+  if(exchange && ['SSE','SZSE'].includes(exchange))return ({'1m':240,'5m':48,'15m':16,'1h':4,'4h':1,'1d':1,'1wk':52/252})[interval]*252
   const crypto=assetClass==='crypto', days=crypto?365:252
   const factors:Record<Interval,number>={'1m':days*1440,'5m':days*288,'15m':days*(crypto?96:26),'1h':days*(crypto?24:6.5),'4h':days*(crypto?6:1.625),'1d':days,'1wk':52}
   return factors[interval]
@@ -32,12 +33,12 @@ function regularizedBeta(x:number,a:number,b:number):number {
  const front=Math.exp(logGamma(a+b)-logGamma(a)-logGamma(b)+a*Math.log(x)+b*Math.log1p(-x))
  return x<(a+1)/(a+b+2)?front*betaFraction(a,b,x)/a:1-front*betaFraction(b,a,1-x)/b
 }
-export function calculateMetrics(equity:number[],benchmark:number[],trades:Trade[],exposure:number[],interval:Interval,assetClass:string,initialCapital:number):{metrics:MetricMap;warnings:string[]} {
- const factor=periodsPerYear(interval,assetClass),raw=pctChange(equity),benchRaw=pctChange(benchmark),returns=raw.filter(Number.isFinite),drawdown=drawdownSeries(equity)
+export function calculateMetrics(equity:number[],benchmark:number[],trades:Trade[],exposure:number[],interval:Interval,assetClass:string,initialCapital:number,exchange?:string):{metrics:MetricMap;warnings:string[]} {
+ const factor=periodsPerYear(interval,assetClass,exchange),raw=pctChange(equity),benchRaw=pctChange(benchmark),returns=raw.filter(Number.isFinite),drawdown=drawdownSeries(equity)
  const periods=Math.max(returns.length,1),total=equity.at(-1)!/initialCapital-1,years=periods/factor,cagr=equity.at(-1)!>0?(equity.at(-1)!/initialCapital)**(1/years)-1:NaN
  const volatility=returns.length>1?std(returns)*Math.sqrt(factor):0,annual=returns.length?mean(returns)*factor:0,sharpe=volatility>0?annual/volatility:NaN
  const negative=returns.filter(x=>x<0),downside=negative.length>1?std(negative)*Math.sqrt(factor):NaN,sortino=downside>0?annual/downside:NaN
- const maxDD=Math.min(...drawdown.filter(Number.isFinite)),calmar=maxDD<0&&Number.isFinite(cagr)?cagr/Math.abs(maxDD):NaN,var95=returns.length?-percentile(returns,.05):NaN,tail=returns.filter(x=>x<=-var95)
+ const maxDD=drawdown.reduce((minimum,value)=>Number.isFinite(value)?Math.min(minimum,value):minimum,Infinity),calmar=maxDD<0&&Number.isFinite(cagr)?cagr/Math.abs(maxDD):NaN,var95=returns.length?-percentile(returns,.05):NaN,tail=returns.filter(x=>x<=-var95)
  const paired=raw.map((v,i)=>[v,benchRaw[i]]).filter(v=>v.every(Number.isFinite));let information=NaN,beta=NaN
  if(paired.length>1){const a=paired.map(x=>x[0]-x[1]),tracking=std(a)*Math.sqrt(factor);information=tracking>0?mean(a)*factor/tracking:NaN;const bv=paired.map(x=>x[1]),bm=mean(bv),am=mean(paired.map(x=>x[0])),variance=std(bv)**2;beta=variance>0?paired.reduce((s,x)=>s+(x[0]-am)*(x[1]-bm),0)/(paired.length-1)/variance:NaN}
  const sells=trades.filter(t=>t.side==='sell'&&t.realized_pnl!==null),pnls=sells.map(t=>t.realized_pnl!),wins=pnls.filter(x=>x>0),losses=pnls.filter(x=>x<0),sum=(v:number[])=>v.reduce((a,b)=>a+b,0),fees=sum(trades.map(t=>t.fee)),notional=sum(trades.map(t=>t.notional))
@@ -55,8 +56,8 @@ export function classifyRegimes(close:number[]):Array<string|null> {
  const sma50=rolling(close,50),sma200=rolling(close,200),vol=rolling(pctChange(close),20,'std'),avg=rolling(vol,120,'mean',40)
  return close.map((v,i)=>i<200?null:v>sma50[i]&&sma50[i]>sma200[i]&&vol[i]<=avg[i]?'牛市':v<sma50[i]&&sma50[i]<sma200[i]?'熊市':'震荡')
 }
-export function regimeMetrics(equity:number[],close:number[],interval:Interval,assetClass:string):RegimeMap {
- const r=pctChange(equity),b=pctChange(close),regimes=classifyRegimes(close),factor=periodsPerYear(interval,assetClass),output:RegimeMap={}
+export function regimeMetrics(equity:number[],close:number[],interval:Interval,assetClass:string,exchange?:string):RegimeMap {
+ const r=pctChange(equity),b=pctChange(close),regimes=classifyRegimes(close),factor=periodsPerYear(interval,assetClass,exchange),output:RegimeMap={}
  for(const name of ['牛市','熊市','震荡']){const values=r.filter((v,i)=>regimes[i]===name&&Number.isFinite(v)&&Number.isFinite(b[i])),bench=b.filter((v,i)=>regimes[i]===name&&Number.isFinite(v)&&Number.isFinite(r[i])),growth=(v:number[])=>v.reduce((s,x)=>s*(1+x),1),ann=(v:number[])=>v.length&&growth(v)>0?growth(v)**(factor/v.length)-1:NaN,a=ann(values),ba=ann(bench)
  output[name]={periods:values.length,total_return:finite(values.length?growth(values)-1:NaN),benchmark_total_return:finite(bench.length?growth(bench)-1:NaN),average_return:finite(mean(values)),win_period_rate:finite(values.length?values.filter(v=>v>0).length/values.length:NaN),annualized_return:finite(a),benchmark_annualized_return:finite(ba),annualized_excess_return:finite(a-ba)}}
  return output

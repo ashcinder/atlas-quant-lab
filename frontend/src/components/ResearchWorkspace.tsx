@@ -37,13 +37,15 @@ export interface ResearchWorkspaceProps {
   maxParticipation: number
   onLoading: (loading: boolean) => void
   onError: (message: string) => void
-  onCustomResult: (result: BacktestResult, code?: { name: string; source: string; hash: string; executionPipeline?: ExecutionPipeline }) => void
+  onCustomResult: (result: BacktestResult, code?: { name: string; source: string; hash: string; strategyKind?: 'python_bounded'|'python_portable'; start?: string; end?: string; executionPipeline?: ExecutionPipeline; backtestSettings?:CodeBacktestSettings }) => void
   onStrategySaved?: (record: CustomStrategyRecord) => void
   onResearchCompleted?: (job: ResearchJob) => void
   onDraftChange?: (dirty: boolean) => void
   view?: 'optimize' | 'builder'
   showHeader?: boolean
 }
+
+export interface CodeBacktestSettings {capital:number;commission:number;slippage:number;spread:number;position:number;participation:number}
 
 type Objective = 'sharpe' | 'calmar' | 'cagr' | 'total_return'
 type BuilderSide = 'entry' | 'exit'

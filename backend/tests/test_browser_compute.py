@@ -77,6 +77,40 @@ def upload(published, **updates):
             'dataset_ids': [published.manifest['dataset_id']], 'engine_version': 'browser-ts/v1', **updates}
 
 
+def test_full_minute_history_report_saves_every_account_observation(architecture,published):
+    body=upload(published)
+    # A realistic full CATL history exceeded the old 16 MiB upload ceiling.
+    count=475251
+    body['result']={**body['result'],'bars':[],'equity':[
+        dict(time=1700000000+i*60,equity=123456.123456789,benchmark=234567.123456789,drawdown=-.123456789,exposure=.654321987)
+        for i in range(count)]}
+    encoded=json.dumps(body,separators=(',',':')).encode()
+    assert len(encoded)>16*1024*1024
+    response=architecture.client.post('/api/v1/compute/runs',content=encoded,headers={'Content-Type':'application/json'})
+    assert response.status_code==201,response.text[:500]
+    saved=response.json()
+    assert len(saved['equity'])==count
+    assert saved['equity'][-1]==body['result']['equity'][-1]
+    restored=architecture.client.get('/api/v1/runs/'+saved['run_id'])
+    assert restored.status_code==200
+    assert len(restored.json()['equity'])==count
+
+
+def test_dense_python_plan_is_accepted_without_relaxing_other_uploads(architecture,published,monkeypatch):
+    from app.backtest import native
+    from app.models import BacktestResult
+    source='def target(c):\n    return 1/3\n'
+    body={**published.request,'backtest_engine':'vnpy','strategy_id':'python_portable','portable_python':source,
+        'portable_plan':dict(dataset_id=published.manifest['dataset_id'],source_sha256=hashlib.sha256(source.encode()).hexdigest(),
+            name='自己的策略',start=1,end=475251,targets=[1/3]*475251)}
+    monkeypatch.setattr(native,'run_native',lambda r,p:BacktestResult.model_validate({**published.result,'backtest_engine':'vnpy'}))
+    encoded=json.dumps(body,separators=(',',':')).encode()
+    assert len(encoded)>4_000_000
+    response=architecture.client.post('/api/v1/backtests/native',content=encoded,headers={'Content-Type':'application/json'})
+    assert response.status_code==200,response.text[:500]
+    assert architecture.client.post('/api/v1/backtests',content=b'x'*4_000_001,headers={'Content-Type':'application/json'}).status_code==413
+
+
 def owner(client):
     response = client.get('/api/v1/compute/identity')
     assert response.status_code == 200, response.text

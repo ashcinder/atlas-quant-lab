@@ -39,7 +39,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
 }
 
 export function sourceForAssetClass(source: DataSource, assetClass: string): DataSource {
-  return source === 'binance' && assetClass !== 'crypto' ? 'auto' : source
+  return (source === 'binance' && assetClass !== 'crypto') || ((source === 'baostock' || source === 'huggingface') && assetClass !== 'equity') ? 'auto' : source
 }
 
 export function loadPreferences(): Preferences {
@@ -47,7 +47,8 @@ export function loadPreferences(): Preferences {
     const raw = window.localStorage.getItem(userStorageKey(KEY))
       ?? (!storageUser ? LEGACY_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean) : null)
     const preferences: Preferences = raw ? { ...DEFAULT_PREFERENCES, ...JSON.parse(raw) } : DEFAULT_PREFERENCES
-    return { ...preferences, source: sourceForAssetClass(preferences.source, preferences.assetClass) }
+    const source = preferences.source === 'baostock' ? 'auto' : sourceForAssetClass(preferences.source, preferences.assetClass)
+    return { ...preferences, source, adjustment: source === 'huggingface' ? 'raw' : preferences.adjustment }
   } catch {
     return DEFAULT_PREFERENCES
   }

@@ -73,8 +73,8 @@ def _evaluate(program, prices, totals, end):
 
 
 def generate_python_targets(frame: pd.DataFrame, program: list, max_position=1.0):
-    if not 1 <= len(frame) <= 20_000:
-        raise UnsupportedStrategy("受限Python仅支持1至20000根K线")
+    if not 1 <= len(frame) <= 1_000_000:
+        raise UnsupportedStrategy("受限Python仅支持1至1000000根K线")
     prices, totals = [], [0]
     for value in frame["close"]:
         price = Decimal(str(value)) * 1_000_000

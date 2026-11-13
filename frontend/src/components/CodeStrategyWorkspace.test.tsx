@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request } from '../request'
 import { STRATEGY_LANGUAGES, languageForFile } from './strategy-languages'
 import { CodeStrategyWorkspace, RUNNABLE_PYTHON_TEMPLATE } from './CodeStrategyWorkspace'
+import type { BacktestResult } from '../types'
 
 vi.mock('../request', () => ({ request: vi.fn() }))
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
@@ -250,4 +251,124 @@ it('shows unsupported requirements without offering replacement code', async () 
   await screen.findByText('当前不支持持仓成本止损，请调整需求。')
   expect(screen.queryByRole('button', { name: '应用到编辑器' })).toBeNull()
   expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe(RUNNABLE_PYTHON_TEMPLATE)
+})
+
+it('refreshes the visible model status when AI settings change', async () => {
+  await open()
+  vi.mocked(request).mockResolvedValue({configured:true,model:'deepseek-flash'})
+  act(()=>window.dispatchEvent(new Event('atlas-ai-config-changed')))
+  expect(await screen.findByText('deepseek-flash 已配置')).toBeTruthy()
+})
+
+it('asks for a bounded minute range before submitting a potentially huge history', async () => {
+  const { api }=await import('../api')
+  const run=vi.spyOn(api,'runBacktest')
+  render(<CodeStrategyWorkspace research={{asset:{symbol:'BTC-USD',name:'Bitcoin',asset_class:'crypto',exchange:'CRYPTO',currency:'USD',timezone:'UTC',tags:[]},strategies:[],interval:'1m',source:'auto',initialCapital:10000,commission:.001,slippage:0,spread:0,maxPosition:.5,maxParticipation:.01,onLoading:vi.fn(),onError:vi.fn(),onCustomResult:vi.fn()}} />)
+  fireEvent.click(screen.getByRole('button',{name:'运行回测'}))
+  expect(await screen.findByText('请先设置分钟回测的开始与结束时间。')).toBeTruthy()
+  expect(run).not.toHaveBeenCalled()
+  run.mockRestore()
+})
+
+it('blocks real backtest execution when the current code fails compatibility validation', async () => {
+  const { api }=await import('../api')
+  const run=vi.spyOn(api,'runBacktest')
+  vi.mocked(request).mockImplementation(async path=>path.endsWith('/capabilities')?{configured:true,model:'local-test',bounded_authoring:true}:{valid:false,error:{message:'不支持的代码'},backtest_compatible:false})
+  render(<CodeStrategyWorkspace research={{asset:{symbol:'603986.SS',name:'兆易创新',asset_class:'equity',exchange:'SSE',currency:'CNY',timezone:'Asia/Shanghai',tags:[]},strategies:[],interval:'1d',source:'auto',initialCapital:10000,commission:.001,slippage:0,spread:0,maxPosition:.5,maxParticipation:.01,onLoading:vi.fn(),onError:vi.fn(),onCustomResult:vi.fn()}} />)
+  await screen.findByText('local-test 已配置')
+  fireEvent.click(screen.getByRole('button',{name:'运行回测'}))
+  expect(await screen.findAllByText('不支持的代码')).not.toHaveLength(0)
+  expect(run).not.toHaveBeenCalled()
+  run.mockRestore()
+})
+
+it.each(['atlas','vnpy','rqalpha'] as const)('submits unchanged general Python to %s without the bounded-language gate',async(engine)=>{
+ const {api}=await import('../api')
+ const run=vi.spyOn(api,'runBacktest').mockResolvedValue({backtest_engine:engine,trades:[]} as unknown as BacktestResult)
+ vi.stubGlobal('crypto',{subtle:{digest:async()=>new ArrayBuffer(32)}})
+ try {
+  const onCustomResult=vi.fn()
+  render(<CodeStrategyWorkspace research={{asset:{symbol:'300750.SZ',name:'宁德时代',asset_class:'equity',exchange:'SZSE',currency:'CNY',timezone:'Asia/Shanghai',tags:[]},strategies:[],interval:'1m',source:'huggingface',initialCapital:100000,commission:.001,slippage:0,spread:0,maxPosition:.95,maxParticipation:.01,onLoading:vi.fn(),onError:vi.fn(),onCustomResult}} />)
+  await screen.findByText('local-test 已配置')
+  const code='def initialize(c):\n    c.state["n"]=0\ndef target(c):\n    c.state["n"]+=1\n    return 0.4 if c.state["n"]>20 else 0\n'
+  fireEvent.change(screen.getByLabelText('Python 策略代码'),{target:{value:code}})
+  fireEvent.change(screen.getByLabelText('代码回测框架'),{target:{value:engine}})
+  fireEvent.click(screen.getByRole('button',{name:'运行回测'}))
+  await waitFor(()=>expect(onCustomResult).toHaveBeenCalled())
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({backtest_engine:engine,execution_model:'unified',strategy_id:'python_portable',portable_python:code,python_source:undefined,start:null,end:null}),expect.any(AbortSignal))
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(onCustomResult).toHaveBeenCalledWith(expect.objectContaining({backtest_engine:engine}),expect.objectContaining({source:code,strategyKind:'python_portable'}))
+ } finally {run.mockRestore();vi.unstubAllGlobals()}
+})
+
+const workspaceResearch={asset:{symbol:'300750.SZ',name:'宁德时代',asset_class:'equity',exchange:'SZSE',currency:'CNY',timezone:'Asia/Shanghai',tags:[]},strategies:[],interval:'1d' as const,source:'huggingface' as const,initialCapital:100000,commission:.001,slippage:0,spread:0,maxPosition:.95,maxParticipation:.01,onLoading:vi.fn(),onError:vi.fn(),onCustomResult:vi.fn()}
+
+it('offers a usable starting point for an empty draft and opens examples without discarding code',async()=>{
+ render(<CodeStrategyWorkspace research={workspaceResearch}/>)
+ const editor=screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement
+ fireEvent.change(editor,{target:{value:''}})
+ expect((screen.getByRole('button',{name:'运行回测'}) as HTMLButtonElement).disabled).toBe(true)
+ expect(screen.getByText('从一个想法，开始一份策略')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'载入通用 Python 示例'}))
+ expect(editor.value).toContain('def target(context):')
+ expect(screen.queryByRole('alertdialog')).toBeNull()
+ fireEvent.click(screen.getByLabelText('代码文件与工具'))
+ fireEvent.click(screen.getByRole('button',{name:/载入 Python 示例/}))
+ expect(screen.getByRole('alertdialog')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'取消，保留当前内容'}))
+ expect(editor.value).toContain('def target(context):')
+})
+
+it('closes the file menu with Escape or an outside click',async()=>{
+ await open()
+ const summary=screen.getByLabelText('代码文件与工具'),menu=summary.closest('details')!
+ fireEvent.click(summary);expect(menu.open).toBe(true)
+ fireEvent.keyDown(window,{key:'Escape'});expect(menu.open).toBe(false)
+ fireEvent.click(summary);expect(menu.open).toBe(true)
+ fireEvent.pointerDown(screen.getByLabelText('Python 策略代码'));expect(menu.open).toBe(false)
+})
+
+it('uses edited backtest settings and the keyboard shortcut for all framework requests',async()=>{
+ const {api}=await import('../api')
+ const run=vi.spyOn(api,'runBacktest').mockResolvedValue({backtest_engine:'vnpy',trades:[]} as unknown as BacktestResult)
+ vi.stubGlobal('crypto',{subtle:{digest:async()=>new ArrayBuffer(32)}})
+ try{
+  const onCustomResult=vi.fn()
+  render(<CodeStrategyWorkspace research={{...workspaceResearch,onCustomResult}}/>)
+  const editor=screen.getByLabelText('Python 策略代码')
+  fireEvent.change(editor,{target:{value:'def target(c):\n    return 0.4\n'}})
+  fireEvent.change(screen.getByLabelText('代码回测框架'),{target:{value:'vnpy'}})
+  fireEvent.click(screen.getByText('资金与交易成本'))
+  fireEvent.change(screen.getByLabelText('代码回测初始资金'),{target:{value:'250000'}})
+  fireEvent.change(screen.getByLabelText('代码回测手续费率'),{target:{value:'0.05'}})
+  fireEvent.keyDown(editor,{key:'Enter',ctrlKey:true})
+  await waitFor(()=>expect(onCustomResult).toHaveBeenCalled())
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({initial_capital:250000,commission_rate:.0005,backtest_engine:'vnpy'}),expect.any(AbortSignal))
+  expect(onCustomResult).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({backtestSettings:expect.objectContaining({capital:250000,commission:.0005})}))
+ }finally{run.mockRestore();vi.unstubAllGlobals()}
+})
+
+it('keeps the assistant available without a model and leads directly to connection settings',async()=>{
+ vi.mocked(request).mockResolvedValue({configured:false})
+ render(<CodeStrategyWorkspace research={workspaceResearch}/>)
+ fireEvent.click(screen.getByRole('tab',{name:'AI 助手'}))
+ fireEvent.click(screen.getByRole('button',{name:'连接 AI 服务'}))
+ expect(await screen.findByLabelText('API Key')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:/返回对话/}))
+ expect((screen.getByRole('button',{name:'发送'}) as HTMLButtonElement).disabled).toBe(true)
+ fireEvent.click(screen.getByRole('tab',{name:'回测设置'}))
+ expect(screen.getByLabelText('代码回测标的')).toBeTruthy()
+})
+
+it('cancels a pending code check and preserves the source',async()=>{
+ vi.mocked(request).mockImplementation(async(path,options)=>{
+  if(path.endsWith('/capabilities'))return {configured:false}
+  if(path==='/strategy-code/validate')return new Promise((_,reject)=>options?.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))))
+  return {configured:false}
+ })
+ render(<CodeStrategyWorkspace research={workspaceResearch}/>)
+ fireEvent.click(screen.getByRole('button',{name:'检查代码'}))
+ fireEvent.click(await screen.findByRole('button',{name:'停止本次执行'}))
+ expect(await screen.findByText('已取消本次检查，代码已保留。')).toBeTruthy()
+ expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe(RUNNABLE_PYTHON_TEMPLATE)
 })

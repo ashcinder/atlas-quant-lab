@@ -1,3 +1,5 @@
+import { chartHistorySource, supportsHuggingFaceHistory, supportsMinuteBars } from './marketSupport'
+import type { CodeBacktestSettings } from './components/ResearchWorkspace'
 import type { ExecutionPipeline } from './components/executionPipeline'
 import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
 import { retainChartHistory } from './backtestChart'
@@ -12,6 +14,7 @@ import { MarketSidebar } from './components/MarketSidebar'
 import { PortfolioWorkspace } from './components/PortfolioWorkspace'
 import { ResultsPanel } from './components/ResultsPanel'
 import { ResizeHandle } from './components/ResizeHandle'
+import { BacktestEnginePicker } from './components/BacktestEnginePicker'
 import { StrategyPanel } from './components/StrategyPanel'
 import { TopBar } from './components/TopBar'
 import { WorkspaceNavigation, type WorkspaceMode } from './components/WorkspaceNavigation'
@@ -63,6 +66,8 @@ export default function App() {
   const [asset, setAsset] = useState<Asset | null>(null)
   const [singleStrategies, setSingleStrategies] = useState<Strategy[]>([])
   const [portfolioStrategies, setPortfolioStrategies] = useState<Strategy[]>([])
+  const [executionModel,setExecutionModel] = useState<'native'|'unified'>('unified')
+  const [backtestEngine, setBacktestEngine] = useState<import('./types').BacktestEngine>('atlas')
   const [strategyId, setStrategyId] = useState('sma_cross')
   const [params, setParams] = useState<Record<string, number | string | boolean>>({ fast: 20, slow: 60 })
   const [start, setStart] = useState('')
@@ -80,7 +85,7 @@ export default function App() {
   const [fundamentalsLoading, setFundamentalsLoading] = useState(false)
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [releaseId,setReleaseId] = useState('')
-  const [codeBacktest,setCodeBacktest] = useState<{name:string;source:string;hash:string;executionPipeline?:ExecutionPipeline}|null>(null)
+  const [codeBacktest,setCodeBacktest] = useState<{name:string;source:string;hash:string;strategyKind?:'python_bounded'|'python_portable';start?:string;end?:string;executionPipeline?:ExecutionPipeline;backtestSettings?:CodeBacktestSettings}|null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setModeState] = useState<WorkspaceMode>(initialMode)
@@ -216,8 +221,12 @@ export default function App() {
     setFundamentals(null)
     setFundamentalsError(null)
     setAsset(nextAsset)
-    const safeInterval = nextAsset.asset_class !== 'crypto' && ['1m', '5m'].includes(researchInterval) ? '15m' : researchInterval
-    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class, interval: safeInterval, source: sourceForAssetClass(preferences.source, nextAsset.asset_class) }
+    const safeInterval = !supportsMinuteBars(nextAsset) && ['1m', '5m'].includes(researchInterval) ? '15m' : researchInterval
+    let source = (preferences.source === 'baostock' && nextAsset.symbol !== '300750.SZ')
+      || (preferences.source === 'huggingface' && !supportsHuggingFaceHistory(nextAsset, safeInterval))
+      ? 'auto' : sourceForAssetClass(preferences.source, nextAsset.asset_class)
+    if (source === 'auto' && supportsHuggingFaceHistory(nextAsset, safeInterval)) source = 'huggingface'
+    const next = { ...preferences, symbol: nextAsset.symbol, assetClass: nextAsset.asset_class, interval: safeInterval, source, adjustment: source === 'huggingface' ? 'raw' as const : preferences.adjustment }
     setPreferences(next)
     loadMarket(nextAsset, next.interval, next.source, next.adjustment)
   }, [loadMarket, preferences])
@@ -250,7 +259,10 @@ export default function App() {
     backtestRequestRef.current += 1
     setSingleResult(null)
     setMarket(null)
-    const next = { ...preferences, interval }
+    const source = (preferences.source === 'baostock' && !['5m', '15m', '1h'].includes(interval))
+      || (preferences.source === 'huggingface' && !supportsHuggingFaceHistory(asset, interval))
+      ? 'auto' : preferences.source
+    const next = { ...preferences, interval, source }
     setPreferences(next)
     if (asset) loadMarket(asset, interval, next.source)
   }
@@ -258,14 +270,18 @@ export default function App() {
     backtestRequestRef.current += 1
     setSingleResult(null)
     setMarket(null)
-    const next = { ...preferences, source }
+    const next = { ...preferences, source, adjustment: source === 'huggingface' ? 'raw' as const : preferences.adjustment }
     setPreferences(next)
-    if (mode === 'single' && asset) loadMarket(asset, next.interval, source)
+    if (mode === 'single' && asset) loadMarket(asset, next.interval, source, next.adjustment)
   }
   const setBaseCurrency = (baseCurrency: typeof preferences.baseCurrency) => {
     setPreferences((current) => ({ ...current, baseCurrency }))
   }
   const setAdjustment = (adjustment: typeof preferences.adjustment) => {
+    if (preferences.source === 'huggingface' && adjustment !== 'raw') {
+      setError('Hugging Face 历史源只有不复权行情；如需复权，请切回自动数据源。')
+      return
+    }
     backtestRequestRef.current += 1
     setSingleResult(null)
     setMarket(null)
@@ -275,7 +291,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo') return
+    if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo' || preferences.source === 'huggingface') return
     const refreshMs = ['1m', '5m'].includes(preferences.interval) ? 10_000 : preferences.interval === '15m' ? 20_000 : preferences.interval === '1h' ? 30_000 : 60_000
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -296,6 +312,7 @@ export default function App() {
   }
   const runSingle = () => {
     if (!asset || backtestBusyRef.current) return
+    if (preferences.source === 'baostock') { setError('长历史行情与日线核验存在差异，仅供查看，不能用于回测。'); return }
     if ((start && !Number.isFinite(Date.parse(start))) || (end && !Number.isFinite(Date.parse(end))) || (start && end && Date.parse(start) >= Date.parse(end))) {
       setError('回测开始时间必须早于结束时间'); return
     }
@@ -316,6 +333,8 @@ export default function App() {
     setSingleRunning(true)
     setError(null)
     api.runBacktest({
+      backtest_engine: backtestEngine,
+      execution_model: preferences.source === 'huggingface' && !releaseId ? executionModel : 'native',
       release_id: releaseId || null,
       symbol: asset.symbol,
       asset_class: asset.asset_class,
@@ -323,10 +342,12 @@ export default function App() {
       end: end ? new Date(end).toISOString() : null,
       interval: preferences.interval,
       data_source: preferences.source,
-      strategy_id: codeBacktest ? 'python_bounded' : strategyId,
-      python_source: codeBacktest?.source,
+      strategy_id: codeBacktest ? codeBacktest.strategyKind??'python_bounded' : strategyId,
+      python_source: codeBacktest?.strategyKind==='python_portable'?undefined:codeBacktest?.source,
+      portable_python: codeBacktest?.strategyKind==='python_portable'?codeBacktest.source:undefined,
+      strategy_name: codeBacktest?.name,
       execution_pipeline: codeBacktest?.executionPipeline,
-      params,
+      params:codeBacktest?{}:params,
       initial_capital: capital,
       commission_rate: commission,
       slippage_rate: slippage,
@@ -349,6 +370,10 @@ export default function App() {
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
   const changeMode = (nextMode: typeof mode) => {
+    if (nextMode !== 'single' && nextMode !== 'research' && (preferences.source === 'baostock' || preferences.source === 'huggingface')) {
+      setPreferences((current) => ({ ...current, source: 'auto' }))
+      setMarket(null)
+    }
     setMode(nextMode)
     if (nextMode === 'single' && mode !== 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
   }
@@ -366,12 +391,10 @@ export default function App() {
   const historyAdjustment = chartAdjustment && ['auto', 'raw', 'forward', 'backward'].includes(chartAdjustment) ? chartAdjustment as Adjustment : undefined
   const loadChartHistory = useCallback<LoadChartHistory>(async (before, signal) => {
     if (!asset || !historyAdjustment) return []
-    const seconds = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }[preferences.interval]
     const provider = chartSource?.split(':')[0]
     const data = await api.getMarket(asset.symbol, asset.asset_class, preferences.interval,
-      provider === 'binance' ? 'binance' : preferences.source, historyAdjustment, {
-        start: new Date(Math.max(0, before - seconds * 1000) * 1000).toISOString(),
-        end: new Date((before - 1) * 1000).toISOString(), signal, provider,
+      chartHistorySource(preferences.source, provider), historyAdjustment, {
+        end: new Date((before - 1) * 1000).toISOString(), signal,
       })
     if (data.asset.symbol !== asset.symbol || data.interval !== preferences.interval || data.adjustment !== historyAdjustment || data.source.split(':')[0] !== provider || data.is_stale) {
       throw new Error('更早行情的来源或时效与当前图表不一致，未拼接数据。')
@@ -421,6 +444,14 @@ export default function App() {
       setError(reason instanceof Error ? reason.message : '无法读取回测记录')
     } finally { setHistoryLoading(false) }
   }
+  const syncHistoryRun = async (run:RunSummary) => {
+    try {
+      const saved=await api.syncRun(run.id)
+      setRuns(await api.listRuns())
+      if('asset'in saved)setSingleResult(current=>current?.run_id===run.id?{...saved,bars:current.bars,indicators:current.indicators}:current)
+      else setPortfolioResult(current=>current?.run_id===run.id?saved:current)
+    }catch(reason){setError(reason instanceof Error?reason.message:'报告同步失败，完整结果仍在当前浏览器中')}
+  }
   const deleteHistoryRun = async (run: RunSummary) => {
     if (!window.confirm(`删除 ${run.symbol} 的这条回测记录？此操作无法撤销。`)) return
     try { await api.deleteRun(run.id); setRuns(await api.listRuns()) }
@@ -441,22 +472,25 @@ export default function App() {
           <ResizeHandle rootRef={shellRef} side="left" cssVariable="--market-sidebar-width" oppositeCssVariable="--strategy-panel-width" centerMinimum={460} value={preferences.marketSidebarWidth} minimum={150} maximum={360} defaultValue={178} label="调整市场列表宽度" onCommit={(value) => commitLayout('marketSidebarWidth', value)} />
           <div className={`center-stack results-${preferences.resultsPanelMode}`}>
             <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载图表组件…</div>}>
-              <TradingChart highlightStart={singleResult?.bars[0]?.time ?? (start ? Date.parse(start) / 1000 : undefined)} highlightEnd={singleResult?.bars.at(-1)?.time ?? (end ? Date.parse(end) / 1000 : undefined)} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={chartSource} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}:${singleResult?.run_id ?? 'market'}:${chartSource?.split(':')[0]}:${preferences.source}:${chartAdjustment ?? 'unknown'}`} onLoadHistory={historyAdjustment && chartSource && !chartSource.startsWith('demo') ? loadChartHistory : undefined} lastBarTime={chartLastBarTime} isStale={chartIsStale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
+              <TradingChart notice={<>
+              {mode === 'single' && preferences.source === 'baostock' ? <div className="chart-source-notice" role="status"><AlertCircle size={15} /><span>长历史数据与本地日线对账存在差异，仅供查看，不能用于回测；2018—2019 年暂无数据。</span></div> : null}
+              {mode === 'single' && !singleResult && preferences.source !== 'huggingface' && supportsHuggingFaceHistory(asset, preferences.interval) ? <div className="chart-source-notice" role="status"><span>当前来源为近期行情；更早的本地分钟数据需切换来源查看，数据截至 2026-08-07。</span><button onClick={() => setSource('huggingface')}>切换本地长历史与回测</button></div> : null}
+              </>} highlightStart={singleResult?.bars[0]?.time ?? (start ? Date.parse(start) / 1000 : undefined)} highlightEnd={singleResult?.bars.at(-1)?.time ?? (end ? Date.parse(end) / 1000 : undefined)} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={chartSource} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}:${singleResult?.run_id ?? 'market'}:${chartSource?.split(':')[0]}:${preferences.source}:${chartAdjustment ?? 'unknown'}`} onLoadHistory={(singleResult?.backtest_engine !== 'rqalpha' || chartSource === 'hf-ohlcv') && historyAdjustment && chartSource && !chartSource.startsWith('demo') ? loadChartHistory : undefined} lastBarTime={chartLastBarTime} isStale={chartIsStale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
             </Suspense>
             {preferences.resultsPanelMode === 'normal' ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
             <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel codeContext={codeBacktest ? <section className="trine-code-context"><small>当前回测 · 我编写的 Python</small><strong>{codeBacktest.name}</strong><code title={codeBacktest.hash}>代码 SHA256 · {codeBacktest.hash.slice(0,12)}</code><p>{asset?.symbol} · {preferences.interval} · {preferences.source}</p><small>使用点击回测时的代码快照；再次运行将继续使用此版本。回测不代表 ZKP 已验证。</small><details><summary>查看本次代码</summary><pre>{codeBacktest.source}</pre></details><button onClick={() => setMode('research')}>返回编辑</button><button onClick={() => setCodeBacktest(null)}>切换策略模板</button></section> : undefined} releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { setCodeBacktest(null); setReleaseId(id) }}/>} releaseSelected={!!releaseId || !!codeBacktest} sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
+          <StrategyPanel enginePicker={<BacktestEnginePicker executionModel={executionModel} onExecutionModel={setExecutionModel} unifiedAvailable={preferences.source === 'huggingface' && !releaseId} value={backtestEngine} onChange={engine => { setBacktestEngine(engine); if (engine !== 'atlas') setReleaseId('') }} result={singleResult} />} externalEngine={backtestEngine !== 'atlas'} codeContext={codeBacktest ? <section className="trine-code-context"><small>当前回测 · 我编写的 Python</small><strong>{codeBacktest.name}</strong><code title={codeBacktest.hash}>代码 SHA256 · {codeBacktest.hash.slice(0,12)}</code><p>{asset?.symbol} · {preferences.interval} · {preferences.source}</p><small>使用点击回测时的代码快照；再次运行将继续使用此版本。回测不代表 ZKP 已验证。</small><details><summary>查看本次代码</summary><pre>{codeBacktest.source}</pre></details><button onClick={() => setMode('research')}>返回编辑</button><button onClick={() => setCodeBacktest(null)}>切换策略模板</button></section> : undefined} releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { setCodeBacktest(null); setReleaseId(id) }}/>} releaseSelected={!!releaseId || !!codeBacktest} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       </WorkspaceErrorBoundary> : null}
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
-      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} assets={assets} onResearchContextChange={selectAsset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} assets={assets} onResearchContextChange={selectAsset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { if(code?.backtestSettings){const c=code.backtestSettings;setCapital(c.capital);setCommission(c.commission);setSlippage(c.slippage);setSpread(c.spread);setMaxPosition(c.position);setMaxParticipation(c.participation)} setBacktestEngine(result.backtest_engine??'atlas'); setCodeBacktest(code || null); setReleaseId(''); setStart(code?.start ?? ''); setEnd(code?.end ?? ''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
       {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
-      <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />
+      <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} onSync={syncHistoryRun} />
       <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={setError} />
       {systemStatusOpen ? <SystemStatus onClose={closeSystemStatus} /> : null}
     </div>

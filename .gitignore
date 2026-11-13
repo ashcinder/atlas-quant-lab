@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.engine-venv/
 backend/.data/
 backend/quant_lab.db
 frontend/node_modules/
@@ -24,3 +25,5 @@ output/playwright/
 atlas-backup-*/
 deploy/nitro/nsm/target/
 *.nitro-package.json
+
+frontend/public/python-runtime/

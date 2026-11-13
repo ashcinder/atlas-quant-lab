@@ -1,5 +1,5 @@
 export type Interval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1wk'
-export type DataSource = 'auto' | 'yahoo' | 'binance' | 'demo'
+export type DataSource = 'auto' | 'yahoo' | 'binance' | 'demo' | 'baostock' | 'huggingface'
 export type Adjustment = 'auto' | 'raw' | 'forward' | 'backward'
 export type BaseCurrency = 'CNY' | 'USD' | 'USDT'
 
@@ -125,6 +125,7 @@ export interface EquityPoint {
 }
 
 export interface ComputeProvenance {
+  storage_status?: 'local'
   execution_location: 'browser' | 'server_private'
   proof_status: 'unverified'
   engine_version?: string
@@ -134,7 +135,13 @@ export interface ComputeProvenance {
   strategy_version?: string | null
 }
 
+export type BacktestEngine = 'atlas' | 'rqalpha' | 'vnpy'
+
 export interface BacktestResult {
+  execution_model?: 'native' | 'unified'
+  execution_contract?: string | null
+  backtest_engine?: BacktestEngine
+  engine_version?: string | null
   compute?: ComputeProvenance
   valuation_currency?: string | null
   run_id: string

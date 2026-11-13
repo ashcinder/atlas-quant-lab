@@ -7,7 +7,9 @@ import pandas as pd
 from scipy import stats
 
 
-def periods_per_year(interval: str, asset_class: str) -> float:
+def periods_per_year(interval: str, asset_class: str, exchange: str | None = None) -> float:
+    if exchange in {"SSE", "SZSE"}:
+        return {"1m": 252*240, "5m": 252*48, "15m": 252*16, "1h": 252*4, "4h": 252, "1d": 252, "1wk": 52}[interval]
     days = 365 if asset_class == "crypto" else 252
     return {
         "1m": days * 1440,
@@ -50,8 +52,9 @@ def calculate_metrics(
     interval: str,
     asset_class: str,
     initial_capital: float,
+    exchange: str | None = None,
 ) -> tuple[dict[str, float | int | None], list[str]]:
-    factor = periods_per_year(interval, asset_class)
+    factor = periods_per_year(interval, asset_class, exchange)
     returns = equity.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
     benchmark_returns = benchmark.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
     drawdown = drawdown_series(equity)
@@ -174,11 +177,12 @@ def regime_metrics(
     close: pd.Series,
     interval: str,
     asset_class: str,
+    exchange: str | None = None,
 ) -> dict[str, dict[str, float | int | None]]:
     returns = equity.pct_change().replace([np.inf, -np.inf], np.nan)
     benchmark_returns = close.pct_change().replace([np.inf, -np.inf], np.nan)
     regimes = classify_regimes(close)
-    factor = periods_per_year(interval, asset_class)
+    factor = periods_per_year(interval, asset_class, exchange)
     output: dict[str, dict[str, float | int | None]] = {}
     for name in ["牛市", "熊市", "震荡"]:
         paired = pd.concat([returns, benchmark_returns], axis=1, join="inner")

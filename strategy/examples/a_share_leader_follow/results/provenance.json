@@ -1,0 +1,66 @@
+{
+  "parameters": {
+    "version": "leader_peer_v1",
+    "test_start": "2023-01-01",
+    "test_end": "2026-10-30",
+    "train_years": 3,
+    "probability_floor": 0.08,
+    "training_quantile": 0.8,
+    "min_industry_members": 5,
+    "min_listing_bars": 120,
+    "min_adv": 50000000,
+    "leader_min_adv": 100000000,
+    "followers_per_industry": 2,
+    "holding_sessions": 3,
+    "max_positions": 6,
+    "stock_weight": 0.1,
+    "industry_weight": 0.2,
+    "max_gross": 0.6,
+    "max_open_gap": 0.03,
+    "max_adv_fraction": 0.005,
+    "stop_loss": 0.05,
+    "take_profit": 0.08,
+    "capital": 1000000,
+    "commission": 0.0003,
+    "impact": 0.001,
+    "transfer": 1e-05,
+    "min_commission": 5
+  },
+  "universe": 5230,
+  "industries": 83,
+  "industry_classification": "bundle snapshot, NOT historical point-in-time",
+  "bundle": "/Users/tangyucinder/开发/加密货币投资/backend/.data/rqalpha/bundle",
+  "files": {
+    "stocks.h5": {
+      "bytes": 1316777456,
+      "mtime_ns": 1793479958397065639
+    },
+    "instruments.pk": {
+      "bytes": 9762583,
+      "mtime_ns": 1793479903856975793
+    },
+    "st_stock_days.h5": {
+      "bytes": 7715816,
+      "mtime_ns": 1793479913264991283
+    },
+    "trading_dates.npy": {
+      "bytes": 44824,
+      "mtime_ns": 1793479903400974988
+    }
+  },
+  "source_sha256": {
+    "research.py": "63fbb558a51e1c95753c76bf1792b9186d116e59164be0c6b688af7406a8edf5",
+    "rq_backtest.py": "42910f70b38618a834c897194456aa550c25aae4f84d897e6d00c52a0d58aa70",
+    "verify_execution.py": "604a46d50409bacc5c94d42c3d6d068d6c19300a6393ea4f4f3d0d66858215c6",
+    "test_research.py": "b2e2d6b0144bdbfc434f8e31e1c70b2968ce99e8ce33578e85d6f49d887ff2a6",
+    "reporting.py": "65800e64db23531d732fbf28e528203ef8ba1b2143f26e9a9b817c3c5a0da1a6"
+  },
+  "runtime": {
+    "rqalpha": "6.5.0",
+    "numpy": "2.5.4",
+    "pandas": "3.1.1",
+    "scipy": "1.18.1",
+    "h5py": "3.16.0",
+    "matplotlib": "3.11.2"
+  }
+}

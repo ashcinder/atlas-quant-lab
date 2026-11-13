@@ -101,7 +101,25 @@ class StrategyDefinition(BaseModel):
     parameters: list[StrategyParameter]
 
 
+class PortablePlan(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+    dataset_id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    name: str = Field(default="Python策略",max_length=80)
+    start: int
+    end: int
+    targets: list[float] = Field(min_length=40,max_length=1_000_000)
+
+    @model_validator(mode="after")
+    def valid_targets(self):
+        if any(v < 0 or v > 1 for v in self.targets):
+            raise ValueError("目标仓位必须在0至1之间")
+        return self
+
+
 class BacktestRequest(BaseModel):
+    backtest_engine: Literal['atlas', 'rqalpha', 'vnpy'] = 'atlas'
+    execution_model: Literal['native', 'unified'] = 'native'
     release_id: str | None = Field(default=None, max_length=64)
     model_config = ConfigDict(allow_inf_nan=False)
 
@@ -112,10 +130,12 @@ class BacktestRequest(BaseModel):
     end: datetime | None = None
     adjustment: Adjustment = "auto"
     base_currency: Literal["CNY", "USD", "USDT"] = "CNY"
-    data_source: Literal["auto", "yahoo", "binance", "demo"] = "auto"
+    data_source: Literal["auto", "yahoo", "binance", "demo", "huggingface"] = "auto"
     strategy_id: str = "sma_cross"
     custom_strategy: "CustomStrategySpec | None" = None
     python_source: str | None = Field(default=None, max_length=16_384)
+    portable_python: str | None = Field(default=None,max_length=60_000)
+    portable_plan: PortablePlan | None = None
     params: dict[str, Any] = Field(default_factory=dict)
     initial_capital: float = Field(default=100_000, gt=0)
     commission_rate: float = Field(default=0.001, ge=0, le=0.1)
@@ -202,6 +222,10 @@ class StrategyEvaluation(BaseModel):
 
 
 class BacktestResult(BaseModel):
+    backtest_engine: Literal['atlas', 'rqalpha', 'vnpy'] = 'atlas'
+    execution_model: Literal['native', 'unified'] = 'native'
+    engine_version: str | None = None
+    execution_contract: str | None = None
     run_id: str
     created_at: datetime
     asset: Asset

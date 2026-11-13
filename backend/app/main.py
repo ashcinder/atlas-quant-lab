@@ -92,6 +92,7 @@ from app.work_limits import expensive_request, work_limits
 from app.compute_mode import browser_compute_enabled
 from app.market_publication import MarketPublication
 from app.browser_compute import browser_router
+from app.backtest.native import native_router
 from app.private_compute import PrivateCompute
 from app.public_artifacts import PublicArtifacts, public_artifact_router
 
@@ -156,6 +157,7 @@ app.include_router(bkc_router(strategy_runtime_store, run_store))
 app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
 app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store))
+app.include_router(native_router(market_publications, run_store))
 app.include_router(public_artifact_router(public_artifacts))
 app.add_middleware(
     CORSMiddleware,
@@ -185,7 +187,7 @@ async def invalid_value(_request, error):
 
 @app.middleware("http")
 async def require_atlas_user(request: Request, call_next):
-    public_market_file = request.method in {'GET', 'HEAD'} and re.fullmatch(r'/api/v1/(?:market/files/[a-f0-9]{64}\.json|public-artifacts/[a-f0-9]{64}\.(?:json|r0))', request.url.path) is not None
+    public_market_file = request.method in {'GET', 'HEAD'} and re.fullmatch(r'/api/v1/(?:market/files/[a-f0-9]{64}\.json|python-runtime/[A-Za-z0-9_.+-]+|public-artifacts/[a-f0-9]{64}\.(?:json|r0))', request.url.path) is not None
     if (
         request.method != "OPTIONS"
         and request.url.path.startswith("/api/v1/")
@@ -213,7 +215,11 @@ async def require_atlas_user(request: Request, call_next):
             r'/api/v1/quantjudge/agents/[^/]+/zk-proofs', request.url.path
         ) is not None
         content_type = request.headers.get('content-type', '').split(';')[0].strip()
-        body_limit = (16 * 1024 * 1024 if request.url.path == '/api/v1/compute/runs' else MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000)
+        # Full-history reports retain every account observation and fill.
+        # Python plans can contain one finite target per bar (up to 1M).
+        body_limit = (256 * 1024 * 1024 if request.url.path == '/api/v1/compute/runs'
+                      else 32 * 1024 * 1024 if request.url.path == '/api/v1/backtests/native'
+                      else MAX_RECEIPT_BYTES + 1024 * 1024 if multipart_upload else 4_000_000)
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
@@ -417,6 +423,8 @@ def market_fundamentals(
 
 @app.post("/api/v1/backtests", response_model=BacktestResult)
 def create_backtest(request: BacktestRequest, http_request: Request):
+    if request.backtest_engine != 'atlas':
+        raise HTTPException(422, '外部引擎请使用 /api/v1/backtests/native 接口')
     if browser_compute_enabled():
         raise HTTPException(410, '普通回测已迁到浏览器；保密订阅策略请使用按需执行接口')
     supplied_program=None
@@ -426,15 +434,21 @@ def create_backtest(request: BacktestRequest, http_request: Request):
         from app.models import CustomStrategySpec
         request=request.model_copy(update={'strategy_id':strategy_id,'params':snapshot.get('params',{}),'python_source':None,'custom_strategy':CustomStrategySpec.model_validate(snapshot['custom_strategy']) if snapshot.get('custom_strategy') else None})
     try:
-        bundle = data_service.fetch(
-            request.symbol,
-            request.asset_class,
-            request.interval,
-            request.start,
-            request.end,
-            request.adjustment,
-            request.data_source,
-        )
+        if request.data_source == 'huggingface':
+            manifest = market_publications.lookup(request.model_dump(mode='json',exclude={'base_currency'}))
+            if not manifest:
+                raise ValueError('Hugging Face所选周期尚未发布')
+            bundle = market_publications.bundle(manifest['dataset_id'],request.start,request.end)
+        else:
+            bundle = data_service.fetch(
+                request.symbol,
+                request.asset_class,
+                request.interval,
+                request.start,
+                request.end,
+                request.adjustment,
+                request.data_source,
+            )
         cloud_config = cloud_ai_config(http_request) if request.execution_pipeline and any(stage.enabled for stage in request.execution_pipeline.ai_stages) else None
         result = run_backtest(request, bundle, supplied_program=supplied_program, supplied_ai_guard=CloudGuard(cloud_config) if cloud_config else None)
     except (ProviderError, ValueError) as exc:
@@ -666,6 +680,8 @@ def mark_notifications_read(http_request: Request):
 # The production build and API share one origin; Vite remains the development server.
 if STATIC_DIR.is_dir():
     app.mount('/assets', StaticFiles(directory=STATIC_DIR / 'assets'), name='assets')
+    if (STATIC_DIR / 'asset-icons').is_dir():
+        app.mount('/asset-icons', StaticFiles(directory=STATIC_DIR / 'asset-icons'), name='asset-icons')
 
     @app.get('/')
     def frontend():

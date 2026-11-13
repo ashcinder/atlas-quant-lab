@@ -24,7 +24,7 @@ export async function fetchManifest(query:MarketQuery,store:ComputeStore,signal?
  let raw:unknown
  try{raw=await request<unknown>(`/market/manifest?${params}`,{signal})}
  catch(error){if(signal?.aborted)throw error;const kind=error&&typeof error==='object'&&'kind'in error?error.kind:null;if(kind!=='network')throw error;const cached=await store.get<MarketManifest>('manifests',`query:${params}`);if(!cached)throw error;return validateManifest(cached)}
- const manifest=validateManifest(raw);await store.put('manifests',manifest.dataset_id,manifest);await store.put('manifests',`query:${params}`,manifest);return manifest
+ const manifest=validateManifest(raw);await store.put('manifests',manifest.dataset_id,manifest).catch(()=>undefined);await store.put('manifests',`query:${params}`,manifest).catch(()=>undefined);return manifest
 }
 export async function fetchDatasetManifest(id:string,store:ComputeStore,signal?:AbortSignal):Promise<MarketManifest>{
  const cached=await store.get<MarketManifest>('manifests',id);if(cached){const manifest=validateManifest(cached);if(manifest.dataset_id!==id)throw new Error('缓存中的数据集版本不符');return manifest}
@@ -39,13 +39,30 @@ export async function decodeChunk(buffer:ArrayBuffer,chunk:MarketChunk):Promise<
  for(let i=0;i<bars.length;i++){const b=bars[i];if(!b||![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||!Number.isInteger(b.time)||b.open<=0||b.high<=0||b.low<=0||b.close<=0||b.volume<0||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||(i>0&&b.time<=bars[i-1].time))throw new Error('行情分块包含缺失、无效或乱序的K线')}
  if(bars[0].time!==chunk.start||bars.at(-1)!.time!==chunk.end)throw new Error('行情分块覆盖范围不符');return bars
 }
-export async function loadMarket(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal):Promise<MarketInput>{
+export async function loadMarket(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal,range?:{start?:number;end?:number}):Promise<MarketInput>{
  const bars:Bar[]=[]
- for(const chunk of manifest.chunks){if(signal?.aborted)throw signal.reason??new DOMException('请求已取消','AbortError');let bytes=await store.get<ArrayBuffer>('chunks',chunk.sha256)
-  if(bytes){try{bars.push(...await decodeChunk(bytes,chunk));continue}catch(error){await store.delete('chunks',chunk.sha256);throw error}}
+ const chunks=manifest.chunks.filter(chunk=>chunk.end>=(range?.start??-Infinity)&&chunk.start<=(range?.end??Infinity))
+ if(!chunks.length)throw new Error('请求区间没有已发布行情')
+ for(const chunk of chunks){if(signal?.aborted)throw signal.reason??new DOMException('请求已取消','AbortError');let bytes=await store.get<ArrayBuffer>('chunks',chunk.sha256).catch(()=>undefined)
+  if(bytes){try{for(const bar of await decodeChunk(bytes,chunk))bars.push(bar);continue}catch{await store.delete('chunks',chunk.sha256).catch(()=>undefined)}}
   const url=new URL(chunk.url,globalThis.location?.origin??'http://localhost');if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error('行情下载地址无效')
-  const response=await fetch(url,{credentials:'omit',signal});if(!response.ok)throw new Error(`行情分块下载失败（HTTP ${response.status}）`);bytes=await response.arrayBuffer();const decoded=await decodeChunk(bytes,chunk);await store.put('chunks',chunk.sha256,bytes);bars.push(...decoded)
+  const response=await fetch(url,{credentials:'omit',signal});if(!response.ok)throw new Error(`行情分块下载失败（HTTP ${response.status}）`);bytes=await response.arrayBuffer();const decoded=await decodeChunk(bytes,chunk);await store.put('chunks',chunk.sha256,bytes).catch(()=>undefined);for(const bar of decoded)bars.push(bar)
  }
- if(bars.length!==manifest.count)throw new Error('行情数据集不完整')
- return {asset:manifest.asset,bars,source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,last_bar_time:manifest.end,is_stale:manifest.is_stale}
+ if(bars.length!==chunks.reduce((count,chunk)=>count+chunk.count,0))throw new Error('行情数据集不完整')
+ return {asset:manifest.asset,bars,source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,last_bar_time:bars.at(-1)!.time,is_stale:manifest.is_stale}
+}
+
+// Chart pages are independent from backtest coverage: reaching the beginning
+// returns an empty page, while backtests still require the entire requested range.
+export async function loadChartPage(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal,range:{start?:number;end?:number}={},limit=3000):Promise<MarketInput>{
+ const start=range.start??-Infinity,end=range.end??Infinity
+ const parts=manifest.chunks.filter(c=>c.end>=start&&c.start<=end)
+ if(!parts.length)return {asset:manifest.asset,bars:[],source:manifest.source,interval:manifest.interval,adjustment:manifest.adjustment}
+ let bars:Bar[]=[]
+ for(let index=parts.length-1;index>=0&&bars.length<limit;index--){
+  const data=await loadMarket({...manifest,chunks:[parts[index]]},store,signal)
+  const page=data.bars.filter(b=>b.time>=start&&b.time<=end&&(manifest.source!=='hf-unverified'||b.volume>0))
+  bars=page.concat(bars)
+ }
+ return {asset:manifest.asset,bars:bars.slice(-limit),source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,is_stale:manifest.is_stale}
 }

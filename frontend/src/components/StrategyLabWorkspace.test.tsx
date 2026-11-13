@@ -5,7 +5,8 @@ import type { Asset, StrategyProject } from '../types'
 import { StrategyLabWorkspace } from './StrategyLabWorkspace'
 
 vi.mock('../api', () => ({ api: { listStrategyProjects: vi.fn(), updateStrategyProject: vi.fn(), searchAssets: vi.fn() } }))
-vi.mock('./TemplateStrategyWorkspace', () => ({ TemplateStrategyWorkspace: () => null }))
+vi.mock('./CodeStrategyWorkspace', () => ({ CodeStrategyWorkspace: () => <textarea aria-label="代码编辑器" defaultValue="def target_bps(): pass" /> }))
+vi.mock('./TemplateStrategyWorkspace', () => ({ TemplateStrategyWorkspace: () => { throw new Error('模板不应加载') } }))
 vi.mock('./ExecutionPipelinePanel', () => ({ ExecutionPipelinePanel: () => null }))
 vi.mock('./QuantStrategyStudio', () => ({ QuantStrategyStudio: () => null }))
 const aapl: Asset = { symbol: 'AAPL', name: 'Apple', asset_class: 'equity', exchange: 'NASDAQ', currency: 'USD', timezone: 'UTC', tags: [] }
@@ -40,4 +41,24 @@ it('does not restore an old project context when its save completes after select
   await act(async () => { finish({ ...project, revision: 2 }) })
   expect(onContext).toHaveBeenCalledTimes(1)
   expect((screen.getByLabelText('选择策略项目') as HTMLSelectElement).value).toBe('b')
+})
+
+
+it('opens code immediately and removes template, visual, workflow and gate navigation', async () => {
+  render(<StrategyLabWorkspace {...props} />)
+  expect(await screen.findByRole('textbox', {name: '代码编辑器'})).toBeTruthy()
+  expect(screen.queryByRole('button', {name: /模板|图形化/})).toBeNull()
+  expect(screen.queryByRole('navigation', {name: '策略生命周期'})).toBeNull()
+  expect(screen.queryByRole('button', {name: /门禁/})).toBeNull()
+})
+
+it('does not silently associate a different-market project with the current backtest',async()=>{
+ const onContext=vi.fn()
+ render(<StrategyLabWorkspace {...props} interval="1h" onResearchContextChange={onContext}/>)
+ const selector=await screen.findByLabelText('选择策略项目') as HTMLSelectElement
+ await waitFor(()=>expect(selector.options).toHaveLength(3))
+ expect(selector.value).toBe('')
+ expect(onContext).not.toHaveBeenCalled()
+ fireEvent.change(selector,{target:{value:'b'}})
+ expect(onContext).toHaveBeenCalledWith(btc,'4h')
 })

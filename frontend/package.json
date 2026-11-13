@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "test:journal": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "predev": "node scripts/sync-python-runtime.mjs",
+    "prebuild": "node scripts/sync-python-runtime.mjs",
+    "python:sync": "node scripts/sync-python-runtime.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -20,6 +23,7 @@
     "ethers": "6.17.0",
     "lightweight-charts": "5.2.1",
     "lucide-react": "0.468.0",
+    "pyodide": "314.0.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "recharts": "3.8.0",

@@ -106,6 +106,19 @@ class AlertObservation(BaseModel):
 def browser_router(runtime, publications, runs, private_compute, workspace=None):
     router = APIRouter(prefix="/api/v1")
 
+    @router.get('/python-runtime/{filename}')
+    def python_runtime(filename: str):
+        import re
+        from app.config import ROOT_DIR, STATIC_DIR
+        if not re.fullmatch(r'[A-Za-z0-9_.+-]+',filename):
+            raise HTTPException(404,'运行库文件不存在')
+        for root in (STATIC_DIR/'python-runtime',ROOT_DIR.parent/'frontend/public/python-runtime'):
+            path=root/filename
+            if path.is_file() and not path.is_symlink():
+                return FileResponse(path,headers={'Access-Control-Allow-Origin':'*',
+                    'Cross-Origin-Resource-Policy':'cross-origin','Cache-Control':'public, max-age=3600'})
+        raise HTTPException(404,'Python运行库未准备，请运行npm run python:sync')
+
     @router.get("/compute/identity")
     def identity(request: Request):
         return {"owner_id": request.state.user.id, "session_scope": getattr(request.state, "session_id_hash", "")}

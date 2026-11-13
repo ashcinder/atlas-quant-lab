@@ -35,7 +35,7 @@ export function evaluateProgram(program:PythonInstruction[],prices:bigint[],tota
  return stack[0]
 }
 export function generatePythonTargets(bars:Bar[],program:PythonInstruction[],maxPosition=1):{target:number[];reasons:string[]}{
- if(!bars.length||bars.length>20000)throw new Error('受限Python仅支持1至20000根K线')
+ if(!bars.length||bars.length>1000000)throw new Error('受限Python仅支持1至1000000根K线')
  const prices=bars.map(b=>priceMicros(b.close)),totals=[0n];for(const p of prices)totals.push(totals.at(-1)!+p)
  return {target:prices.map((_,i)=>Math.min(Number(evaluateProgram(program,prices,totals,i+1))/10000,maxPosition)),reasons:bars.map(()=>'受限Python · 收盘信号')}
 }

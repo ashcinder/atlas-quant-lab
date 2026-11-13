@@ -1,3 +1,4 @@
+import { supportsHuggingFaceHistory, supportsMinuteBars } from '../marketSupport'
 import { SupervisorWalletSettings } from './SupervisorWalletSettings'
 import { SupervisorStatusButton } from './SupervisorStatusButton'
 import { useEffect, useRef, useState } from 'react'
@@ -71,7 +72,7 @@ export function TopBar(props: Props) {
       {props.mode === 'single' ? (
         <>
           <div className="segmented compact" aria-label="K线周期">
-            {intervals.filter((item) => props.asset?.asset_class === 'crypto' || !['1m', '5m'].includes(item.value)).map((item) => (
+            {intervals.filter((item) => supportsMinuteBars(props.asset) || !['1m', '5m'].includes(item.value)).map((item) => (
               <button key={item.value} aria-pressed={props.interval === item.value} className={props.interval === item.value ? 'is-active' : ''} onClick={() => props.onInterval(item.value)}>
                 {item.label}
               </button>
@@ -93,6 +94,8 @@ export function TopBar(props: Props) {
           <option value="auto">自动真实数据</option>
           <option value="yahoo">广覆盖行情</option>
           <option value="binance" disabled={props.mode !== 'portfolio' && props.asset?.asset_class !== 'crypto'}>加密货币</option>
+          <option value="baostock" disabled={props.mode !== 'single' || props.asset?.symbol !== '300750.SZ' || !['5m','15m','1h'].includes(props.interval)}>宁德时代长历史（待核验，仅看图）</option>
+          <option value="huggingface" disabled={(props.mode !== 'single' && props.mode !== 'research') || !supportsHuggingFaceHistory(props.asset, props.interval)}>A股历史与回测（Hugging Face）</option>
           <option value="demo">演示数据</option>
         </select>
       </label> : null}

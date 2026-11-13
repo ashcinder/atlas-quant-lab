@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>Python runtime acceptance</title><pre id="result">RUNNING</pre>
+<script type="module">
+import {runPortablePython} from '/src/compute/portablePython.ts'
+const out=document.querySelector('#result')
+const bars=Array.from({length:100},(_,i)=>({time:1735781400+i*60,open:100+i,high:102+i,low:99+i,close:101+i,volume:100000}))
+try {
+ const a=await runPortablePython('def initialize(c):\n    c.state["n"]=0\ndef target(c):\n    c.state["n"]+=1\n    return 0.5 if c.state["n"]>20 else 0',bars)
+ const b=await runPortablePython('import numpy as np\nimport pandas as pd\ndef target(c):\n    return 0.7 if pd.Series(c.close).mean() > np.float64(0) else 0',bars)
+ if(a.length!==100||a[19]!==0||a[20]!==.5||b.some(v=>v!==.7))throw Error('Wrong targets')
+ const abort=new AbortController()
+ const pending=runPortablePython('def target(c):\n    while True: pass',bars,{},abort.signal)
+ setTimeout(()=>abort.abort(),2000)
+ let cancelled=false;try{await pending}catch(e){cancelled=e.name==='AbortError'}
+ if(!cancelled)throw Error('Cancellation failed')
+ out.textContent='PASS: stateful Python, NumPy/pandas, worker cancellation'
+}catch(e){out.textContent='FAIL: '+e.stack}
+</script>

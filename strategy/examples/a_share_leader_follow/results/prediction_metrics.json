@@ -1,0 +1,19 @@
+{
+  "eligible_leader_days": 27620,
+  "selected_leader_days": 5696,
+  "touch_hits": 1532,
+  "touch_precision": 0.2689606845378876,
+  "sealed_precision": 0.1850421279668808,
+  "touch_base_rate": 0.08870384097099304,
+  "precision_wilson_95": [
+    0.25760363835760636,
+    0.28062914340952205
+  ],
+  "precision_date_block_95": [
+    0.24691972199365006,
+    0.28913484286041913
+  ],
+  "recall": 0.6253061224489795,
+  "brier": 0.06870789430457411,
+  "constant_probability_brier": 0.08083545416593552
+}

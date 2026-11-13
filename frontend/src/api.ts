@@ -7,7 +7,6 @@ import type {
   Interval,
   MarketData,
   PortfolioResult,
-  RunSummary,
   Strategy,
   AlertNotification,
   AlertRule,
@@ -43,7 +42,7 @@ export const api = {
     return request<{ status: string; name: string; version: string }>('/health', { signal }, 8_000)
   },
   searchAssets(query = '') {
-    return request<Asset[]>(`/assets/search?q=${encodeURIComponent(query)}`)
+    return request<Asset[]>(`/assets/search?q=${encodeURIComponent(query)}&limit=100`)
   },
   getStrategies(mode: 'single' | 'portfolio') {
     return request<Strategy[]>(`/strategies?mode=${mode}`)
@@ -77,21 +76,35 @@ export const api = {
       signal: options.signal,
     })
   },
-  runBacktest(payload: Record<string, unknown>, signal?:AbortSignal) {
+  backtestEngines() {
+    return request<Array<{id: import('./types').BacktestEngine; name: string; available: boolean; description: string; version?: string; reason?: string}>>('/backtest-engines')
+  },
+  async runBacktest(payload: Record<string, unknown>, signal?:AbortSignal) {
+    if (payload.backtest_engine && payload.backtest_engine !== 'atlas') {
+      if(payload.data_source==='huggingface'&&(!payload.start||!payload.end)){
+        const q=new URLSearchParams({symbol:String(payload.symbol),asset_class:String(payload.asset_class),interval:String(payload.interval),adjustment:String(payload.adjustment??'raw'),data_source:'huggingface'})
+        const manifest=await request<{status:string;start:number;end:number}>(`/market/manifest?${q}`,{signal})
+        if(manifest.status!=='ready')throw new Error('所选历史行情尚未发布')
+        payload={...payload,start:payload.start||new Date(manifest.start*1000).toISOString(),end:payload.end||new Date(manifest.end*1000).toISOString()}
+      }
+      if(payload.strategy_id==='python_portable')payload=await browserCompute.prepareExternalStrategy(payload,signal)
+      return request<BacktestResult>('/backtests/native',{method:'POST',body:JSON.stringify(payload),signal},660_000)
+    }
     return browserCompute.runBacktest(payload,signal)
   },
   runPortfolio(payload: Record<string, unknown>) {
     return browserCompute.runPortfolio(payload)
   },
   listRuns() {
-    return request<RunSummary[]>('/runs')
+    return browserCompute.listRuns()
   },
   getRun<T extends BacktestResult | PortfolioResult>(id: string) {
     return browserCompute.getRunHydrated<T>(id)
   },
   deleteRun(id: string) {
-    return request<void>(`/runs/${id}`, { method: 'DELETE' })
+    return browserCompute.deleteRun(id)
   },
+  syncRun(id:string){return browserCompute.syncLocalRun(id)},
   createResearchJob(payload: Record<string, unknown>) {
     return browserCompute.createResearchJob(payload)
   },

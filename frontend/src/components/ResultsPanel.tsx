@@ -5,6 +5,7 @@ import './results-refinement.css'
 import { formatMoney, formatNumber, formatPercent } from '../format'
 import type { ResultsPanelMode } from '../storage'
 import type { BacktestResult, PortfolioResult } from '../types'
+import { LOCAL_SAVE_NOTICE } from '../compute/persistence'
 
 const EquityChart = lazy(() =>
   import('./EquityChart').then((module) => ({ default: module.EquityChart })),
@@ -69,7 +70,7 @@ export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls
         </span> : null}
       </div>
       <div className="result-content" role="tabpanel">
-        {!loading && result ? <div><p className="result-identity">当前结果：{result.strategy.name} · {result.data_source}{result.compute && ` · ${result.compute.execution_location === 'browser' ? '浏览器计算' : '平台保密计算'} · 未经 ZKP 验证`}{result.equity.length > 0 && ` · ${new Date(result.equity[0].time * 1000).toLocaleString()} — ${new Date(result.equity[result.equity.length - 1].time * 1000).toLocaleString()}`}</p><ChainOrderPanel key={result.run_id} kind="report" resourceId={result.run_id} /></div> : null}
+        {!loading && result ? <div><p className="result-identity">当前结果：{result.strategy.name} · {result.data_source}{result.compute && ` · ${result.compute.execution_location === 'browser' ? '浏览器计算' : '平台保密计算'} · 未经 ZKP 验证`}{result.equity.length > 0 && ` · ${new Date(result.equity[0].time * 1000).toLocaleString()} — ${new Date(result.equity[result.equity.length - 1].time * 1000).toLocaleString()}`}</p>{result.compute?.storage_status==='local'?<p className="result-storage-notice" role="status">{LOCAL_SAVE_NOTICE}</p>:<ChainOrderPanel key={result.run_id} kind="report" resourceId={result.run_id} />}</div> : null}
         {loading ? <div className="result-loading" role="status" aria-live="polite"><span className="pulse-line" /><span>正在标准化行情、生成信号并逐笔撮合…</span></div> : null}
         {!loading && !result ? <div className="result-empty"><BarChart3 size={18} /><span>运行回测后，这里会显示收益、风险与逐笔交易。</span></div> : null}
         {!loading && result && tab === 'summary' ? (

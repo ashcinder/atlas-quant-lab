@@ -126,10 +126,13 @@ class MarketDataService:
         asset = find_asset(symbol, asset_class)
         if asset.asset_class == "unknown":
             asset.asset_class = asset_class
-        if interval in {"1m", "5m"} and asset.asset_class != "crypto":
-            raise ProviderError("1分钟和5分钟K线目前仅支持加密货币")
-        if interval in {"1m", "5m"} and provider_hint not in {None, "binance"}:
-            raise ProviderError("该来源暂不支持1分钟和5分钟K线")
+        cn_equity = asset.asset_class == 'equity' and asset.exchange in {'SSE', 'SZSE'}
+        if interval in {"1m", "5m"}:
+            if asset.asset_class != 'crypto' and not cn_equity:
+                raise ProviderError("1分钟和5分钟K线仅支持加密货币及沪深A股")
+            allowed = {None, 'sina'} if cn_equity else {None, 'binance'}
+            if provider_hint not in allowed:
+                raise ProviderError("该来源暂不支持此市场的1分钟和5分钟K线")
         if provider_hint is not None:
             if provider_hint not in self.providers or provider_hint == "demo":
                 raise ValueError("不支持的行情来源")
@@ -141,6 +144,8 @@ class MarketDataService:
                 candidates = ["binance"] if interval in {"1m", "5m"} else ["binance", "yahoo"]
             elif asset.exchange == "HKEX":
                 candidates = ["tencent", "yahoo"]
+            elif cn_equity and interval in {'1m', '5m'}:
+                candidates = ['sina']
             else:
                 candidates = ["sina", "yahoo"]
         errors: list[str] = []

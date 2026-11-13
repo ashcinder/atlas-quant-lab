@@ -3,6 +3,7 @@ import { Search, Star } from 'lucide-react'
 import { api } from '../api'
 import type { Asset } from '../types'
 import { AssetIcon } from './AssetIcon'
+import { groupAssets } from '../assetGroups'
 
 interface Props {
   assets: Asset[]
@@ -36,7 +37,7 @@ export const MarketSidebar = memo(function MarketSidebar({ assets, selectedSymbo
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="代码、名称或类别" />
       </label>
       <div className="asset-list">
-        {[...new Set(results.map(asset => asset.asset_class))].map(group => <details className="asset-group" key={group} open><summary>{{ crypto: '加密货币', equity: '股票', stock: '股票', etf: 'ETF / 基金', commodity: '大宗商品', forex: '外汇', index: '指数' }[group] ?? group}</summary>{results.filter(asset => asset.asset_class === group).map((asset) => {
+        {groupAssets(results).map(group => <details className="asset-group" key={group.label} open><summary>{group.label}<span className="asset-group-count">{group.assets.length}</span></summary>{group.assets.map((asset) => {
           const active = asset.symbol === selectedSymbol
           return (
             <button

@@ -1,12 +1,12 @@
 """Scheduled market publication. HTTP consumers never fetch upstream data."""
 import hashlib
 import json
-import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from app.compute_objects import ComputeObjects, canonical_bytes
 from app.config import DB_PATH
@@ -36,21 +36,41 @@ class MarketPublication:
     def connect(self):
         return sqlite3.connect(self.path, timeout=15)
 
-    def publish(self, query: dict, bundle: DataBundle, conversions: dict | None = None) -> dict:
+    def publish(
+        self,
+        query: dict,
+        bundle: DataBundle,
+        conversions: dict | None = None,
+        chunk_size: int = 1000,
+        coverage: dict | None = None,
+    ) -> dict:
         if bundle.frame.empty or bundle.frame.index.has_duplicates or not bundle.frame.index.is_monotonic_increasing:
             raise ValueError("行情必须非空、按时间递增且没有重复")
-        bars = []
-        for timestamp, row in bundle.frame.iterrows():
-            bar = {"time": int(pd.Timestamp(timestamp).timestamp()), **{k: float(row[k]) for k in ("open", "high", "low", "close", "volume")}}
-            if (any(not math.isfinite(v) for v in bar.values())
-                    or min(bar[k] for k in ("open", "high", "low", "close")) <= 0 or bar["volume"] < 0
-                    or bar["high"] < max(bar["open"], bar["close"])
-                    or bar["low"] > min(bar["open"], bar["close"])):
-                raise ValueError("行情包含无效价格或成交量")
-            bars.append(bar)
+        if not 1 <= chunk_size <= 100_000:
+            raise ValueError("行情分块大小超出允许范围")
+        columns = ("open", "high", "low", "close", "volume")
+        values = bundle.frame.loc[:, columns].to_numpy(dtype=float, copy=False)
+        opens, highs, lows, closes, volumes = values.T
+        invalid = (
+            ~np.isfinite(values).all(axis=1)
+            | (values[:, :4] <= 0).any(axis=1)
+            | (highs < np.maximum(opens, closes))
+            | (lows > np.minimum(opens, closes))
+            | (volumes < 0)
+        )
+        if invalid.any():
+            raise ValueError("行情包含无效价格或成交量")
+        # Pandas preserves the incoming datetime resolution (for example,
+        # Arrow-backed Parquet timestamps can be microseconds). Normalize to
+        # nanoseconds before converting to Unix seconds so ``asi8`` is stable.
+        seconds = bundle.frame.index.as_unit("ns").asi8 // 1_000_000_000
+        bars = [
+            {"time": int(stamp), "open": float(open_), "high": float(high_), "low": float(low_), "close": float(close_), "volume": float(volume)}
+            for stamp, open_, high_, low_, close_, volume in zip(seconds, opens, highs, lows, closes, volumes, strict=True)
+        ]
         chunks = []
-        for offset in range(0, len(bars), 1000):
-            part = bars[offset:offset + 1000]
+        for offset in range(0, len(bars), chunk_size):
+            part = bars[offset:offset + chunk_size]
             digest = self.objects.put("public", {"bars": part})
             chunks.append({"sha256": digest, "count": len(part), "start": part[0]["time"], "end": part[-1]["time"]})
         manifest = {"schema": "atlas.market/v1", "asset": bundle.asset.model_dump(mode="json"),
@@ -72,6 +92,10 @@ class MarketPublication:
         manifest["coverage"] = {"start": min(boundary(query.get("start"), bars[0]["time"]), bars[0]["time"]),
                                 "end": min(boundary(query.get("end"), fetched), fetched),
                                 "basis": "publisher_query_not_source_attestation"}
+        if coverage is not None:
+            if coverage["start"] > bars[0]["time"] or coverage["end"] < bars[-1]["time"]:
+                raise ValueError("查询覆盖范围不能短于已发布行情")
+            manifest["coverage"] = coverage
         identifier = hashlib.sha256(canonical_bytes(manifest)).hexdigest()
         manifest["dataset_id"] = identifier
         encoded = json.dumps(manifest, ensure_ascii=False, allow_nan=False)
@@ -101,7 +125,12 @@ class MarketPublication:
             raise ValueError("已发布行情未覆盖请求开始日期")
         if end is not None and int(pd.Timestamp(end).timestamp()) > coverage["end"]:
             raise ValueError("已发布行情未覆盖请求结束日期")
-        bars = [bar for part in manifest["chunks"] for bar in self.objects.read("public", part["sha256"])["bars"]]
+        parts = [part for part in manifest["chunks"]
+                 if (start is None or part['end'] >= start.timestamp())
+                 and (end is None or part['start'] <= end.timestamp())]
+        bars = [bar for part in parts for bar in self.objects.read("public", part["sha256"])["bars"]]
+        if not bars:
+            raise ValueError("区间内没有已发布行情")
         frame = pd.DataFrame(bars)
         frame["time"] = pd.to_datetime(frame["time"], unit="s", utc=True)
         frame = frame.set_index("time")

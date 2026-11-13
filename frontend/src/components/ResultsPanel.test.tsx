@@ -6,6 +6,16 @@ import { ResultsPanel } from './ResultsPanel'
 vi.mock('./EquityChart', () => ({ EquityChart: () => null }))
 afterEach(cleanup)
 
+it('shows a completed local-only result instead of a failed computation or a publish action',()=>{
+ render(<ResultsPanel result={{...result,run_id:'local_test',compute:{execution_location:'browser',proof_status:'unverified',storage_status:'local'}}} loading={false} panelMode="normal" onPanelMode={vi.fn()} />)
+ expect(screen.getByRole('status').textContent).toContain('回测已完成')
+ expect(screen.getByRole('status').textContent).toContain('尚未同步')
+ expect(screen.queryByText('运行回测后，这里会显示收益、风险与逐笔交易。')).toBeNull()
+ expect(screen.queryByRole('button',{name:'公开回测收益并上链'})).toBeNull()
+ fireEvent.click(screen.getByRole('tab',{name:/交易记录/}))
+ expect(screen.getByRole('columnheader',{name:'成交额（USD）'})).toBeTruthy()
+})
+
 const result: PortfolioResult = {
   run_id: 'test', created_at: '2026-09-07', valuation_currency: 'USD', data_source: 'test',
   strategy: { id: 'all_weather', name: '组合', category: '配置', description: '', suitable_for: '', risk_level: '中', mode: 'portfolio', parameters: [] },

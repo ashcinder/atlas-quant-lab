@@ -21,3 +21,14 @@ it('renders an unknown symbol instead of the old empty React-element fallback', 
   expect(view.container.textContent).toBe('NE')
   expect(view.container.querySelector('img')).toBeNull()
 })
+
+it('covers the research stocks with local brand art and uses company names if loading fails', () => {
+  for (const [symbol, name] of [['688981.SS','中芯国际'],['688017.SS','绿的谐波'],['600118.SS','中国卫星'],['000001.SZ','平安银行']]) {
+    const view=render(<AssetIcon asset={{...asset(symbol),name}} />)
+    const image=view.container.querySelector('img')!
+    expect(image.getAttribute('src')).toMatch(/^\/asset-icons\/.+\.svg$/)
+    fireEvent.error(image)
+    expect(view.container.textContent).toBe(name.slice(0,2))
+    view.unmount()
+  }
+})

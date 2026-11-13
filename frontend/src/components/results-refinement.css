@@ -19,3 +19,6 @@
 .quant-workspace .results-panel.panel-maximized .summary-grid { min-height: 520px; }
 @container results (min-width: 1080px) { .quant-workspace .results-panel .metrics-grid { grid-template-columns: repeat(8,minmax(0,1fr)); } }
 @container results (max-width: 540px) { .quant-workspace .results-panel .metrics-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .quant-workspace .results-panel .summary-grid { padding: 10px; min-height: 600px; } .quant-workspace .results-panel .result-evaluation > div { grid-template-columns: 1fr; } }
+
+.result-storage-notice { margin: 8px 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.sync-run { display: inline-flex; align-items: center; gap: 4px; padding: 6px; font-size: 11px; }

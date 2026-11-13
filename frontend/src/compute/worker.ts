@@ -26,7 +26,7 @@ export function installComputeWorker(port:WorkerPort):void{
    else if(task.kind==='portfolio')result=runPortfolio(task.request,task.markets,context)
    else if(task.kind==='research')result=await runResearch(task.request,task.market,{...context,jobId:task.jobId})
    else if(task.kind==='runtimeSignal')result=computeRuntimeSignal(task.request,task.market)
-   else result=calculateIndicators(task.bars)
+   else result=calculateIndicators(task.bars,3000)
    if(cancelled)throw new Error('计算已取消');port.postMessage({type:'complete',id,result})
   }catch(error){port.postMessage({type:'error',id,message:error instanceof Error?error.message:'浏览器计算失败'})}finally{active=null;for(const pending of reviews.values())pending.reject(new Error('计算已结束'));reviews.clear()}})()
  }

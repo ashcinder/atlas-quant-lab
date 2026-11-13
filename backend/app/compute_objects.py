@@ -19,6 +19,12 @@ def canonical_bytes(value) -> bytes:
 
 
 class ComputeObjects:
+    @staticmethod
+    def max_bytes(visibility: str) -> int:
+        # Public market chunks stay small. Private full-history reports retain
+        # every account observation and trade instead of truncating results.
+        return (256 if visibility == 'private' else 16) * 1024 * 1024
+
     def __init__(self, root: Path | None = None):
         self.root = root or Path(os.environ.get("ATLAS_OBJECT_ROOT", str(DATA_DIR / "objects")))
         for visibility in ("public", "private"):
@@ -31,8 +37,8 @@ class ComputeObjects:
 
     def put(self, visibility: str, value) -> str:
         body = canonical_bytes(value)
-        if len(body) > 16 * 1024 * 1024:
-            raise ValueError("结果对象超过16MiB")
+        if len(body) > self.max_bytes(visibility):
+            raise ValueError(f"结果对象超过{self.max_bytes(visibility)//1024//1024}MiB")
         digest = hashlib.sha256(body).hexdigest()
         destination = self.path(visibility, digest)
         if destination.exists():
@@ -74,7 +80,7 @@ class ComputeObjects:
 
     def read(self, visibility: str, digest: str):
         body = self.path(visibility, digest).read_bytes()
-        if len(body) > 16 * 1024 * 1024 or hashlib.sha256(body).hexdigest() != digest:
+        if len(body) > self.max_bytes(visibility) or hashlib.sha256(body).hexdigest() != digest:
             raise ValueError("存储对象完整性检查失败")
         return json.loads(body)
 

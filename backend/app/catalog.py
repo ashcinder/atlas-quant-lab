@@ -348,6 +348,20 @@ ASSETS = [
 ]
 
 
+# Curated research pool: searchable by topic, ticker and company name.
+from app.cn_universe import CN_TECH_UNIVERSE
+for _topic, _members in CN_TECH_UNIVERSE.items():
+    for _symbol, _name in _members:
+        if not any(asset.symbol == _symbol for asset in ASSETS):
+            ASSETS.append(Asset(symbol=_symbol, name=_name, asset_class="equity",
+                exchange="SSE" if _symbol.endswith(".SS") else "SZSE", currency="CNY",
+                timezone="Asia/Shanghai", tags=["A股", _topic, "主题研究池"]))
+        else:
+            for _asset in ASSETS:
+                if _asset.symbol == _symbol and _topic not in _asset.tags:
+                    _asset.tags.append(_topic)
+
+
 def find_asset(symbol: str, asset_class: str | None = None) -> Asset:
     normalized = symbol.strip().upper()
     for asset in ASSETS:

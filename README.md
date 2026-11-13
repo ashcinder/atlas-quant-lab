@@ -13,6 +13,10 @@ DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平�
 | 当前已完成与待验 | [统一状态](docs/CURRENT_STATUS.md) |
 | 源码运行/分享 | 下方本地启动、[DEPLOY](DEPLOY.md)、[构建前提与持久化](docs/DEPLOYMENT.md) |
 | 浏览器计算 | [行情发布、运行租约与作者 Proof](docs/BROWSER_COMPUTE.md) |
+| A股主题分钟数据 | [半导体、机器人、航天股票池与导入方式](docs/CN_TECH_MINUTE_DATA.md) |
+| 可选回测框架 | [当前引擎、RQAlpha 与 vn.py 的范围及安装](docs/BACKTEST_ENGINES.md) |
+| Python 策略开发 | [单文件编辑与多文件项目回测](docs/PORTABLE_PYTHON_STRATEGIES.md) |
+| A股龙头与同行策略 | [代码、运行方法和真实数据回测](strategy/examples/a_share_leader_follow/README.md) |
 | 历史固定镜像交付 | [基础两镜像](docs/LAB_OFFLINE_DEPLOYMENT.md)、[完整四镜像测试链](docs/LAB_CHAIN_DEPLOYMENT.md) |
 | 测试 | [隔离浏览器验收](tools/e2e/README.md)、[r23 本机验收](docs/testing/comprehensive-20261108/FOLLOWUP.md) |
 | 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md) |
@@ -22,7 +26,7 @@ DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平�
 
 ## 公开分支功能
 
-- **行情与回测**：加密货币、A/H股、美股、ETF、指数、外汇和商品，当前A股目录20只；15m/1h/4h/日/周线。提供均线、动量、网格、定投等规则及受限Python单标的回测，另有全天候/风险平价/60-40组合实验。真实源失败明确报错，演示数据需显式选择。
+- **行情与回测**：加密货币、A/H股、美股、ETF、指数、外汇和商品，当前A股目录35只（含半导体、机器人、航天主题池15只）；支持15m/1h/4h/日/周线，加密货币和沪深A股另支持1m/5m，具体行情需独立发布。提供均线、动量、网格、定投等规则及受限Python单标的回测，另有全天候/风险平价/60-40组合实验。真实源失败明确报错，演示数据需显式选择。
 - **成本与风控**：收盘生成信号、下一根开盘成交，费用、滑点、价差、仓位和参与率约束；图表、成交记录与净值使用实际引擎结果。完整A股成交规则和券商接入尚未完成。
 - **研究**：普通单策略、组合及参数研究在浏览器 Worker 中执行。支持参数搜索、留出集与滚动验证、样本不足和样本外下降警告。保密订阅版本由受限的 Linux 服务端进程执行。尚无自适应选择补充实验的回测诊断Agent。
 - **AI辅助**：自然语言生成/修改代码、预览后人工应用；模板/图形单次回测可选审核。DeepSeek已有真实本地联调，其他提供方和路径需分别验收。AI不改变确定性评分，不自动进入持续运行或实盘下单。

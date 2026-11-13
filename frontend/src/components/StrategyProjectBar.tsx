@@ -19,8 +19,9 @@ interface Props {
   onSelect: (id: string) => void
   onCreate: (payload: StrategyProjectCreate) => Promise<void>
   onUpdate: (payload: Partial<StrategyProjectCreate>) => Promise<void>
-  onFreeze: (version: string) => Promise<void>
-  onGoTab: (tab: StrategyLabTab) => void
+  codeOnly?: boolean
+  onFreeze?: (version: string) => Promise<void>
+  onGoTab?: (tab: StrategyLabTab) => void
 }
 
 const stageLabel: Record<StrategyProject['stage'], string> = {
@@ -38,7 +39,7 @@ function gateTab(id: string): StrategyLabTab {
 }
 
 export function StrategyProjectBar({
-  projects, project, asset, assets = [], interval, busy, onSelect, onCreate, onUpdate, onFreeze, onGoTab,
+  projects, project, asset, assets = [], interval, busy, onSelect, onCreate, onUpdate, onFreeze, onGoTab, codeOnly = false,
 }: Props) {
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create')
@@ -143,27 +144,38 @@ export function StrategyProjectBar({
   }
 
   return <>
-    <section ref={barRef} className="strategy-project-bar">
+    <section ref={barRef} className={`strategy-project-bar${codeOnly ? ' is-code-only' : ''}`}>
       <div className="project-switcher">
         <FolderKanban size={14} aria-hidden="true" />
-        <span><small>项目</small><label><select name="strategy-project" autoComplete="off" aria-label="选择策略项目" value={project?.id ?? ''} onChange={(event) => onSelect(event.target.value)} disabled={!projects.length}><option value="">尚未创建项目</option>{projects.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><ChevronDown size={11} aria-hidden="true" /></label></span>
+        {codeOnly && !projects.length ? <span className="project-draft-label">独立草稿</span> : <span>
+          <small>{codeOnly ? '项目设置' : '项目'}</small>
+          <label>
+            <select name="strategy-project" autoComplete="off" aria-label="选择策略项目"
+              title={codeOnly ? project?.name ?? '选择项目以应用其标的和周期' : undefined}
+              value={project?.id ?? ''} onChange={event => onSelect(event.target.value)} disabled={!projects.length}>
+              <option value="">{codeOnly ? '独立草稿' : '尚未创建项目'}</option>
+              {projects.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}
+            </select>
+            <ChevronDown size={11} aria-hidden="true" />
+          </label>
+        </span>}
         <button aria-label="新建策略项目" title="新建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}><Plus size={12} /></button>
         {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={event => { event.currentTarget.focus(); openEditor('edit') }}><Pencil size={12} /></button> : null}
       </div>
       {project ? <>
-        <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
-        <button className="project-gate-button" aria-label={`${passed}/${project.gates.length} 门禁，${project.next_gate ? `待完成：${project.next_gate.label}` : '可发布'}`} title={project.next_gate ? `待完成：${project.next_gate.label}` : '发布门禁已完成'} onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong></span><ChevronDown size={11} /></button>
-      </> : <div className="project-empty-line"><CircleAlert size={13} /><span><strong>未创建项目</strong></span><button aria-label="创建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}>创建项目</button></div>}
+        <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{codeOnly?'项目定义：':''}{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
+        {!codeOnly && <button className="project-gate-button" aria-label={`${passed}/${project.gates.length} 门禁，${project.next_gate ? `待完成：${project.next_gate.label}` : '可发布'}`} title={project.next_gate ? `待完成：${project.next_gate.label}` : '发布门禁已完成'} onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong></span><ChevronDown size={11} /></button>}
+      </> : <div className="project-empty-line">{!codeOnly && <CircleAlert size={13} />}<span><strong>{codeOnly ? '本次回测使用右侧设置' : '未创建项目'}</strong></span>{!codeOnly&&<button aria-label="创建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}>创建项目</button>}</div>}
     </section>
 
-    {gateOpen && project ? <aside className="project-gate-popover">
+    {!codeOnly && gateOpen && project ? <aside className="project-gate-popover">
       <header><span><ShieldCheck size={15} /><strong>版本晋级门禁</strong></span><button aria-label="关闭版本门禁" onClick={() => setGateOpen(false)}><X size={13} /></button></header>
       <div className="project-gate-progress"><i style={{ width: `${project.completion * 100}%` }} /></div>
       <p>门禁由后端制品与研究记录计算，前端不能手动勾选。</p>
-      <ul>{project.gates.map((gate) => <li key={gate.id} className={gate.passed ? 'is-pass' : ''}><span>{gate.passed ? <Check size={12} /> : <CircleAlert size={12} />}<strong>{gate.label}</strong></span>{gate.passed ? <small>PASS</small> : <button onClick={() => { onGoTab(gateTab(gate.id)); setGateOpen(false) }}>去完成</button>}</li>)}</ul>
+      <ul>{project.gates.map((gate) => <li key={gate.id} className={gate.passed ? 'is-pass' : ''}><span>{gate.passed ? <Check size={12} /> : <CircleAlert size={12} />}<strong>{gate.label}</strong></span>{gate.passed ? <small>PASS</small> : <button onClick={() => { onGoTab?.(gateTab(gate.id)); setGateOpen(false) }}>去完成</button>}</li>)}</ul>
       <footer>
         <label><span>冻结版本</span><input name="release-version" autoComplete="off" spellCheck={false} value={version} onChange={(event) => { setVersion(event.target.value); setFreezeArmed(false) }} placeholder="例如 1.0.0…" /></label>
-        <button className={freezeArmed ? 'is-armed' : ''} disabled={!readyToFreeze || busy || Boolean(project.commitment)} onClick={async () => { if (!freezeArmed) { setFreezeArmed(true); return } try { await onFreeze(version); setGateOpen(false); setFreezeArmed(false) } catch { /* Keep gate detail open. */ } }}><LockKeyhole size={12} />{project.commitment ? `已冻结 v${project.version}` : freezeArmed ? `确认冻结 v${version}` : '冻结不可变版本'}</button>
+        <button className={freezeArmed ? 'is-armed' : ''} disabled={!onFreeze || !readyToFreeze || busy || Boolean(project.commitment)} onClick={async () => { if (!freezeArmed) { setFreezeArmed(true); return } try { await onFreeze?.(version); setGateOpen(false); setFreezeArmed(false) } catch { /* Keep gate detail open. */ } }}><LockKeyhole size={12} />{project.commitment ? `已冻结 v${project.version}` : freezeArmed ? `确认冻结 v${version}` : '冻结不可变版本'}</button>
       </footer>
       {project.commitment ? <code title={project.commitment}>COMMIT {project.commitment.slice(0, 24)}…</code> : null}
     </aside> : null}

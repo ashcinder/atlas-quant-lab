@@ -43,6 +43,17 @@ def serialize_bars(frame: pd.DataFrame) -> list[Bar]:
 def run_backtest(
     request: BacktestRequest, bundle: DataBundle, *, include_details: bool = True, supplied_ai_guard=None, supplied_program=None
 ) -> BacktestResult:
+    if request.execution_model == 'unified':
+        from app.backtest.unified import ResearchLedger, CONTRACT, NOTICE
+        from app.backtest.native import normalize
+        if bundle.source != 'hf-ohlcv':
+            raise ValueError('统一研究口径需要规范化的Hugging Face数据')
+        bars=[b.model_dump() for b in serialize_bars(bundle.frame)]
+        from app.backtest.strategy_plan import prepare_plan
+        ledger=ResearchLedger(request.model_dump(mode='json'),prepare_plan(request,bars,request.portable_plan.dataset_id if request.portable_plan else None))
+        for bar in bars: ledger.step(bar)
+        return normalize(request,dict(version='atlas-python / '+CONTRACT,bars=bars,
+            fills=ledger.fills,snapshots=ledger.snapshots,execution_contract=CONTRACT,warnings=[NOTICE]),bundle.source,bundle.source_note)
     pipeline = request.execution_pipeline
     ai_stages = []
     ai_guard = supplied_ai_guard
@@ -65,6 +76,8 @@ def run_backtest(
                 ai_guard = LocalAIGuard()
             except RunnerUnavailable as exc:
                 raise ValueError(f"AI 流程未就绪：{exc}") from exc
+    if bundle.source in {'hf-unverified', 'baostock-disputed'}:
+        raise ValueError('该旧版本来源仅供查看，请重新发布规范化数据')
     frame = bundle.frame.copy()
     if len(frame) < 40:
         raise ValueError("至少需要40根K线才能回测")
@@ -201,7 +214,7 @@ def run_backtest(
                 execution_price = open_price * (
                     1 + price_impact if side == "buy" else 1 - price_impact
                 )
-                max_notional = np.inf
+                max_notional = 0.0 if bundle.source == "hf-ohlcv" else np.inf
                 if float(bar.volume) > 0:
                     max_notional = float(bar.volume) * open_price * request.max_participation_rate
                 trade_quantity = min(abs(delta), max_notional / execution_price)
@@ -276,9 +289,10 @@ def run_backtest(
         request.interval,
         bundle.asset.asset_class,
         request.initial_capital,
+        exchange=bundle.asset.exchange,
     )
     stage_metrics = regime_metrics(
-        equity_series, frame["close"], request.interval, bundle.asset.asset_class
+        equity_series, frame["close"], request.interval, bundle.asset.asset_class, exchange=bundle.asset.exchange
     )
     evaluation = build_evaluation(
         metrics,

@@ -16,11 +16,15 @@ function requestNumber(request:Record<string,unknown>,key:string,fallback:number
 }
 export async function runBacktest(request:Record<string,unknown>,market:MarketInput,context?:ComputeContext):Promise<BacktestResult>{
  checkCancelled(context)
+ const executionModel=request.execution_model??'native'
+ if(!['native','unified'].includes(String(executionModel)))throw new Error('不支持的成交口径')
+ if(executionModel==='unified'&&(market.source!=='hf-ohlcv'||request.release_id))throw new Error('统一研究口径需要Hugging Face行情与已解析的策略')
+ if(market.source==='baostock-disputed'||market.source==='hf-unverified')throw new Error('该长历史数据来源或 OHLCV 尚未核验，仅供查看，不能用于回测')
  const bars=market.bars;if(bars.length<40)throw new Error('至少需要40根K线才能回测')
  for(let i=0;i<bars.length;i++){const b=bars[i];if(![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||b.open<=0||b.close<=0||b.high<=0||b.low<=0||b.volume<0||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||(i>0&&b.time<=bars[i-1].time))throw new Error('行情存在缺失、非有限值、无效价格或重复/乱序时间，不能回测')}
  const interval=String(request.interval??market.interval??'1d') as Interval
  if(!['1m','5m','15m','1h','4h','1d','1wk'].includes(interval))throw new Error('不支持的K线周期')
- const adjustment=String(request.adjustment??market.adjustment??'auto') as Adjustment
+ const adjustment=String(market.adjustment??request.adjustment??'auto') as Adjustment
  if(!['auto','raw','forward','backward'].includes(adjustment))throw new Error('不支持的复权方式')
  const initial=requestNumber(request,'initial_capital',100000,0,Infinity,false),spread=requestNumber(request,'spread_rate',.0005,0,.1)
  let maxPosition=requestNumber(request,'max_position',.95,0,1,false),commission=requestNumber(request,'commission_rate',.001,0,.1),slippage=requestNumber(request,'slippage_rate',.0005,0,.1),participation=requestNumber(request,'max_participation_rate',.01,0,1,false)
@@ -31,13 +35,16 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  const strategyId=String(request.strategy_id??'sma_cross'),custom=request.custom_strategy as CustomStrategySpec|null|undefined,program=request.python_program as PythonInstruction[]|undefined,python=request.python_source!=null||program!=null
  if(request.python_source!=null&&!program)throw new Error('受限 Python 源码需先编译为已验证整数指令')
  if(python&&(custom||Object.keys((request.params??{}) as object).length||strategyId!=='python_bounded'))throw new Error('受限Python回测不接受其他策略或参数')
+ const portable=strategyId==='python_portable',plan=request.portable_plan as {targets:number[];start:number;end:number;name:string}|undefined
+ if(portable&&(!plan||plan.targets.length!==bars.length||plan.start!==bars[0].time||plan.end!==bars.at(-1)!.time||plan.targets.some(v=>!Number.isFinite(v)||v<0||v>1)))throw new Error('Python仓位计划与行情区间不一致')
  let strategy:Strategy
- if(python)strategy={id:'python_bounded',name:'受限Python策略',category:'代码',description:'整数Python子集；本次回测不生成ZKP',suitable_for:'收盘价格与均线条件',risk_level:'高',mode:'single',parameters:[]}
+ if(portable)strategy={id:'python_portable',name:plan!.name,category:'代码',description:'隔离Python自定义仓位策略',suitable_for:'自定义研究',risk_level:'高',mode:'single',parameters:[]}
+ else if(python)strategy={id:'python_bounded',name:'受限Python策略',category:'代码',description:'整数Python子集；本次回测不生成ZKP',suitable_for:'收盘价格与均线条件',risk_level:'高',mode:'single',parameters:[]}
  else if(custom)strategy={id:custom.id,name:custom.name,category:'自定义',description:custom.description,suitable_for:'由用户定义的条件组合',risk_level:'高',mode:'single',parameters:[]}
  else strategy=getStrategy(strategyId)
  if(strategy.mode!=='single')throw new Error('组合策略请使用组合回测接口')
  const scheduled=strategyId==='scheduled_dca'&&!custom,scheduleParams=scheduled?validateParams(strategyId,(request.params??{}) as Record<string,unknown>):{},due=scheduled?contributionSchedule(bars.map(b=>b.time),Number(scheduleParams.every),String(scheduleParams.unit),Number(scheduleParams.start_delay)):[]
- const {target,reasons}=python?generatePythonTargets(bars,program!,maxPosition):scheduled?{target:bars.map(()=>0),reasons:bars.map(()=>'固定金额定投')}:custom?generateCustomTarget(bars,custom,maxPosition):generateTargetExposure(bars,strategyId,(request.params??{}) as Record<string,unknown>,maxPosition)
+ const {target,reasons}=portable?{target:plan!.targets.map(v=>Math.min(v,maxPosition)),reasons:bars.map(()=>`${plan!.name} · Python收盘信号`)}:python?generatePythonTargets(bars,program!,maxPosition):scheduled?{target:bars.map(()=>0),reasons:bars.map(()=>'固定金额定投')}:custom?generateCustomTarget(bars,custom,maxPosition):generateTargetExposure(bars,strategyId,(request.params??{}) as Record<string,unknown>,maxPosition)
  context?.progress?.(.05,'策略信号已计算')
  let cash=initial,quantity=0,averageCost=0,pendingTarget=0,pendingReason='初始状态',lastSignalTarget=0,activeTarget=0,rebalancing=false,aiReviews=0
  const trades:Trade[]=[],equityValues:number[]=[],exposures:number[]=[],aiStarted=performance.now(),benchmarkUnits=initial/bars[0].close
@@ -57,7 +64,7 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
     }delta*=scale
    }
    if(rebalancing&&Math.abs(delta*open)>=minChange&&(scheduled||Math.abs(currentFraction-activeTarget)>=.001)){
-    const side=delta>0?'buy':'sell',impact=slippage+spread/2,executionPrice=open*(side==='buy'?1+impact:1-impact),maxNotional=b.volume>0?b.volume*open*participation:Infinity
+    const side=delta>0?'buy':'sell',impact=slippage+spread/2,executionPrice=open*(side==='buy'?1+impact:1-impact),maxNotional=b.volume>0?b.volume*open*participation:market.source==='hf-ohlcv'?0:Infinity
     let tradeQuantity=Math.min(Math.abs(delta),maxNotional/executionPrice)
     if(side==='buy')tradeQuantity=Math.min(tradeQuantity,cash/(executionPrice*(1+commission)))
     let notional=tradeQuantity*executionPrice,fee=notional*commission;const slippageCost=tradeQuantity*Math.abs(executionPrice-open);let realizedPnl:number|null=null
@@ -70,15 +77,18 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
   const equity=cash+quantity*b.close;equityValues.push(equity);exposures.push(equity>0?quantity*b.close/equity:0);pendingTarget=target[i];pendingReason=reasons[i]
   if(i%128===0){context?.progress?.(.05+.8*i/bars.length,'逐根执行与资金核算');await new Promise<void>(resolve=>setTimeout(resolve,0))}
  }
- const benchmark=bars.map(b=>b.close*benchmarkUnits),drawdown=drawdownSeries(equityValues),{metrics,warnings}=calculateMetrics(equityValues,benchmark,trades,exposures,interval,market.asset.asset_class,initial),regimes=regimeMetrics(equityValues,bars.map(b=>b.close),interval,market.asset.asset_class),evaluation=buildEvaluation(metrics,{start:bars[0].time,end:bars.at(-1)!.time,observation_count:bars.length-1},regimes)
+ const benchmark=bars.map(b=>b.close*benchmarkUnits),drawdown=drawdownSeries(equityValues),{metrics,warnings}=calculateMetrics(equityValues,benchmark,trades,exposures,interval,market.asset.asset_class,initial,market.asset.exchange),regimes=regimeMetrics(equityValues,bars.map(b=>b.close),interval,market.asset.asset_class,market.asset.exchange),evaluation=buildEvaluation(metrics,{start:bars[0].time,end:bars.at(-1)!.time,observation_count:bars.length-1},regimes)
+ if(executionModel==='unified')warnings.push('统一研究口径 research-next-open/v1：框架事件回放，共用信号和成交账本；非原生股票账户，允许零股，不模拟T+1、涨跌停、印花税或分红送转。')
  warnings.unshift('所有策略信号均在当前K线收盘后生成，并在下一根K线开盘执行。')
+ if(['SSE','SZSE'].includes(market.asset.exchange))warnings.push('当前通用引擎尚未完整模拟A股T+1、整手、涨跌停等规则；分钟线结果用于研究。价格复权口径以实际数据清单为准。')
  if(scheduled)warnings.push('固定金额定投使用初始可用资金，金额包含手续费；资金不足、仓位上限或流动性限制可能导致部分成交或跳过。日历时间按数据 UTC 时间计算，非交易时段顺延；K线粒度过粗时合并错过的计划，不补做多笔成交。不模拟外部自动入金。')
  if(['dca','dip_dca'].includes(strategyId)&&!custom)warnings.push('此定投模型分期提高目标仓位，只使用初始资金，不模拟外部持续入金。达到仓位上限或投入次数限制后将停止增加目标仓位；没有新买点不代表策略停止运行。')
  if(pipeline)warnings.push(`已应用策略流程：仓位上限 ${(pipeline.max_position*100).toFixed(0)}%、手续费、滑点及成交参与率；AI 审核 ${aiReviews} 次。`)
  if(aiReviews)warnings.push('AI 为当前配置模型对历史数据的审核，不是历史时点模型重放；本报告不包含 AI 的 ZKP 或 TEE 证明。')
  if(['arithmetic_grid','geometric_grid'].includes(strategyId))warnings.push('网格使用收盘确认和保守成交顺序；单根K线内的真实价格路径无法由OHLC确定。')
+ if(market.source==='hf-ohlcv')warnings.push('使用固定版本Hugging Face不复权历史快照，保留零成交分钟；不混合实时来源。跨除权日结果需结合公司行动解释，数据差异不等于已获交易所核验。')
  if(market.source==='demo')warnings.unshift('当前使用明确标记的演示数据，结果不能用于真实投资判断。')
  checkCancelled(context);context?.progress?.(1,'回测完成')
  const details=context?.includeDetails!==false
- return {run_id:crypto.randomUUID(),created_at:new Date().toISOString(),asset:market.asset,interval,adjustment,strategy,data_source:market.source,valuation_currency:market.asset.currency,source_note:market.source_note??null,bars:details?bars:[],indicators:details?calculateIndicators(bars):{},trades,equity:details?bars.map((b,i)=>({time:b.time,equity:equityValues[i],benchmark:benchmark[i],drawdown:Number.isFinite(drawdown[i])?drawdown[i]:0,exposure:exposures[i]})):[],metrics,regime_metrics:regimes,evaluation,warnings}
+ return {execution_model:executionModel as 'native'|'unified',execution_contract:executionModel==='unified'?'research-next-open/v1':undefined,run_id:crypto.randomUUID(),created_at:new Date().toISOString(),asset:market.asset,interval,adjustment,strategy,data_source:market.source,valuation_currency:market.asset.currency,source_note:market.source_note??null,bars:details?bars:[],indicators:details?calculateIndicators(bars,3000):{},trades,equity:details?bars.map((b,i)=>({time:b.time,equity:equityValues[i],benchmark:benchmark[i],drawdown:Number.isFinite(drawdown[i])?drawdown[i]:0,exposure:exposures[i]})):[],metrics,regime_metrics:regimes,evaluation,warnings}
 }

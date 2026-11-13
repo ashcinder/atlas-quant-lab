@@ -12,9 +12,9 @@ vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ codeContext, st
 vi.mock('./components/TradingChart', () => ({ TradingChart: ({ bars, datasetKey, source, lastBarTime, isStale, onLoadHistory }: { bars: { time: number }[]; datasetKey: string; source?: string; lastBarTime?: number; isStale?: boolean; onLoadHistory?: (before: number, signal: AbortSignal) => Promise<unknown> }) => <><output data-testid="chart-bars" data-times={bars.map(bar => bar.time).join(',')} data-dataset={datasetKey} data-source={source} data-last-time={lastBarTime} data-stale={String(isStale)}>{bars.length}</output>{onLoadHistory && <button onClick={() => void onLoadHistory(300, new AbortController().signal)}>测试加载更早行情</button>}</> }))
 vi.mock('./components/StrategyLabWorkspace', async () => {
   const { useState } = await import('react')
-  return { StrategyLabWorkspace: function LabDraft({ onCustomResult }: { onCustomResult: (result: BacktestResult, code: {name:string;source:string;hash:string}) => void }) {
+  return { StrategyLabWorkspace: function LabDraft({ onCustomResult,source }: { source:string; onCustomResult: (result: BacktestResult, code: {name:string;source:string;hash:string}) => void }) {
     const [draft, setDraft] = useState('')
-    return <><input aria-label="实验室草稿" value={draft} onChange={(event) => setDraft(event.target.value)} /><button onClick={() => onCustomResult({run_id:'code',created_at:'2026-01-01',asset:btc,interval:'1d',strategy,data_source:'binance',bars:market.bars,indicators:{},trades:[],equity:[],metrics:{},regime_metrics:{},warnings:[],source_note:null}, {name:'我的测试代码',source:'def target_bps(index, close, sma):\n return 5000',hash:'a'.repeat(64)})}>完成代码回测</button></>
+    return <><output data-testid="lab-source">{source}</output><input aria-label="实验室草稿" value={draft} onChange={(event) => setDraft(event.target.value)} /><button onClick={() => onCustomResult({run_id:'code',created_at:'2026-01-01',asset:btc,interval:'1d',strategy,data_source:'binance',bars:market.bars,indicators:{},trades:[],equity:[],metrics:{},regime_metrics:{},warnings:[],source_note:null}, {name:'我的测试代码',source:'def target_bps(index, close, sma):\n return 5000',hash:'a'.repeat(64)})}>完成代码回测</button></>
   } }
 })
 vi.mock('./components/PortfolioWorkspace', async () => {
@@ -119,7 +119,7 @@ it.each(['raw', null] as const)('uses saved adjustment %s for history paging ins
   }
   vi.mocked(api.getMarket).mockResolvedValue({ ...market, asset: aapl, adjustment: 'raw', source: 'sina' })
   fireEvent.click(screen.getByText('测试加载更早行情'))
-  await waitFor(() => expect(api.getMarket).toHaveBeenLastCalledWith('AAPL', 'equity', '1d', 'auto', 'raw', expect.objectContaining({ provider: 'sina' })))
+  await waitFor(() => expect(api.getMarket).toHaveBeenLastCalledWith('AAPL', 'equity', '1d', 'auto', 'raw', expect.objectContaining({ end: '1970-01-01T00:04:59.000Z' })))
 })
 
 describe('workspace continuity and request ownership', () => {
@@ -277,4 +277,13 @@ it('preserves a shell-owned Proof deep link when the hidden quant workspace boot
   await waitFor(() => expect(api.getMarket).toHaveBeenCalled())
   expect(window.location.hash).toBe('#/proof/qzp_test')
   expect(document.title).toBe('Proof 验证 · Atlas')
+})
+
+
+it('keeps the selected immutable history source when entering the Python workspace',async()=>{
+ render(<App />)
+ await waitFor(()=>expect(screen.getByTestId('chart-bars').textContent).toBe('1'))
+ fireEvent.change(screen.getByLabelText('行情数据源'),{target:{value:'huggingface'}})
+ fireEvent.click(screen.getByRole('button',{name:'策略实验室'}))
+ expect(await screen.findByTestId('lab-source')).toHaveProperty('textContent','huggingface')
 })

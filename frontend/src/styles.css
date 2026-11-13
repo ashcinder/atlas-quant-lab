@@ -1620,3 +1620,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 :where(.quant-workspace) .result-identity { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+
+/* Market groups retain the row layout and keep counts separate from names. */
+:where(.quant-workspace) .asset-group-count { margin-left: 7px; font-size: 10px; opacity: .65; font-variant-numeric: tabular-nums; }

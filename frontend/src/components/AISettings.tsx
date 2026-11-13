@@ -21,6 +21,7 @@ export function AISettings() {
         await request('/ai-settings/test', { method: 'POST' }); setMessage('连接成功，已验证模型返回。')
       } else { await request('/ai-settings', { method: 'DELETE' }); setKey(''); setMessage('已清除当前会话的云端密钥。') }
       setStatus(await request<Status>('/ai-settings'))
+      window.dispatchEvent(new Event('atlas-ai-config-changed'))
     } catch (error) { setMessage(error instanceof Error ? error.message : '操作失败') }
     finally { setBusy(false) }
   }

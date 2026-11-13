@@ -1,0 +1,18 @@
+{
+  "leader_peer": {
+    "verified_auction_fills": 2564,
+    "max_positions": 6,
+    "open_positions_at_end": 2
+  },
+  "momentum_peer_control": {
+    "verified_auction_fills": 2846,
+    "max_positions": 6,
+    "open_positions_at_end": 6
+  },
+  "double_impact": {
+    "verified_auction_fills": 2564,
+    "max_positions": 6,
+    "open_positions_at_end": 2
+  },
+  "verified_monthly_train_cutoffs": 46
+}

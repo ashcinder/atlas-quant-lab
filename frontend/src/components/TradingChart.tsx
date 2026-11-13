@@ -5,7 +5,7 @@ import { indicatorCatalog, calculateChartIndicators, defaultIndicatorSettings, t
 import { IndicatorPicker } from './IndicatorPicker'
 import { chartTheme } from '../theme'
 import { userStorageKey } from '../storage'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { SlidersHorizontal, Eye, EyeOff, Pause, Play, RotateCcw, StepForward, X } from 'lucide-react'
 import {
   CandlestickSeries,
@@ -25,6 +25,7 @@ import { formatNumber } from '../format'
 import { bindChartTheme } from '../chartTheme'
 
 interface Props {
+  notice?: ReactNode
   highlightStart?: number
   highlightEnd?: number
   bars: Bar[]
@@ -138,7 +139,7 @@ function rangeTime(time: number, interval: Interval) {
 }
 
 export const TradingChart = memo(function TradingChart({
-  bars: currentBars, indicators, trades, chartType, interval, source, datasetKey, onLoadHistory, lastBarTime, isStale = false,
+  notice, bars: currentBars, indicators, trades, chartType, interval, source, datasetKey, onLoadHistory, lastBarTime, isStale = false,
   showVolume, showMacd, onShowVolume, onShowMacd, highlightStart, highlightEnd,
 }: Props) {
   const [replayMode, setReplayMode] = useState(false)
@@ -494,6 +495,9 @@ export const TradingChart = memo(function TradingChart({
     })
   }
   const isDemo = source?.startsWith('demo') ?? false
+  const sourceDescription = source?.split(':')[0] === 'hf-ohlcv'
+    ? `Hugging Face 历史快照 · 不复权\n当前图表末根K线：${marketTime(lastBarTime)}\n按已发布的历史范围查看与回测；零成交K线保留但不成交，跨除权日需结合公司行动解释。`
+    : undefined
   const latestMacd = latestIndicator(displayIndicators.macd)
   const latestSignal = latestIndicator(displayIndicators.macd_signal)
   const replayEquity = replayAccount.cash + replayAccount.quantity * (latest?.close ?? 0)
@@ -511,14 +515,15 @@ export const TradingChart = memo(function TradingChart({
           <span className={change >= 0 ? 'positive' : 'negative'}>{change >= 0 ? '+' : ''}{(change * 100).toFixed(2)}%</span>
         </div>
         <div className="indicator-toggles">
-          <span className="market-freshness" title={`数据源最后可用K线：${marketTime(lastBarTime)}`}>{isStale ? '刷新失败 · ' : ''}{marketTime(lastBarTime)}</span>
+          <span className="market-freshness" title={sourceDescription ?? `数据源最后可用K线：${marketTime(lastBarTime)}`} tabIndex={sourceDescription ? 0 : undefined} aria-label={sourceDescription}>{isStale ? '刷新失败 · ' : ''}{marketTime(lastBarTime)}</span>
           {indicatorControls.map((item) => <button key={item.key} aria-pressed={visibleIndicators.has(item.key)} className={visibleIndicators.has(item.key) ? 'is-active' : ''} onClick={() => toggleIndicator(item.key)}>{item.label}</button>)}
           {toolbarIndicators.has('volume') && <button aria-pressed={showVolume} className={`pane-toggle ${showVolume ? 'is-active' : ''}`} onClick={() => onShowVolume(!showVolume)} title={showVolume ? '隐藏成交量窗格' : '显示成交量窗格'}>{showVolume ? <Eye size={11} /> : <EyeOff size={11} />}VOL</button>}
           {toolbarIndicators.has('macd') && <button aria-pressed={showMacd} className={`pane-toggle ${showMacd ? 'is-active' : ''}`} onClick={() => onShowMacd(!showMacd)} title={showMacd ? '隐藏MACD窗格' : '显示MACD窗格'}>{showMacd ? <Eye size={11} /> : <EyeOff size={11} />}MACD</button>}
           {!replayMode ? <button className="replay-launch" onClick={startReplay} title="从历史时点逐根回放"><RotateCcw size={11} />回放</button> : null}
-          <span className={`source-pill ${isDemo ? 'demo' : isStale ? 'stale' : ''}`}>{source ?? '等待数据'}</span>
+          <span className={`source-pill ${isDemo ? 'demo' : isStale ? 'stale' : ''}`} title={sourceDescription}>{source ?? '等待数据'}</span>
         </div>
       </div>
+      {notice}
       {replayMode ? <div className="replay-toolbar"><span className="replay-status"><i />REPLAY <b>{replayIndex + 1}</b><em>/ {bars.length}</em></span><button onClick={() => setReplayPlaying((value) => !value)} title={replayPlaying ? '暂停' : '播放'}>{replayPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}</button><button onClick={stepReplay} title="下一根K线"><StepForward size={13} /></button><span className="replay-clock">{rangeTime(latest?.time ?? 0, interval)}</span><span className="replay-account"><small>模拟权益</small><strong>{formatNumber(replayEquity, 2)}</strong><em>仓位 {formatNumber(replayAccount.quantity, 4)}</em></span><button className="paper-buy" onClick={() => placeReplayOrder('buy')}>买入25%</button><button className="paper-sell" onClick={() => placeReplayOrder('sell')}>全部卖出</button><button className="replay-exit" onClick={() => { setReplayMode(false); setReplayPlaying(false) }} title="返回实时图表"><X size={13} /></button></div> : null}
       {!replayMode && onLoadHistory ? <div className="chart-history" role="status">
         <span>{history.status === 'loading' ? '正在加载更早行情…' : history.status === 'end' ? '该数据源未提供更早行情，可切换周期或来源' : history.status === 'error' ? `更早行情暂不可用：${history.error}` : '向前拖动可分批加载更早行情'}</span>

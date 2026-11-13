@@ -1,15 +1,15 @@
 import { BacktestPeriod } from './BacktestPeriod'
-import { ParameterSweep } from './ParameterSweep'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, BarChart3, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import type { Asset, FundamentalsResponse, Strategy } from '../types'
 import { FundamentalsPanel } from './FundamentalsPanel'
 
 interface Props {
+  enginePicker?: React.ReactNode
+  externalEngine?: boolean
   codeContext?: React.ReactNode
   releasePicker?: React.ReactNode
   releaseSelected?: boolean
-  sweepContext?: Record<string, unknown>
   asset: Asset | null
   strategies: Strategy[]
   selectedId: string
@@ -68,14 +68,14 @@ export function StrategyPanel(props: Props) {
         <span>回测参数</span>
         <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button>
       </div>
+      {props.enginePicker}
       {props.codeContext}
       <div className="form-section backtest-time-controls">
         <BacktestPeriod start={props.start ?? ''} end={props.end ?? ''} onApply={(start, end) => { props.onStart?.(start); props.onEnd?.(end) }} />
         <small>完整历史 K 线保持显示，所选区间用更鲜明的颜色突出。</small>
       </div>
-      {selected && props.sweepContext && !props.releaseSelected && <ParameterSweep key={selected.id} disabled={!asset} fields={selected.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(props.values[p.key] ?? p.default), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ ...props.sweepContext, strategy_id: selected.id, params: props.values }} onApply={values => Object.entries(values).forEach(([key, value]) => props.onValue(key.replace(/^params\./, ''), value))} />}
       {!props.codeContext && <div className="strategy-select-wrap">
-        {props.releasePicker}
+        {!props.externalEngine && props.releasePicker}
         <label>策略模板{props.releaseSelected ? "（已选版本将覆盖此模板）" : ""}</label>
         <div className="select-shell">
           <select value={props.selectedId} onChange={(event) => props.onStrategy(event.target.value)}>

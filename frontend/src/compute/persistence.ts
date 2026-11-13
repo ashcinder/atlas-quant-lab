@@ -1,7 +1,8 @@
 import type { BacktestResult, PortfolioResult, ResearchJob, ResearchResult } from '../types'
+export const LOCAL_SAVE_NOTICE='回测已完成并保存在当前浏览器；本地服务暂时不可用，报告尚未同步。可从回测历史打开或重试同步，无需重新回测。'
 export interface ComputeIdentity { owner_id:string; session_scope:string }
 export type StoredResult=BacktestResult|PortfolioResult|ResearchResult
-export interface StoredRun {id:string; mode:'single'|'portfolio'|'research'; result:StoredResult; dataset_ids:string[]; strategy_version:string|null; created_at:string}
+export interface StoredRun {id:string; mode:'single'|'portfolio'|'research'; result:StoredResult; dataset_ids:string[]; strategy_version:string|null; created_at:string; sync_request?:Record<string,unknown>}
 export interface StoredTask {page_scope?:string; id:string; status:'queued'|'running'|'completed'|'failed'|'cancelled'; mode:'single'|'portfolio'|'research'; request:Record<string,unknown>; dataset_ids:string[]; result:StoredResult|null; progress:number;message:string;error:string|null;created_at:string;updated_at:string}
 const STORE_NAMES=['chunks','manifests','runs','tasks','jobs'] as const
 export type ComputeStoreName=typeof STORE_NAMES[number]
@@ -28,6 +29,14 @@ export class ComputeStore {
  get<T>(name:ComputeStoreName,key:string):Promise<T|undefined>{return this.transaction(name,'readonly',store=>store.get(key))}
  async put<T>(name:ComputeStoreName,key:string,value:T):Promise<void>{await this.transaction(name,'readwrite',store=>store.put(value,key))}
  async delete(name:ComputeStoreName,key:string):Promise<void>{await this.transaction(name,'readwrite',store=>store.delete(key))}
+ async update<T>(name:ComputeStoreName,key:string,change:(value:T|undefined)=>T):Promise<void>{
+  const db=await this.database
+  await new Promise<void>((resolve,reject)=>{
+   const tx=db.transaction(name,'readwrite'),store=tx.objectStore(name),get=store.get(key)
+   tx.oncomplete=()=>resolve();tx.onabort=tx.onerror=()=>reject(new Error('浏览器计算索引更新失败'))
+   get.onsuccess=()=>{try{store.put(change(get.result),key)}catch(error){tx.abort();reject(error)}}
+  })
+ }
  all<T>(name:ComputeStoreName):Promise<T[]>{return this.transaction(name,'readonly',store=>store.getAll())}
  async close():Promise<void>{(await this.database).close()}
  /** Recover previous-page tasks only once per store instance before scheduling new work. */

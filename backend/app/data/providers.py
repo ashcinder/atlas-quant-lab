@@ -199,6 +199,16 @@ def _adjust_detected_splits(frame: pd.DataFrame) -> pd.DataFrame:
     return adjusted
 
 
+def cn_bar_open_times(frame: pd.DataFrame, interval: str) -> pd.DataFrame:
+    """Sina labels CN intraday bars at close; the engine uses bar open time."""
+    minutes = {'1m': 1, '5m': 5, '15m': 15, '1h': 60}.get(interval)
+    if minutes is None:
+        return frame
+    frame = frame.copy()
+    frame.index = frame.index - pd.Timedelta(minutes=minutes)
+    return frame
+
+
 class SinaProvider(MarketDataProvider):
     """Broad public-market fallback used when Yahoo is blocked or rate-limited."""
 
@@ -223,7 +233,7 @@ class SinaProvider(MarketDataProvider):
         "GlobalFuturesService.getGlobalFuturesDailyKLine"
     )
     FUTURES_MINUTE_URL = "https://gu.sina.cn/ft/api/json_v2.php/GlobalService.getMink"
-    DEFAULT_LIMIT = {"15m": 1000, "1h": 1000, "4h": 900, "1d": 2600, "1wk": 520}
+    DEFAULT_LIMIT = {"1m": 1970, "5m": 1970, "15m": 1970, "1h": 1970, "4h": 900, "1d": 2600, "1wk": 520}
 
     def __init__(self) -> None:
         self.client = httpx.Client(
@@ -302,10 +312,10 @@ class SinaProvider(MarketDataProvider):
         return _resample_ohlcv(frame, "4h") if interval == "4h" else frame
 
     def _fetch_cn(self, asset: Asset, interval: str) -> pd.DataFrame:
-        scale = 15 if interval == "15m" else 60 if interval in {"1h", "4h"} else 240
+        scale = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 60, "1d": 240, "1wk": 240}[interval]
         payload = self._get(
             self.CN_KLINE_URL,
-            {"symbol": self._cn_symbol(asset), "scale": scale, "ma": "no", "datalen": 1000},
+            {"symbol": self._cn_symbol(asset), "scale": scale, "ma": "no", "datalen": 1970},
         ).json()
         frame = _records_frame(
             payload,
@@ -321,6 +331,9 @@ class SinaProvider(MarketDataProvider):
         )
         if interval == "1wk":
             return _resample_ohlcv(frame, "W-FRI")
+        if interval in {'1m', '5m', '15m', '1h'}:
+            frame = frame.loc[frame.index <= pd.Timestamp.now(tz='UTC')]
+            return cn_bar_open_times(frame, interval)
         return _resample_ohlcv(frame, "4h") if interval == "4h" else frame
 
     def _fetch_forex(self, asset: Asset, interval: str) -> pd.DataFrame:
@@ -430,6 +443,10 @@ class SinaProvider(MarketDataProvider):
         end: datetime | None,
         adjustment: str,
     ) -> pd.DataFrame:
+        if interval in {"1m", "5m"} and (asset.exchange not in {"SSE", "SZSE"} or asset.asset_class != "equity"):
+            raise ProviderError("新浪1分钟和5分钟行情仅支持沪深A股")
+        if asset.exchange in {"SSE", "SZSE"} and interval in {"1m", "5m", "15m", "1h"} and adjustment not in {"auto", "raw"}:
+            raise ProviderError("新浪A股分钟行情仅提供不复权价格，请选择自动或不复权")
         if asset.exchange in {"NASDAQ", "NYSE Arca", "GLOBAL"} and asset.asset_class in {
             "equity",
             "etf",
