@@ -3,14 +3,16 @@ import json
 import math
 import sys
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.compute_mode import browser_compute_enabled
+from app.lab_strategies import LabBacktestSettings, require_lab_owner
 from app.models import BacktestResult, PortfolioResult, ResearchResult
 
 
@@ -61,6 +63,7 @@ class BrowserRunInput(BaseModel):
     dataset_ids: list[str] = Field(min_length=1, max_length=24)
     engine_version: Literal["browser-ts/v1"]
     strategy_version: str | None = Field(default=None, max_length=128)
+    lab_strategy_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
     @model_validator(mode="after")
     def report_only(self):
@@ -103,7 +106,7 @@ class AlertObservation(BaseModel):
     triggered: bool
 
 
-def browser_router(runtime, publications, runs, private_compute, workspace=None):
+def browser_router(runtime, publications, runs, private_compute, workspace=None, lab_strategies=None):
     router = APIRouter(prefix="/api/v1")
 
     @router.get("/compute/identity")
@@ -148,6 +151,32 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None)
     @router.post("/compute/runs", status_code=201)
     def save_browser_run(body: BrowserRunInput, request: Request):
         owner = request.state.user.id
+        if body.lab_strategy_id:
+            require_lab_owner(request)
+            if lab_strategies is None:
+                raise HTTPException(404, "代码策略库不可用")
+            lab_strategies.require_owned(owner, body.lab_strategy_id)
+            source = body.request.get("python_source")
+            if (body.mode != "single" or body.request.get("strategy_id") != "python_bounded"
+                    or body.request.get("release_id") or not isinstance(source, str)
+                    or not source.strip() or len(source) > 16_384 or "\0" in source):
+                raise HTTPException(422, "策略历史只接受受限 Python 单标的回测")
+            try:
+                settings = LabBacktestSettings.model_validate({
+                    key: body.request[key] for key in LabBacktestSettings.model_fields if key in body.request
+                })
+            except ValidationError:
+                raise HTTPException(422, "回测设置无效") from None
+            if settings.symbol is None:
+                raise HTTPException(422, "回测缺少标的")
+            try:
+                source_sha256 = sha256(source.encode("utf-8")).hexdigest()
+            except UnicodeEncodeError:
+                raise HTTPException(422, "源码必须为 UTF-8 文本") from None
+            body.request["lab_snapshot"] = {
+                "source_sha256": source_sha256,
+                "settings": settings.model_dump(mode="json"),
+            }
         if body.request.get("release_id"):
             permission = capability(runtime, owner, body.request["release_id"])
             if permission["execution_location"] != "browser" or permission["strategy_version"] != body.strategy_version:
@@ -159,6 +188,13 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None)
                 raise HTTPException(422, "结果引用了未登记的行情版本") from None
         result_model = {"single": BacktestResult, "portfolio": PortfolioResult, "research": ResearchResult}[body.mode]
         result = result_model.model_validate(body.result).model_dump(mode="json")
+        if body.lab_strategy_id and (
+            result["strategy"]["id"] != "python_bounded"
+            or result["asset"]["symbol"] != settings.symbol
+            or result["asset"]["asset_class"] != settings.asset_class
+            or result["interval"] != settings.interval
+        ):
+            raise HTTPException(422, "回测结果与策略或标的设置不匹配")
         result["run_id"] = str(uuid4())
         result["created_at"] = datetime.now(UTC).isoformat()
         if body.mode == "research":
@@ -170,7 +206,8 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None)
         # Price history belongs to immutable datasets, not every saved result.
         if body.mode == "single":
             result["bars"] = []
-        runs.save_computed(owner, body.mode, body.request, result, publications.objects)
+        runs.save_computed(owner, body.mode, body.request, result, publications.objects,
+                           lab_strategy_id=body.lab_strategy_id)
         if body.mode == "research":
             digest = publications.objects.put("private", result)
             with runs._connect() as db:

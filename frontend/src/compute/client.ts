@@ -1,5 +1,6 @@
 import type { Adjustment, BacktestResult, DataSource, Interval, MarketData, PortfolioResult, ResearchJob, ResearchResult, StrategyRun } from '../types'
 import { request } from '../request'
+import { labOwnerHeaders } from '../lab-strategy-types'
 import { ComputeStore, type ComputeIdentity, type StoredTask, type StoredRun, type StoredResult } from './persistence'
 import { fetchManifest, fetchDatasetManifest, loadMarket, type MarketManifest, type MarketQuery } from './market'
 import type { MarketInput } from './model'
@@ -52,10 +53,10 @@ function support():void{if(typeof Worker==='undefined')throw new Error('当前�
 async function capabilities(releaseId?:string,purpose:'backtest'|'runtime'='backtest'):Promise<Capabilities>{const result=await request<Capabilities>(`/compute/capabilities${releaseId?`?release_id=${encodeURIComponent(releaseId)}${purpose==='runtime'?'&purpose=runtime':''}`:''}`);if(!result.available)throw new Error(result.unavailable_reason??result.message??'当前策略版本不可执行');return result}
 const ALLOWED_FIELDS=['symbol','asset_class','interval','start','end','adjustment','base_currency','data_source','strategy_id','custom_strategy','python_source','python_program','params','initial_capital','commission_rate','slippage_rate','spread_rate','max_position','max_participation_rate','stop_loss','take_profit','execution_pipeline','assets','rebalance','cash_buffer','max_asset_weight','volatility_target','experiments','objective','holdout_ratio','walk_forward','release_id','persist']
 export function computePayload(payload:Record<string,unknown>):Record<string,unknown>{return structuredClone(Object.fromEntries(ALLOWED_FIELDS.filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))}
-async function resolvedPayload(payload:Record<string,unknown>,cap:Capabilities):Promise<Record<string,unknown>>{
+async function resolvedPayload(payload:Record<string,unknown>,cap:Capabilities,labOwner?:string):Promise<Record<string,unknown>>{
  const resolved=computePayload(payload)
  if(cap.strategy)Object.assign(resolved,{strategy_id:cap.strategy.strategy_id,params:cap.strategy.params??{},custom_strategy:cap.strategy.custom_strategy??null,python_program:cap.strategy.python_program??undefined,python_source:undefined})
- if(resolved.python_source!=null&&resolved.python_program==null){const compiled=await request<{python_program:unknown}>('/compute/compile',{method:'POST',body:JSON.stringify({source:resolved.python_source})});resolved.python_program=compiled.python_program}
+ if(resolved.python_source!=null&&resolved.python_program==null){const compiled=await request<{python_program:unknown}>('/compute/compile',{method:'POST',headers:labOwner===undefined?undefined:labOwnerHeaders(labOwner),body:JSON.stringify({source:resolved.python_source})});resolved.python_program=compiled.python_program}
  return resolved
 }
 function queryFor(payload:Record<string,unknown>):MarketQuery{return {symbol:String(payload.symbol??'BTC-USD'),asset_class:String(payload.asset_class??'crypto'),interval:(payload.interval??'1d') as Interval,adjustment:(payload.adjustment??'auto') as Adjustment,data_source:(payload.data_source??'auto') as DataSource,...(payload.start?{start:String(payload.start)}:{}),...(payload.end?{end:String(payload.end)}:{})}}
@@ -95,12 +96,12 @@ function workerCompute<T extends WorkerResult>(task:WorkerTask,captured:ComputeI
   worker.postMessage({type:'start',id,task} satisfies WorkerInput)
  })
 }
-async function savedResult<T extends StoredResult>(mode:StoredRun['mode'],payload:Record<string,unknown>,result:T,datasets:string[],version:string|null,captured:ComputeIdentity,storage:ComputeStore,signal?:AbortSignal):Promise<T>{
+async function savedResult<T extends StoredResult>(mode:StoredRun['mode'],payload:Record<string,unknown>,result:T,datasets:string[],version:string|null,captured:ComputeIdentity,storage:ComputeStore,signal?:AbortSignal,labStrategyId?:string):Promise<T>{
  if(signal?.aborted)throw new Error('计算已取消');await assertComputeIdentity(captured)
  const localId='run_id'in result?String(result.run_id):String(result.job_id)
  const localResult='bars'in result?{...result,bars:[],indicators:{}}:result
  await storage.put('runs',localId,{id:localId,mode,result:localResult,dataset_ids:datasets,strategy_version:version,created_at:result.created_at} satisfies StoredRun)
- const saved=await request<T>('/compute/runs',{method:'POST',signal,body:JSON.stringify({mode,request:payload,result:Object.fromEntries(Object.entries(result).filter(([key])=>key!=='compute')),dataset_ids:datasets,engine_version:ENGINE_VERSION,strategy_version:version})})
+ const saved=await request<T>('/compute/runs',{method:'POST',signal,headers:labStrategyId?labOwnerHeaders(captured.owner_id):undefined,body:JSON.stringify({mode,request:payload,result:Object.fromEntries(Object.entries(result).filter(([key])=>key!=='compute')),dataset_ids:datasets,engine_version:ENGINE_VERSION,strategy_version:version,lab_strategy_id:labStrategyId})})
  await assertComputeIdentity(captured)
  const id='run_id'in saved?String(saved.run_id):String(saved.job_id)
  await storage.put('runs',id,{id,mode,result:saved,dataset_ids:datasets,strategy_version:version,created_at:saved.created_at} satisfies StoredRun)
@@ -120,16 +121,19 @@ export async function getMarket(symbol:string,assetClass:string,interval:Interva
  await assertComputeIdentity(captured)
  return {asset:market.asset,interval,adjustment:manifest.adjustment,source:market.source,source_note:market.source_note??null,fetched_at:manifest.fetched_at,last_bar_time:market.bars.at(-1)!.time,cache_hit:false,is_stale:manifest.is_stale,bars:market.bars,indicators}
 }
-export async function runBacktest(payload:Record<string,unknown>,externalSignal?:AbortSignal):Promise<BacktestResult>{
- const captured=await getComputeIdentity(),storage=await computeStore(captured),cap=await capabilities(typeof payload.release_id==='string'?payload.release_id:undefined)
+export async function runBacktest(payload:Record<string,unknown>,externalSignal?:AbortSignal,labOwner?:string):Promise<BacktestResult>{
+ const captured=await getComputeIdentity()
+ if(labOwner!==undefined&&captured.owner_id!==labOwner)throw new Error('当前登录账号已改变。请刷新工作台后重试。')
+ const storage=await computeStore(captured),cap=await capabilities(typeof payload.release_id==='string'?payload.release_id:undefined)
  return withTask('single',payload,captured,storage,async(progress,signal,recordDatasets)=>{
   const {market,manifest}=await marketFor(payload,storage,signal);recordDatasets([manifest.dataset_id])
   if(cap.execution_location==='server_private'){await assertComputeIdentity(captured);return request<BacktestResult>('/compute/private-backtests',{method:'POST',signal,body:JSON.stringify({release_id:payload.release_id,dataset_id:manifest.dataset_id,settings:computePayload(Object.fromEntries(['start','end','initial_capital','commission_rate','slippage_rate','spread_rate','max_position','max_participation_rate','stop_loss','take_profit'].filter(k=>payload[k]!==undefined).map(k=>[k,payload[k]])))})})}
-  const resolved=await resolvedPayload(payload,cap),result=await workerCompute<BacktestResult>({kind:'single',request:resolved,market},captured,progress,signal)
+  const resolved=await resolvedPayload(payload,cap,labOwner),result=await workerCompute<BacktestResult>({kind:'single',request:resolved,market},captured,progress,signal)
   if(!payload.start&&!payload.end)result.warnings.push('未指定历史区间，本次使用数据清单公布的覆盖范围。')
   result.compute={execution_location:'browser',proof_status:'unverified',engine_version:ENGINE_VERSION,dataset_ids:[manifest.dataset_id],strategy_version:cap.strategy_version}
   if(signal.aborted)throw new Error('计算已取消');if(payload.persist===false)return result
-  return savedResult('single',resolved,result,[manifest.dataset_id],cap.strategy_version,captured,storage,signal)
+  const labStrategyId=typeof payload.lab_strategy_id==='string'?payload.lab_strategy_id:undefined
+  return savedResult('single',resolved,result,[manifest.dataset_id],cap.strategy_version,captured,storage,signal,labStrategyId)
  },externalSignal)
 }
 export async function runPortfolio(payload:Record<string,unknown>):Promise<PortfolioResult>{

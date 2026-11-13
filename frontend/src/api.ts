@@ -36,6 +36,7 @@ import type {
 
 import { request } from './request'
 import * as browserCompute from './compute/client'
+import { labOwnerHeaders, type LabDraft, type LabRunSummary, type LabStrategy, type LabStrategySummary } from './lab-strategy-types'
 import { evaluateBrowserAlerts } from './compute/alerts'
 
 export const api = {
@@ -77,14 +78,31 @@ export const api = {
       signal: options.signal,
     })
   },
-  runBacktest(payload: Record<string, unknown>, signal?:AbortSignal) {
-    return browserCompute.runBacktest(payload,signal)
+  runBacktest(payload: Record<string, unknown>, signal?: AbortSignal, labOwner?: string) {
+    return browserCompute.runBacktest(payload, signal, labOwner)
   },
   runPortfolio(payload: Record<string, unknown>) {
     return browserCompute.runPortfolio(payload)
   },
   listRuns() {
     return request<RunSummary[]>('/runs')
+  },
+  listLabStrategies(owner: string, signal?: AbortSignal) {
+    return request<LabStrategySummary[]>('/lab-strategies', { headers: labOwnerHeaders(owner), signal })
+  },
+  getLabStrategy(owner: string, id: string, signal?: AbortSignal) {
+    return request<LabStrategy>(`/lab-strategies/${encodeURIComponent(id)}`, { headers: labOwnerHeaders(owner), signal })
+  },
+  createLabStrategy(owner: string, id: string, draft: LabDraft) {
+    return request<LabStrategy>('/lab-strategies', { method: 'POST', headers: labOwnerHeaders(owner), body: JSON.stringify({ ...draft, id }) })
+  },
+  updateLabStrategy(owner: string, id: string, revision: number, draft: LabDraft) {
+    return request<LabStrategy>(`/lab-strategies/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: labOwnerHeaders(owner), body: JSON.stringify({ ...draft, expected_revision: revision }),
+    })
+  },
+  listLabRuns(owner: string, id: string, signal?: AbortSignal) {
+    return request<LabRunSummary[]>(`/lab-strategies/${encodeURIComponent(id)}/runs`, { headers: labOwnerHeaders(owner), signal })
   },
   getRun<T extends BacktestResult | PortfolioResult>(id: string) {
     return browserCompute.getRunHydrated<T>(id)

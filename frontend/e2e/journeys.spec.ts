@@ -2,10 +2,12 @@ import {createHash} from 'node:crypto'
 import {readFile} from 'node:fs/promises'
 import {test,expect,login,route,fixture} from './helpers'
 
-test('JOURNEY-author save exact rule snapshot publish and start pause resume stop',async({page,account})=>{
+test('JOURNEY-author save exact Python snapshot publish and start pause resume stop',async({page,account})=>{
  const unwantedComputes:string[]=[];page.on('request',r=>{if(r.method()==='POST'&&r.url().endsWith('/api/v1/compute/runs'))unwantedComputes.push(r.url())})
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'模板',exact:true}).click()
- const name='E2E Journey '+Date.now();await page.getByLabel('策略名称',{exact:true}).fill(name)
+ await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'新建策略',exact:true}).click()
+ const name='E2E Journey '+Date.now();await page.getByLabel('代码策略名称',{exact:true}).fill(name)
+ await page.getByLabel('Python 策略代码',{exact:true}).fill('def target_bps(index, close, sma):\n    return 3000\n')
+ await page.getByRole('button',{name:'保存策略',exact:true}).click();await expect(page.getByText('已保存',{exact:true})).toBeVisible()
  const created=page.waitForResponse(r=>r.url().endsWith('/api/v1/strategy-releases')&&r.request().method()==='POST')
  await page.getByRole('button',{name:'保存并订阅运行版本',exact:true}).click();const release=await (await created).json();expect(release.name).toBe(name)
  await expect(page.getByRole('link',{name:/已订阅 v/})).toBeVisible();await page.getByRole('button',{name:/发布与 Proof/}).click()

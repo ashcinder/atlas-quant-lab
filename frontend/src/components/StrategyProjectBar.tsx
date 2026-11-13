@@ -5,7 +5,7 @@ import {
   ShieldCheck, X,
 } from 'lucide-react'
 import type { Asset, Interval, StrategyProject, StrategyProjectCreate } from '../types'
-import type { StrategyLabTab } from './StrategyLabWorkspace'
+type StrategyLabTab = 'overview' | 'builder' | 'workflow' | 'validate' | 'packages' | 'proof' | 'sdk'
 import { api } from '../api'
 import { LabConfirmDialog } from './LabConfirmDialog'
 

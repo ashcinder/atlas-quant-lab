@@ -19,7 +19,7 @@ test('NAV-01 direct routes refresh and back preserve the intended workspace',asy
  const routes=[
   ['#single',page.getByRole('button',{name:'运行回测',exact:true})],
   ['#portfolio',page.getByRole('heading',{name:'多资产组合构建'})],
-  ['#research',page.getByRole('button',{name:'图形化',exact:true})],
+  ['#research',page.getByRole('heading',{name:'我的策略',exact:true})],
   ['#quantjudge',page.getByRole('navigation',{name:'QuantJudge 页面'})],
   ['#/journal/overview',page.locator('.journal-root:not([hidden])')],
   ['#/trading',page.getByRole('button',{name:'新建运行',exact:true}).first()],

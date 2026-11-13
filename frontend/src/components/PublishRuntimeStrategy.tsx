@@ -2,6 +2,7 @@ import { cycleDialogTab } from './dialogKeyboard'
 import { CloudProofControl } from './CloudProofControl'
 import { useEffect, useRef, useState } from 'react'
 import { request } from '../request'
+import { labOwnerHeaders } from '../lab-strategy-types'
 import type { CustomStrategySpec, StrategyRelease, StrategySubscription } from '../types'
 import { ChevronDown, X, Globe, Shield } from 'lucide-react'
 
@@ -15,7 +16,8 @@ interface Draft {
 }
 
 /** Publish the exact editor snapshot, then subscribe without losing partial success. */
-export function PublishRuntimeStrategy({ draft, disabled = false }: { draft: Draft; disabled?: boolean }) {
+export function PublishRuntimeStrategy({ draft, disabled = false, ownerId }: { draft: Draft; disabled?: boolean; ownerId?: string }) {
+  const headers = ownerId === undefined ? undefined : labOwnerHeaders(ownerId)
   const snapshot = JSON.stringify({ ...draft, name: draft.name.trim(), markets: ['CRYPTO', 'US', 'CN'], published: false })
   const created = useRef<{ snapshot: string; release: StrategyRelease } | null>(null)
   const pending = useRef(false)
@@ -37,11 +39,11 @@ export function PublishRuntimeStrategy({ draft, disabled = false }: { draft: Dra
     pending.current = true; setBusy(true); setError('')
     try {
       if (created.current?.snapshot !== snapshot) {
-        const release = await request<StrategyRelease>('/strategy-releases', { method: 'POST', body: snapshot })
+        const release = await request<StrategyRelease>('/strategy-releases', { method: 'POST', ...(headers ? { headers } : {}), body: snapshot })
         created.current = { snapshot, release }
       }
       const release = created.current.release
-      const subscription = await request<StrategySubscription>('/strategy-subscriptions', { method: 'POST', body: JSON.stringify({ release_id: release.id }) })
+      const subscription = await request<StrategySubscription>('/strategy-subscriptions', { method: 'POST', ...(headers ? { headers } : {}), body: JSON.stringify({ release_id: release.id }) })
       setSubscribed({ snapshot, release, subscription })
     } catch (reason) { setError(reason instanceof Error ? reason.message : '保存运行版本失败，请重试') }
     finally { pending.current = false; setBusy(false) }
@@ -63,7 +65,7 @@ export function PublishRuntimeStrategy({ draft, disabled = false }: { draft: Dra
         <button type="button" disabled={busy} onClick={async () => {
           setBusy(true)
           try {
-            await request(`/strategy-releases/${ready.release.id}/publish`, { method: 'POST' })
+            await request(`/strategy-releases/${ready.release.id}/publish`, { method: 'POST', ...(headers ? { headers } : {}) })
             setError('已公开 · 无 ZKP 验证')
           } catch (e) { setError((e as Error).message) }
           finally { setBusy(false) }

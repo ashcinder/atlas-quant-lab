@@ -1,48 +1,79 @@
-import {test,expect,login,route,savedRun} from './helpers'
-test('LAB-01 project create invalid symbol edit and refresh preserve identity',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'新建策略项目',exact:true}).click()
- const dialog=page.getByRole('dialog');const name='E2E Project '+Date.now()
- await dialog.locator('[name=project-name]').fill(name);await dialog.locator('[name=project-thesis]').fill('Synthetic test thesis with repeatable transaction-cost-aware evidence.')
- await dialog.locator('[name=asset-symbol]').fill('无匹配标的');await dialog.getByRole('button',{name:'创建策略项目',exact:true}).click();await expect(dialog).toContainText('请输入标的代码或名称')
- await dialog.locator('[name=asset-symbol]').fill('BTC-USD');await dialog.getByRole('button',{name:'创建策略项目',exact:true}).click();await expect(dialog).toBeHidden();await expect(page.getByLabel('选择策略项目')).toContainText(name)
- await page.reload();await expect(page.getByLabel('选择策略项目')).toContainText(name)
-})
-test('LAB-02 template snapshot saves and actual worker backtest completes',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'模板',exact:true}).click()
- await page.getByLabel('策略名称',{exact:true}).fill('E2E Local Preset');await page.getByRole('button',{name:'保存副本',exact:true}).click();await expect(page.getByText('参数副本已保存到当前浏览器，可从“我的参数副本”载入。',{exact:true})).toBeVisible()
- await savedRun(page,()=>page.getByRole('button',{name:'运行模板回测',exact:true}).click())
-})
-test('LAB-03 bounded Python checks and backtests with no provider key',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'代码',exact:true}).click();await page.getByRole('button',{name:'检查代码',exact:true}).click();await expect(page.locator('body')).toContainText('通过')
- const result=await savedRun(page,()=>page.getByRole('button',{name:'进行回测',exact:true}).click());expect(result.strategy.id).toBe('python_bounded')
-})
-test('LAB-04 visual rules add condition and backtest',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'买卖条件',exact:true}).click();await page.getByRole('button',{name:'添加入场条件',exact:true}).click();await expect(page.getByLabel('入场条件组合')).toBeVisible()
- await savedRun(page,()=>page.getByRole('button',{name:'运行自定义回测',exact:true}).click())
-})
-test('LAB-05 parameter research completes in browser and keeps results',async({page,account})=>{
- test.setTimeout(90000);await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'参数测试',exact:true}).click()
- const saved=page.waitForResponse(r=>r.url().endsWith('/api/v1/compute/runs')&&r.request().method()==='POST')
- await page.getByRole('button',{name:'运行稳健性研究',exact:true}).click();const response=await saved;expect(response.ok()).toBeTruthy();const result=await response.json();expect(result.compute.execution_location).toBe('browser');expect(result.tested_combinations).toBeGreaterThan(0)
+import { createHash } from 'node:crypto'
+import { test, expect, login, route, savedRun } from './helpers'
+
+const python = 'def target_bps(index, close, sma):\n    return 5000 if index >= 30 else 0\n'
+
+test('LAB-01 creates a private code strategy and restores it after reload', async ({ page, account }) => {
+  await login(page, account)
+  await route(page, '#research')
+  await page.getByRole('button', { name: '新建策略', exact: true }).click()
+  const editor = page.getByLabel('Python 策略代码')
+  await expect(editor).toHaveValue('')
+  await editor.fill(python)
+  const name = 'E2E Private Strategy ' + Date.now()
+  await page.getByLabel('代码策略名称').fill(name)
+  await page.getByLabel('初始资金').fill('12345')
+  await page.getByRole('button', { name: '保存策略', exact: true }).click()
+  await expect(page.getByText('已保存', { exact: true })).toBeVisible()
+  await page.reload()
+  await page.getByRole('button', { name: '打开 ' + name, exact: true }).click()
+  await expect(editor).toHaveValue(python)
+  await expect(page.getByLabel('初始资金')).toHaveValue('12345')
 })
 
-test('LAB-06 parameter comparison uses worker and applies ranked values without server fallback',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'参数测试',exact:true}).click();const sweep=page.locator('.parameter-sweep:visible');await sweep.getByText('比较参数',{exact:true}).click();await sweep.getByRole('checkbox',{name:'快速周期',exact:true}).check();await sweep.getByLabel('快速周期 最小值',{exact:true}).fill('5');await sweep.getByLabel('快速周期 最大值',{exact:true}).fill('10');await sweep.getByLabel('快速周期 每次增加',{exact:true}).fill('5')
- const legacy:string[]=[];page.on('request',r=>{if(r.url().endsWith('/api/v1/backtests'))legacy.push(r.url())});await sweep.getByRole('button',{name:'开始比较'}).click();await expect(sweep.getByRole('status')).toContainText('成功 2');expect(legacy).toEqual([]);await expect(sweep.getByRole('button',{name:'使用这组'})).toHaveCount(2)
+test('LAB-02 runs two code snapshots and shows each result in the workbench', async ({ page, account }) => {
+  await login(page, account)
+  await route(page, '#research')
+  await page.locator('.lab-library input[type="file"]').setInputFiles({
+    name: 'E2E Snapshots.py', mimeType: 'text/x-python', buffer: Buffer.from(python),
+  })
+  const editor = page.getByLabel('Python 策略代码')
+  await expect(editor).toHaveValue(python)
+  const created = page.waitForResponse(r => r.url().endsWith('/api/v1/lab-strategies') && r.request().method() === 'POST')
+  await page.getByRole('button', { name: '保存策略', exact: true }).click()
+  const response = await created
+  expect(response.status()).toBe(201)
+  await page.getByRole('button', { name: '检查代码', exact: true }).click()
+  await expect(page.getByText('代码检测通过')).toBeVisible()
+  const run = () => savedRun(page, () => page.getByRole('button', { name: '运行回测', exact: true }).click())
+  const first = await run()
+  const modified = python.replace('5000', '4000')
+  await editor.fill(modified)
+  await page.getByLabel('初始资金').fill('20000')
+  const second = await run()
+  expect(second.run_id).not.toBe(first.run_id)
+  await expect(page).toHaveURL(/#research$/)
+  await expect(page.getByText('回测结果已就绪', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '查看回测结果', exact: true }).press('Enter')
+  await expect(page.getByRole('heading', { name: '回测结果', exact: true })).toBeFocused()
+  await page.getByRole('button', { name: '历史回测', exact: true }).click()
+  const rows = page.locator('.lab-history-table tbody tr')
+  await expect(rows).toHaveCount(2)
+  await rows.first().getByRole('button').click()
+  await page.getByText('本次运行参数和源码摘要').click()
+  await expect(page.locator('.lab-original-settings')).toContainText('20,000')
+  await expect(page.locator('.lab-original-settings')).toContainText(createHash('sha256').update(modified).digest('hex'))
+  await expect(editor).toHaveValue(modified)
 })
 
-test('LAB-07 completed research survives reload with exact saved candidate table',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'参数测试',exact:true}).click();const saved=page.waitForResponse(r=>r.url().endsWith('/api/v1/compute/runs')&&r.request().method()==='POST');await page.getByRole('button',{name:'运行稳健性研究',exact:true}).click();expect((await saved).ok()).toBeTruthy();const rows=page.locator('.research-table tbody tr');await expect(rows.first()).toBeVisible();const text=await rows.allTextContents();await page.reload();await page.getByRole('button',{name:'参数测试',exact:true}).click();await expect(page.locator('.research-table tbody tr').first()).toBeVisible();expect(await page.locator('.research-table tbody tr').allTextContents()).toEqual(text)
+test('LAB-03 offers save, discard and cancel when leaving a dirty draft', async ({ page, account }) => {
+  await login(page, account)
+  await route(page, '#research')
+  await page.getByRole('button', { name: '新建策略', exact: true }).click()
+  await page.getByLabel('Python 策略代码').fill(python)
+  await page.getByRole('button', { name: '行情与回测', exact: true }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '取消，保留当前内容', exact: true }).click()
+  await expect(page.getByLabel('Python 策略代码')).toHaveValue(python)
+  await page.getByRole('button', { name: '行情与回测', exact: true }).click()
+  await dialog.getByRole('button', { name: '放弃修改', exact: true }).click()
+  await expect(page).toHaveURL(/#single$/)
 })
 
-test('LAB-08 cancel and refresh interruption remain explicit and allow a new research',async({page,account})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'参数测试',exact:true}).click();await page.getByRole('button',{name:'运行稳健性研究',exact:true}).click();await page.locator('.research-progress').getByRole('button',{name:'取消',exact:true}).click();await expect(page.locator('.research-results')).toContainText('研究已取消')
- await page.getByRole('button',{name:'运行稳健性研究',exact:true}).click();await expect(page.locator('.research-progress')).toBeVisible();await page.reload();await page.getByRole('button',{name:'参数测试',exact:true}).click();await expect(page.locator('.research-results')).toContainText(/页面已关闭，研究已中断|研究已取消/);await expect(page.getByRole('button',{name:'运行稳健性研究',exact:true})).toBeEnabled()
-})
-test('MARKET-03 unsupported favourites control states its unavailable capability',async({page,account})=>{
- await login(page,account);await expect(page.getByRole('button',{name:'收藏标的（尚未接入）',exact:true})).toBeDisabled();await expect(page.getByRole('button',{name:'收藏标的（尚未接入）',exact:true})).toHaveAttribute('title','收藏功能尚未接入')
-})
-
-test('TABS-01 opener copied session scope cannot interrupt an active original research',async({page,account,context})=>{
- await login(page,account);await route(page,'#research');await page.getByRole('button',{name:'参数测试',exact:true}).click();await page.getByRole('button',{name:'运行稳健性研究',exact:true}).click();await expect(page.locator('.research-progress')).toBeVisible();const scope=await page.evaluate(()=>sessionStorage.getItem('atlas.compute.tab'));const opened=context.waitForEvent('page');await page.evaluate(()=>window.open(location.href));const other=await opened;await other.getByRole('button',{name:'参数测试',exact:true}).click();await expect.poll(()=>other.evaluate(()=>sessionStorage.getItem('atlas.compute.tab'))).not.toBe(scope);await expect(page.locator('.research-table tbody tr').first()).toBeVisible();await expect(page.locator('.research-results')).not.toContainText('研究已中断');await other.close()
+test('MARKET-03 unsupported favourites control states its unavailable capability', async ({ page, account }) => {
+  await login(page, account)
+  const favourites = page.getByRole('button', { name: '收藏标的（尚未接入）', exact: true })
+  await expect(favourites).toBeDisabled()
+  await expect(favourites).toHaveAttribute('title', '收藏功能尚未接入')
 })

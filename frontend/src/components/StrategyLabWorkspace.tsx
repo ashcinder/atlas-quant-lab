@@ -1,199 +1,363 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import {
-  Beaker, Braces, Check, FileArchive, FlaskConical, GitBranch, LoaderCircle,
-  ShieldCheck, LayoutDashboard, ArrowRight, Code2, Copy,
-} from 'lucide-react'
-import type { ResearchWorkspaceProps } from './ResearchWorkspace'
-import type { StudioTab } from './QuantStrategyStudio'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowLeft, ArrowRight, Code2, LockKeyhole, Plus, Upload } from 'lucide-react'
 import { api } from '../api'
-import type {
-  Asset, Interval, CustomStrategyRecord, ResearchJob, StrategyProject,
-  StrategyProjectArtifactKind, StrategyProjectCreate, StudioWorkflowRecord,
-} from '../types'
-import { StrategyProjectBar } from './StrategyProjectBar'
-import './code-strategy.css'
-import './lab-compact.css'
-import { ExecutionPipelinePanel } from './ExecutionPipelinePanel'
-import { defaultPipeline } from './executionPipeline'
-import { TemplateStrategyWorkspace } from './TemplateStrategyWorkspace'
+import { formatPercent } from '../format'
+import { LAB_NAVIGATION, pushAtlasHash, setLabHashGuard, trackAtlasHistoryEntry } from '../lab-navigation'
+import type { LabBacktestSettings, LabDraft, LabRunSummary, LabStrategy, LabStrategySummary } from '../lab-strategy-types'
+import { ApiError } from '../request'
+import type { Asset, BacktestResult } from '../types'
+import { CodeStrategyWorkspace } from './CodeStrategyWorkspace'
+import { LabBacktestForm, LabRunSettings } from './LabBacktestForm'
+import { LabConfirmDialog } from './LabConfirmDialog'
+import { ResultsPanel } from './ResultsPanel'
+import { SectorBacktest } from './SectorBacktest'
+import { readStrategyFile, STRATEGY_FILE_ACCEPT, STRATEGY_LANGUAGES } from './strategy-languages'
+import './lab-workbench.css'
 
-const CodeStrategyWorkspace = lazy(() => import('./CodeStrategyWorkspace').then((module) => ({ default: module.CodeStrategyWorkspace })))
-const ResearchWorkspace = lazy(() => import('./ResearchWorkspace').then((module) => ({ default: module.ResearchWorkspace })))
-const QuantStrategyStudio = lazy(() => import('./QuantStrategyStudio').then((module) => ({ default: module.QuantStrategyStudio })))
-
-export type StrategyLabTab = 'overview' | 'builder' | 'workflow' | 'validate' | 'packages' | 'proof' | 'sdk'
-
-interface Props extends Omit<ResearchWorkspaceProps, 'view' | 'showHeader'> {
-  initialTab?: StrategyLabTab
-  onOpenMarket?: () => void
-  assets?: Asset[]
-  onResearchContextChange?: (asset: Asset, interval: Interval) => void
+interface Props {
+  ownerId: string
+  assets: Asset[]
+  defaults: LabBacktestSettings
+  active: boolean
+  onRunSaved: () => void
 }
 
-const tabs: Array<{ id: StrategyLabTab; label: string; stage: string; icon: typeof Braces }> = [
-  { id: 'overview', label: '项目总览', stage: '', icon: LayoutDashboard },
-  { id: 'builder', label: '买卖条件', stage: '01 DRAFT', icon: Braces },
-  { id: 'workflow', label: '交易流程', stage: '02 COMPOSE', icon: GitBranch },
-  { id: 'validate', label: '参数测试', stage: '03 VALIDATE', icon: FlaskConical },
-  { id: 'packages', label: '历史档案', stage: '04 VERSION', icon: FileArchive },
-  { id: 'proof', label: 'ZKP 证明', stage: '05 PROVE', icon: ShieldCheck },
-  { id: 'sdk', label: 'SDK 与格式', stage: 'DEVKIT', icon: Beaker },
-]
+const message = (reason: unknown, fallback: string) => reason instanceof Error ? reason.message : fallback
+const draftOf = ({ name, language, source, settings }: LabDraft): LabDraft => ({ name, language, source, settings })
+const languageLabel = (language: LabDraft['language']) => STRATEGY_LANGUAGES.find(item => item.id === language)?.label ?? language
+const displayTime = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
 
-const studioTabFor = (tab: StrategyLabTab): StudioTab => tab === 'packages' ? 'packages' : tab === 'proof' ? 'proof' : tab === 'sdk' ? 'sdk' : 'workflow'
-const isStudioTab = (tab: StrategyLabTab) => tab === 'workflow' || tab === 'packages' || tab === 'proof' || tab === 'sdk'
-
-function tabComplete(tab: StrategyLabTab, project: StrategyProject | null) {
-  if (!project) return false
-  if (tab === 'builder') return Boolean(project.strategy_hash)
-  if (tab === 'workflow') return project.workflow_valid
-  if (tab === 'validate') return project.research_robust
-  if (tab === 'packages') return Boolean(project.package_id || project.commitment)
-  if (tab === 'proof') return Boolean(project.quant_report_id)
-  return false
+function settingsError(settings: LabBacktestSettings) {
+  if (settings.start && settings.end && Date.parse(settings.start) >= Date.parse(settings.end)) return '结束时间必须晚于开始时间。'
+  if (!Number.isFinite(settings.initial_capital) || settings.initial_capital <= 0) return '初始资金必须大于零。'
+  if ([settings.commission_rate, settings.slippage_rate, settings.spread_rate].some(value => !Number.isFinite(value) || value < 0 || value > 0.1)) return '手续费、滑点和价差须在 0% 到 10% 之间。'
+  if ([settings.max_position, settings.max_participation_rate].some(value => !Number.isFinite(value) || value <= 0 || value > 1)) return '最大仓位和成交参与率须大于 0%，且不超过 100%。'
+  return ''
 }
 
-const descriptions: Record<StrategyLabTab, string> = {
-  overview: '从一个投资假设开始，将规则、实验与证据组织成一项完整研究。',
-  builder: '组合入场和退出条件，保存规则，再使用真实行情回测。',
-  workflow: '编排并校验数据、信号和风控；Python 研究执行使用独立固定流程，可按部署配置启用本地 AI。',
-  validate: '比较策略与参数，通过留出集和滚动验证，检查样本外表现。',
-  packages: '查看已有策略档案。新策略通过图形化规则创建。',
-  proof: '验证固定 SMA 策略的执行证明。当前覆盖单资产、只做多回测，不覆盖 TEE 与 AI 推理。',
-  sdk: '查看策略契约、格式说明与 Python 示例，了解已有开发协议。',
-}
+export function StrategyLabWorkspace({ ownerId, assets, defaults, active, onRunSaved }: Props) {
+  const [items, setItems] = useState<LabStrategySummary[] | null>(null)
+  const [listError, setListError] = useState('')
+  const [listAttempt, setListAttempt] = useState(0)
+  const [draft, setDraft] = useState<LabDraft | null>(null)
+  const [record, setRecord] = useState<LabStrategy | null>(null)
+  const [baseline, setBaseline] = useState('')
+  const [editorKey, setEditorKey] = useState(0)
+  const [opening, setOpening] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [conflict, setConflict] = useState(false)
+  const [nextAction, setNextAction] = useState<(() => void) | null>(null)
+  const [running, setRunning] = useState(false)
+  const [runError, setRunError] = useState('')
+  const [result, setResult] = useState<BacktestResult | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [history, setHistory] = useState<LabRunSummary[] | null>(null)
+  const [historyError, setHistoryError] = useState('')
+  const [historyAttempt, setHistoryAttempt] = useState(0)
+  const [selectedRun, setSelectedRun] = useState<LabRunSummary | null>(null)
+  const [loadingRun, setLoadingRun] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const resultHeading = useRef<HTMLHeadingElement>(null)
+  const historyHeading = useRef<HTMLHeadingElement>(null)
+  const operation = useRef(0)
+  const resultRequest = useRef(0)
+  const runRequest = useRef<AbortController | null>(null)
+  const openRequest = useRef<AbortController | null>(null)
+  const saveInFlight = useRef(false)
+  const pendingCreate = useRef<{ id: string; snapshot: LabDraft } | null>(null)
+  const pendingExit = useRef<(() => void) | null>(null)
 
-export function StrategyLabWorkspace({ initialTab = 'workflow', assets = [], onResearchContextChange, ...researchProps }: Props) {
-  const [module, setModule] = useState<'visual' | 'code' | 'template'>('visual')
-  const [pipeline, setPipeline] = useState(defaultPipeline)
-  const [codeVisited, setCodeVisited] = useState(false)
-  const [tab, setTab] = useState<StrategyLabTab>(initialTab)
-  const [researchVisited, setResearchVisited] = useState(initialTab === 'builder' || initialTab === 'validate')
-  const [studioVisited, setStudioVisited] = useState(isStudioTab(initialTab))
-  const [projects, setProjects] = useState<StrategyProject[]>([])
-  const [projectId, setProjectId] = useState('')
-  const [pendingProjectRequests, setPendingProjectRequests] = useState(0)
-  const projectBusy = pendingProjectRequests > 0
-  const projectSelection = useRef(0)
-  const project = projects.find((item) => item.id === projectId) ?? null
-  const reportError = researchProps.onError
+  const dirty = !!draft && JSON.stringify(draft) !== baseline
+  const strategyId = record?.id
 
   useEffect(() => {
-    let active = true
-    api.listStrategyProjects().then((items) => {
-      if (!active) return
-      setProjects(items)
-      setProjectId((current) => items.some((item) => item.id === current) ? current : (items[0]?.id ?? ''))
-    }).catch((reason) => { if (active) reportError(reason instanceof Error ? reason.message : '策略项目加载失败') })
-    return () => { active = false }
-  }, [reportError])
-
-  const chooseTab = (next: StrategyLabTab) => {
-    setTab(next)
-    if (isStudioTab(next)) setStudioVisited(true)
-    else if (next === 'builder' || next === 'validate') setResearchVisited(true)
-  }
-  const acceptStudioTab = (next: StudioTab) => chooseTab(next === 'workflow' ? 'workflow' : next)
-  const acceptProject = (next: StrategyProject) => {
-    // A completed request updates its originating project without changing selection.
-    setProjects((current) => {
-      const existing = current.find((item) => item.id === next.id)
-      if (existing && existing.revision > next.revision) return current
-      return existing ? current.map((item) => item.id === next.id ? next : item) : [next, ...current]
+    const controller = new AbortController()
+    api.listLabStrategies(ownerId, controller.signal).then(value => {
+      if (!controller.signal.aborted) setItems(value)
+    }).catch(reason => {
+      if (!controller.signal.aborted) setListError(message(reason, '无法读取策略列表'))
     })
-  }
-  const syncProjectContext = (next: StrategyProject) => {
-    if (!onResearchContextChange || (researchProps.asset?.symbol === next.asset_symbol && researchProps.asset?.asset_class === next.asset_class && researchProps.interval === next.interval)) return
-    const selected = assets.find(item => item.symbol === next.asset_symbol) ?? (researchProps.asset?.symbol === next.asset_symbol ? researchProps.asset : null)
-    onResearchContextChange(selected ? { ...selected, asset_class: next.asset_class } : {
-      symbol: next.asset_symbol, name: next.asset_symbol, asset_class: next.asset_class,
-      exchange: 'UNKNOWN', currency: 'USD', timezone: 'UTC', tags: [],
-    }, next.interval)
-  }
-  const selectProject = (id: string, selected = projects.find(item => item.id === id)) => {
-    projectSelection.current += 1
-    setProjectId(id)
-    if (selected) syncProjectContext(selected)
-  }
-  const createProject = async (payload: StrategyProjectCreate) => {
-    const selection = projectSelection.current
-    setPendingProjectRequests((current) => current + 1)
-    try {
-      const created = await api.createStrategyProject(payload)
-      acceptProject(created)
-      if (selection === projectSelection.current) selectProject(created.id, created)
-    }
-    catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目创建失败'); throw reason }
-    finally { setPendingProjectRequests((current) => current - 1) }
-  }
-  const updateProject = async (payload: Partial<StrategyProjectCreate>) => {
-    if (!project) return
-    const selection = projectSelection.current
-    setPendingProjectRequests((current) => current + 1)
-    try {
-      const updated = await api.updateStrategyProject(project.id, project.revision, payload)
-      acceptProject(updated)
-      if (selection === projectSelection.current) syncProjectContext(updated)
-    }
-    catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '策略项目更新失败'); throw reason }
-    finally { setPendingProjectRequests((current) => current - 1) }
-  }
-  const linkArtifact = async (kind: StrategyProjectArtifactKind, artifactId: string, developerToken?: string) => {
-    if (!project) { researchProps.onError('先创建或选择策略项目，才能归档开发制品'); return }
-    setPendingProjectRequests((current) => current + 1)
-    try { acceptProject(await api.linkStrategyProjectArtifact(project.id, project.revision, kind, artifactId, developerToken)) }
-    catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '制品绑定失败') }
-    finally { setPendingProjectRequests((current) => current - 1) }
-  }
-  const freezeProject = async (version: string) => {
-    if (!project) return
-    setPendingProjectRequests((current) => current + 1)
-    try { acceptProject(await api.freezeStrategyProject(project.id, project.revision, version)) }
-    catch (reason) { researchProps.onError(reason instanceof Error ? reason.message : '版本冻结失败'); throw reason }
-    finally { setPendingProjectRequests((current) => current - 1) }
+    return () => controller.abort()
+  }, [listAttempt, ownerId])
+
+  useEffect(() => {
+    if (!strategyId || !historyOpen) return
+    const controller = new AbortController()
+    api.listLabRuns(ownerId, strategyId, controller.signal).then(value => {
+      if (!controller.signal.aborted) setHistory(value)
+    }).catch(reason => {
+      if (!controller.signal.aborted) setHistoryError(message(reason, '无法读取回测历史'))
+    })
+    return () => controller.abort()
+  }, [ownerId, strategyId, historyOpen, historyAttempt])
+
+  useEffect(() => () => {
+    operation.current += 1
+    resultRequest.current += 1
+    openRequest.current?.abort()
+    runRequest.current?.abort()
+    pendingExit.current = null
+  }, [])
+
+  function resetEditor(next: LabDraft | null, saved: LabStrategy | null = null, initial = next) {
+    operation.current += 1
+    resultRequest.current += 1
+    openRequest.current?.abort()
+    runRequest.current?.abort()
+    runRequest.current = null
+    pendingCreate.current = null
+    setEditorKey(key => key + 1)
+    setOpening(false); setRunning(false); setLoadingRun(false)
+    setDraft(next); setRecord(saved); setBaseline(initial ? JSON.stringify(initial) : '')
+    setError(''); setConflict(false); setRunError(''); setResult(null)
+    setHistoryOpen(false); setHistory(null); setHistoryError(''); setSelectedRun(null)
   }
 
-  return <div className="strategy-lab-modules">
-    <header className="lab-command-bar">
-      <nav className="lab-module-switch" aria-label="策略开发方式"><button title="从现有策略模板调整参数" className={module === 'template' ? 'is-active' : ''} aria-pressed={module === 'template'} onClick={() => setModule('template')}><Copy size={15} /><span>模板</span></button><button title="使用规则与 AI 积木构建策略" className={module === 'visual' ? 'is-active' : ''} aria-pressed={module === 'visual'} onClick={() => setModule('visual')}><GitBranch size={15} /><span>图形化</span></button><button title="使用多语言编辑器和 AI 助手" className={module === 'code' ? 'is-active' : ''} aria-pressed={module === 'code'} onClick={() => { setModule('code'); setCodeVisited(true) }}><Code2 size={15} /><span>代码</span></button></nav>
-      <StrategyProjectBar projects={projects} project={project} asset={researchProps.asset} assets={assets} interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} onFreeze={freezeProject} onGoTab={chooseTab} />
-    </header>
-    <div className="lab-module-content template-mode" hidden={module !== 'template'} inert={module !== 'template'}><TemplateStrategyWorkspace key={projectId} {...researchProps} pipeline={pipeline} storageKey={`atlas:template-presets:${projectId || 'scratch'}`} /><details className="template-flow-settings"><summary>交易流程与 AI 设置</summary><ExecutionPipelinePanel value={pipeline} onChange={setPipeline} /></details></div>
-    <div className="lab-module-content" hidden={module !== 'visual'} inert={module !== 'visual'}><main className="strategy-lab" data-view={tab}>
-    <header className="strategy-lab-header">
-      <nav aria-label="策略生命周期">{tabs.filter((item) => !['packages', 'proof', 'sdk'].includes(item.id)).map((item) => { const Icon = item.icon; const complete = tabComplete(item.id, project); return <button key={item.id} aria-current={tab === item.id ? 'step' : undefined} className={`${tab === item.id ? 'is-active' : ''} ${complete ? 'is-complete' : ''}`} onClick={() => chooseTab(item.id)}><span className="strategy-step-icon">{complete ? <Check size={12} /> : <Icon size={13} />}</span><span><small>{item.stage}</small><strong>{item.label}</strong></span></button> })}<details className="lab-tools"><summary>工具</summary><div>{tabs.filter((item) => ['packages', 'proof', 'sdk'].includes(item.id)).map((item) => <button key={item.id} onClick={() => chooseTab(item.id)}>{item.label}</button>)}</div></details></nav>
-      <div className="strategy-lab-progress" aria-label={project ? `项目完成度 ${Math.round(project.completion * 100)}%` : '尚未创建项目'}>
-        <span><ShieldCheck size={14} /><strong>{project ? `${Math.round(project.completion * 100)}%` : '沙盒'}</strong></span>
-        <div><i style={{ width: `${project ? project.completion * 100 : 0}%` }} /></div>
-        <small>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '发布门禁已完成' : '创建项目后归档版本')}</small>
-      </div>
-    </header>
+  useEffect(() => {
+    if (!active || !dirty) return
+    const sourceIndex = trackAtlasHistoryEntry()
+    let restore: (() => void) | null = null
+    const protect = (action: () => void) => {
+      if (pendingExit.current) return
+      pendingExit.current = action
+      setNextAction(() => action)
+    }
+    const navigate = (event: Event) => {
+      event.preventDefault()
+      protect((event as CustomEvent<() => void>).detail)
+    }
+    const stopGuardingHash = setLabHashGuard(event => {
+      const target = new URL(event.newURL).hash
+      if (new URL(event.oldURL).hash !== '#research' || target === '#research') return false
+      const delta = trackAtlasHistoryEntry() - sourceIndex
+      if (delta === 0) {
+        pushAtlasHash('#research')
+        protect(() => { window.location.hash = target })
+        return true
+      }
+      restore = () => protect(() => window.history.go(delta))
+      window.addEventListener('hashchange', restore, { once: true })
+      window.history.go(-delta)
+      return true
+    })
+    const unload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener(LAB_NAVIGATION, navigate)
+    window.addEventListener('beforeunload', unload)
+    return () => {
+      window.removeEventListener(LAB_NAVIGATION, navigate)
+      stopGuardingHash()
+      if (restore) window.removeEventListener('hashchange', restore)
+      window.removeEventListener('beforeunload', unload)
+    }
+  }, [active, dirty])
 
-    {tab === 'overview' ? <section className="lab-overview">
-      <div className="lab-overview-heading"><div><h1>把想法变成可检验的策略。</h1><p>{descriptions.overview}</p></div><button className="primary-action" onClick={() => chooseTab(project?.strategy_hash ? 'validate' : 'workflow')}>{project?.strategy_hash ? '继续比较参数' : '开始构建策略'}<ArrowRight size={16} /></button></div>
-      <div className="lab-overview-grid"><div>
-        <div className="section-label"><h2>选择你的起点</h2><span>无需代码，从交易逻辑开始</span></div>
-        <div className="lab-entry-cards">
-          <button onClick={() => chooseTab('builder')}><Braces size={25} /><span className="capability-tag">可回测</span><h3>设置买卖条件</h3><p>使用价格、均线、动量等指标设置买卖条件，无需编写代码。</p><span className="entry-link">设置条件并回测 <ArrowRight size={15} /></span></button>
-          <button onClick={() => chooseTab('workflow')}><GitBranch size={25} /><span className="capability-tag neutral">AI 积木</span><h3>搭建交易流程</h3><p>沿着市场、信号、仓位与风控的顺序，按需加入 AI 建议与审查。</p><span className="entry-link">设置交易流程 <ArrowRight size={15} /></span></button>
+  function requestExit(action: () => void) {
+    if (!dirty) { action(); return }
+    if (pendingExit.current) return
+    pendingExit.current = action
+    setNextAction(() => action)
+  }
+
+  function dismissExit() {
+    pendingExit.current = null
+    setNextAction(null)
+  }
+
+  function finishExit(action: () => void) {
+    if (pendingExit.current !== action) return
+    dismissExit()
+    resetEditor(null)
+    action()
+  }
+
+  const blank = (): LabDraft => ({ name: '未命名策略', language: 'python', source: '', settings: { ...defaults } })
+  const importNew = async (file: File) => {
+    const initial = blank()
+    const started = ++operation.current
+    setError('')
+    try {
+      const imported = await readStrategyFile(file)
+      if (operation.current === started) resetEditor({ ...initial, ...imported }, null, initial)
+    } catch (reason) {
+      if (operation.current === started) setError(message(reason, '无法导入源码'))
+    }
+  }
+
+  const open = async (id: string) => {
+    openRequest.current?.abort()
+    const controller = new AbortController()
+    openRequest.current = controller
+    const started = ++operation.current
+    setOpening(true); setError('')
+    try {
+      const saved = await api.getLabStrategy(ownerId, id, controller.signal)
+      if (started === operation.current) resetEditor(draftOf(saved), saved)
+    } catch (reason) {
+      if (started === operation.current) setError(message(reason, '无法打开策略'))
+    } finally {
+      if (started === operation.current) setOpening(false)
+    }
+  }
+
+  const save = async (): Promise<boolean> => {
+    if (!draft || saveInFlight.current) return false
+    const invalid = !draft.name.trim() ? '请输入策略名称。' : settingsError(draft.settings)
+    if (invalid) { setError(invalid); return false }
+    const snapshot = draft
+    const create = record ? null : pendingCreate.current ?? { id: crypto.randomUUID().replaceAll('-', ''), snapshot }
+    pendingCreate.current = create
+    const started = operation.current
+    saveInFlight.current = true
+    setSaving(true); setError(''); setConflict(false)
+    try {
+      const saved = create ? await api.createLabStrategy(ownerId, create.id, create.snapshot)
+        : await api.updateLabStrategy(ownerId, record!.id, record!.revision, snapshot)
+      if (started !== operation.current) return false
+      pendingCreate.current = null
+      const submitted = create?.snapshot ?? snapshot
+      setRecord(saved)
+      setBaseline(JSON.stringify(draftOf(saved)))
+      setDraft(current => current === submitted ? draftOf(saved) : current)
+      setItems(current => [saved, ...(current ?? []).filter(item => item.id !== saved.id)])
+      if (submitted !== snapshot) {
+        setError('已恢复上次保存。请再保存一次，提交后续修改。')
+        return false
+      }
+      return true
+    } catch (reason) {
+      if (started === operation.current) {
+        if (reason instanceof ApiError && reason.kind === 'http' && (reason.status ?? 500) < 500) pendingCreate.current = null
+        setConflict(reason instanceof ApiError && reason.status === 409)
+        setError(message(reason, '策略保存失败'))
+      }
+      return false
+    } finally {
+      saveInFlight.current = false
+      setSaving(false)
+    }
+  }
+
+  const run = async () => {
+    if (!record || !draft || draft.language !== 'python' || !draft.source.trim() || runRequest.current) return
+    const invalid = settingsError(draft.settings)
+    if (invalid || !draft.settings.symbol || draft.source.length > 16_384) {
+      setRunError(invalid || (!draft.settings.symbol ? '请先选择回测标的。' : '受限 Python 回测最多支持 16,384 字符。'))
+      return
+    }
+    const controller = new AbortController()
+    runRequest.current = controller
+    resultRequest.current += 1
+    setLoadingRun(false); setRunning(true); setRunError('')
+    try {
+      const next = await api.runBacktest({
+        ...draft.settings, strategy_id: 'python_bounded', python_source: draft.source,
+        params: {}, persist: true, lab_strategy_id: record.id,
+      }, controller.signal, ownerId)
+      if (controller.signal.aborted) return
+      setResult(next); setSelectedRun(null)
+      setHistoryAttempt(value => value + 1)
+      onRunSaved()
+    } catch (reason) {
+      if (!controller.signal.aborted) setRunError(message(reason, '回测失败'))
+    } finally {
+      if (runRequest.current === controller) {
+        runRequest.current = null
+        setRunning(false)
+      }
+    }
+  }
+
+  const openRun = async (row: LabRunSummary) => {
+    const sequence = ++resultRequest.current
+    setLoadingRun(true); setRunError('')
+    try {
+      const next = await api.getRun<BacktestResult>(row.id)
+      if (sequence === resultRequest.current) { setResult(next); setSelectedRun(row) }
+    } catch (reason) {
+      if (sequence === resultRequest.current) setRunError(message(reason, '无法打开回测结果'))
+    } finally {
+      if (sequence === resultRequest.current) setLoadingRun(false)
+    }
+  }
+
+  return <main className="lab-workbench" aria-label="策略实验室">
+    {nextAction ? <LabConfirmDialog
+      title="保存未完成的修改？"
+      description={error || '源码或回测设置已修改。保存后可在当前账号继续编辑。'}
+      confirmLabel="保存并离开" confirmDisabled={saving}
+      onCancel={dismissExit}
+      onConfirm={() => void save().then(ok => { if (ok) finishExit(nextAction) })}
+      extraAction={<button disabled={saving} onClick={() => finishExit(nextAction)}>放弃修改</button>}
+    /> : null}
+    {!draft ? <section className="lab-library" aria-labelledby="lab-library-heading">
+      <header className="lab-library-header">
+        <div><h1 id="lab-library-heading">我的策略</h1><p><LockKeyhole size={15} />源码和回测设置保存在当前账号</p></div>
+        <div className="lab-command-actions">
+          <input ref={fileInput} type="file" accept={STRATEGY_FILE_ACCEPT} hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importNew(file) }} />
+          <button disabled={opening || items === null} onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
+          <button className="lab-primary" disabled={opening || items === null} onClick={() => resetEditor(blank())}><Plus size={16} />新建策略</button>
         </div>
-        <details className="lab-journey-details"><summary>查看研究与发布步骤</summary><div className="lab-journey">{tabs.filter((item) => ['workflow', 'builder', 'validate'].includes(item.id)).map((item, index) => <button key={item.id} onClick={() => chooseTab(item.id)}><span className={`journey-number ${tabComplete(item.id, project) ? 'done' : ''}`}>{tabComplete(item.id, project) ? <Check size={16} /> : index + 1}</span><span><strong>{item.label}</strong><small>{descriptions[item.id]}</small></span><ArrowRight size={16} /></button>)}</div></details>
-      </div><aside className="lab-project-summary"><h2>{project?.name ?? '探索工作区'}</h2><p>{project?.thesis ?? '先试用规则编辑器。准备归档研究时，在顶部创建策略项目。'}</p><dl><div><dt>研究标的</dt><dd>{project?.asset_symbol ?? researchProps.asset?.symbol ?? '待选择'}</dd></div><div><dt>时间周期</dt><dd>{project?.interval ?? researchProps.interval}</dd></div><div><dt>已通过门禁</dt><dd>{project ? `${project.gates.filter((gate) => gate.passed).length} / ${project.gates.length}` : '未创建项目'}</dd></div></dl><div className="lab-next-step"><strong>下一步</strong><p>{(project?.next_gate ? `待完成：${project.next_gate.label}` : null) ?? (project ? '查看版本与发布状态' : '在顶部创建项目，将策略与验证结果关联保存。')}</p></div><button onClick={() => chooseTab('sdk')}>查看开发指南 <ArrowRight size={15} /></button><div className="lab-capabilities"><strong>当前能力边界</strong><p>规则可以回测，AI 画布可以编排与保存。AI 执行仍待接入，配置完成不代表验证通过。</p></div></aside></div>
-    </section> : null}
-
-    {tab === 'workflow' ? <div className="strategy-lab-pane is-active executable-flow"><ExecutionPipelinePanel value={pipeline} onChange={setPipeline} /><button className="pipeline-edit-rules" onClick={() => chooseTab('builder')}>编辑买卖规则并回测</button><details><summary>高级工作流档案</summary><QuantStrategyStudio onError={researchProps.onError} embedded activeTab="workflow" onWorkflowSaved={(record, token) => void linkArtifact('workflow', record.id, token)} onEditRules={() => chooseTab('builder')} assetSymbol={researchProps.asset?.symbol} interval={researchProps.interval} /></details></div> : null}
-
-    {researchVisited ? <section className={`strategy-lab-pane ${tab === 'builder' || tab === 'validate' ? 'is-active' : ''}`} aria-hidden={tab !== 'builder' && tab !== 'validate'}>
-      <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载研究引擎…</div>}>
-        <ResearchWorkspace {...researchProps} projectContextId={projectId} executionPipeline={pipeline} view={tab === 'builder' ? 'builder' : 'optimize'} showHeader={false} onStrategySaved={(record: CustomStrategyRecord) => void linkArtifact('strategy', record.id)} onResearchCompleted={(job: ResearchJob) => void linkArtifact('research', job.result?.job_id ?? job.id)} />
-      </Suspense>
-    </section> : null}
-    {studioVisited && tab !== 'workflow' ? <section className={`strategy-lab-pane ${isStudioTab(tab) ? 'is-active' : ''}`} aria-hidden={!isStudioTab(tab)}>
-      <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载私密策略工作室…</div>}>
-        <QuantStrategyStudio onError={researchProps.onError} embedded activeTab={studioTabFor(tab)} onTabChange={acceptStudioTab} onWorkflowSaved={(record: StudioWorkflowRecord, token: string) => void linkArtifact('workflow', record.id, token)} onEditRules={() => chooseTab('builder')} assetSymbol={researchProps.asset?.symbol} assetClass={researchProps.asset?.asset_class} interval={researchProps.interval} />
-      </Suspense>
-    </section> : null}
-  </main></div>
-    {codeVisited ? <div className="lab-module-content" hidden={module !== 'code'} inert={module !== 'code'}><Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}><CodeStrategyWorkspace research={{ ...researchProps, executionPipeline: pipeline }} /></Suspense></div> : null}
-  </div>
+      </header>
+      <SectorBacktest key={ownerId} ownerId={ownerId} />
+      {error ? <p className="lab-error" role="alert">{error}</p> : null}
+      {listError ? <div className="lab-empty" role="alert"><p>{listError}</p><button onClick={() => { setListError(''); setListAttempt(value => value + 1) }}>重新加载</button></div>
+        : items === null || opening ? <p className="lab-empty" role="status">{opening ? '正在打开策略…' : '正在加载策略…'}</p>
+        : items.length ? <div className="lab-table-scroll"><table className="lab-table">
+          <thead><tr><th scope="col">策略名称</th><th scope="col">语言</th><th scope="col">最近修改</th><th scope="col">操作</th></tr></thead>
+          <tbody>{items.map(item => <tr key={item.id}>
+            <th scope="row"><Code2 size={16} /><span>{item.name}</span></th>
+            <td>{languageLabel(item.language)}</td><td><time dateTime={item.updated_at}>{displayTime.format(new Date(item.updated_at))}</time></td>
+            <td><button aria-label={`打开 ${item.name}`} onClick={() => void open(item.id)}>打开<ArrowRight size={15} /></button></td>
+          </tr>)}</tbody>
+        </table></div> : <div className="lab-empty"><Code2 size={27} /><h2>还没有代码策略</h2><p>新建空白策略，或导入已有的源码文件。</p></div>}
+    </section> : <>
+      <header className="lab-editor-navigation">
+        <button disabled={saving} onClick={() => requestExit(() => resetEditor(null))}><ArrowLeft size={16} />我的策略</button>
+        <h1>编辑策略</h1>
+      </header>
+      {error ? <div className="lab-error" role="alert"><span>{error}</span>
+        {conflict && record ? <button onClick={() => requestExit(() => void open(record.id))}>重新加载已保存版本</button> : null}
+      </div> : null}
+      {opening ? <p role="status" className="lab-empty">正在重新加载策略…</p> : null}
+      <CodeStrategyWorkspace key={editorKey} draft={draft} ownerId={ownerId}
+        onEdit={patch => setDraft(current => current && { ...current, ...patch })}
+        onSave={() => void save()} onRun={() => void run()}
+        onHistory={() => {
+          if (!historyOpen) requestAnimationFrame(() => historyHeading.current?.focus())
+          setHistoryOpen(!historyOpen)
+          setHistoryError('')
+        }}
+        runFeedback={<div className="lab-run-feedback">
+          <span role="status">{running ? '正在运行回测…' : runError ? '回测未完成' : result ? '回测结果已就绪' : ''}</span>
+          {!running && (runError || result) ? <button onClick={() => resultHeading.current?.focus()}>{runError ? '查看原因' : '查看回测结果'}</button> : null}
+        </div>}
+        dirty={dirty} saved={!!record} saving={saving} running={running}>
+        <LabBacktestForm value={draft.settings} assets={assets}
+          onChange={patch => setDraft(current => current && { ...current, settings: { ...current.settings, ...patch } })} />
+        {historyOpen ? <section className="lab-history" aria-labelledby="lab-history-heading">
+          <header><h2 id="lab-history-heading" ref={historyHeading} tabIndex={-1}>历史回测</h2><button onClick={() => setHistoryOpen(false)}>收起</button></header>
+          {historyError ? <div role="alert" className="lab-error">{historyError}<button onClick={() => { setHistoryError(''); setHistoryAttempt(value => value + 1) }}>重试</button></div>
+            : history === null ? <p role="status">正在读取历史回测…</p>
+            : history.length ? <div className="lab-table-scroll"><table className="lab-table lab-history-table">
+              <thead><tr><th scope="col">运行时间</th><th scope="col">收益</th><th scope="col">源码摘要</th><th scope="col">操作</th></tr></thead>
+              <tbody>{history.map(row => <tr key={row.id} className={result?.run_id === row.id ? 'lab-active-run' : undefined}>
+                <td><time dateTime={row.created_at}>{displayTime.format(new Date(row.created_at))}</time></td>
+                <td>{formatPercent(row.total_return)}</td><td><code title={row.source_sha256}>{row.source_sha256.slice(0, 10)}</code></td>
+                <td><button disabled={running} onClick={() => void openRun(row)} aria-label={`查看 ${displayTime.format(new Date(row.created_at))} 的回测`}>查看</button></td>
+              </tr>)}</tbody>
+            </table></div> : <p>成功完成的回测会出现在这里。</p>}
+        </section> : null}
+        <section className="lab-results">
+          <h2 ref={resultHeading} tabIndex={-1}>回测结果</h2>
+          {runError ? <p className="lab-error" role="alert">{runError}</p> : null}
+          {selectedRun ? <details className="lab-original-settings">
+            <summary>本次运行参数和源码摘要</summary>
+            <code>{selectedRun.source_sha256}</code><LabRunSettings settings={selectedRun.settings} />
+          </details> : null}
+          <ResultsPanel result={result} loading={running || loadingRun} panelMode="normal" onPanelMode={() => undefined} controls={false} />
+        </section>
+      </CodeStrategyWorkspace>
+    </>}
+  </main>
 }

@@ -1,4 +1,4 @@
-import type { ExecutionPipeline } from './components/executionPipeline'
+import { guardLabHashChange, pushAtlasHash, requestLabNavigation, trackAtlasHistoryEntry } from './lab-navigation'
 import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
 import { retainChartHistory } from './backtestChart'
 import type { LoadChartHistory } from './useChartHistory'
@@ -50,7 +50,7 @@ function marketFromResult(result: BacktestResult): MarketData {
   }
 }
 
-export default function App() {
+export default function App({ ownerId = '' }: { ownerId?: string } = {}) {
   const shellRef = useRef<HTMLDivElement>(null)
   const marketAbortRef = useRef<AbortController | null>(null)
   const marketRequestRef = useRef(0)
@@ -80,7 +80,6 @@ export default function App() {
   const [fundamentalsLoading, setFundamentalsLoading] = useState(false)
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [releaseId,setReleaseId] = useState('')
-  const [codeBacktest,setCodeBacktest] = useState<{name:string;source:string;hash:string;executionPipeline?:ExecutionPipeline}|null>(null)
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setModeState] = useState<WorkspaceMode>(initialMode)
@@ -94,9 +93,8 @@ export default function App() {
   const [marketLoading, setMarketLoading] = useState(true)
   const [singleRunning, setSingleRunning] = useState(false)
   const [portfolioRunning, setPortfolioRunning] = useState(false)
-  const [researchRunning, setResearchRunning] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
-  const loading = historyLoading || (mode === 'single' ? marketLoading || singleRunning : mode === 'portfolio' ? portfolioRunning : mode === 'research' ? researchRunning : false)
+  const loading = historyLoading || (mode === 'single' ? marketLoading || singleRunning : mode === 'portfolio' ? portfolioRunning : false)
   const [bootAttempt, setBootAttempt] = useState(0)
   const [bootIssues, setBootIssues] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -161,7 +159,9 @@ export default function App() {
   useEffect(() => { savePreferences(preferences) }, [preferences])
 
   useEffect(() => {
-    const onHash = () => {
+    const onHash = (event: HashChangeEvent) => {
+      if (guardLabHashChange(event)) return
+      trackAtlasHistoryEntry()
       const route = window.location.hash.slice(1)
       if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge') setMode(route)
     }
@@ -172,7 +172,8 @@ export default function App() {
   useEffect(() => {
     // The shell owns Proof, trading and journal routes even when this workspace mounts hidden.
     if (window.location.hash.startsWith('#/')) return
-    if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
+    if (window.location.hash !== `#${mode}`) pushAtlasHash(`#${mode}`)
+    else trackAtlasHistoryEntry()
     document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
   }, [mode])
 
@@ -323,9 +324,7 @@ export default function App() {
       end: end ? new Date(end).toISOString() : null,
       interval: preferences.interval,
       data_source: preferences.source,
-      strategy_id: codeBacktest ? 'python_bounded' : strategyId,
-      python_source: codeBacktest?.source,
-      execution_pipeline: codeBacktest?.executionPipeline,
+      strategy_id: strategyId,
       params,
       initial_capital: capital,
       commission_rate: commission,
@@ -349,9 +348,13 @@ export default function App() {
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
   const changeMode = (nextMode: typeof mode) => {
-    setMode(nextMode)
-    if (nextMode === 'single' && mode !== 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
+    if (mode === nextMode) return
+    requestLabNavigation(() => {
+      setMode(nextMode)
+      if (nextMode === 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
+    })
   }
+  const refreshRunHistory = () => { void api.listRuns().then(setRuns).catch(() => undefined) }
   const acceptPortfolioResult = useCallback((result: PortfolioResult | null) => {
     setPortfolioResult(result)
     if (result) api.listRuns().then(setRuns).catch(() => undefined)
@@ -394,7 +397,7 @@ export default function App() {
   }, [])
 
   const integrity = useMemo(() => ({
-    source: mode === 'single' || mode === 'research' ? (singleResult?.data_source ?? market?.source) : portfolioResult?.data_source,
+    source: mode === 'single' ? (singleResult?.data_source ?? market?.source) : portfolioResult?.data_source,
     trades: activeResult?.trades.length ?? 0,
     warnings: activeResult?.warnings.length ?? 0,
   }), [activeResult, market?.source, mode, portfolioResult?.data_source, singleResult?.data_source])
@@ -432,7 +435,7 @@ export default function App() {
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={mode === 'portfolio' ? portfolioResult?.data_source.includes(':stale-cache') : chartIsStale} lastBarTime={mode === 'portfolio' ? undefined : chartLastBarTime} />}
+      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : mode === 'research' ? null : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={mode === 'portfolio' ? portfolioResult?.data_source.includes(':stale-cache') : chartIsStale} lastBarTime={mode === 'portfolio' ? undefined : chartLastBarTime} />}
       {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? <WorkspaceErrorBoundary>
@@ -447,13 +450,20 @@ export default function App() {
             <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel codeContext={codeBacktest ? <section className="trine-code-context"><small>当前回测 · 我编写的 Python</small><strong>{codeBacktest.name}</strong><code title={codeBacktest.hash}>代码 SHA256 · {codeBacktest.hash.slice(0,12)}</code><p>{asset?.symbol} · {preferences.interval} · {preferences.source}</p><small>使用点击回测时的代码快照；再次运行将继续使用此版本。回测不代表 ZKP 已验证。</small><details><summary>查看本次代码</summary><pre>{codeBacktest.source}</pre></details><button onClick={() => setMode('research')}>返回编辑</button><button onClick={() => setCodeBacktest(null)}>切换策略模板</button></section> : undefined} releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { setCodeBacktest(null); setReleaseId(id) }}/>} releaseSelected={!!releaseId || !!codeBacktest} sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
+          <StrategyPanel releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={setReleaseId} />} releaseSelected={!!releaseId} sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval, data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation, stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment, base_currency: preferences.baseCurrency }} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       </WorkspaceErrorBoundary> : null}
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
-      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} assets={assets} onResearchContextChange={selectAsset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { setCodeBacktest(code || null); setReleaseId(''); setStart(''); setEnd(''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
+      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace ownerId={ownerId} assets={assets} active={mode === 'research'} onRunSaved={refreshRunHistory} defaults={{
+        symbol: asset?.symbol ?? preferences.symbol, asset_class: asset?.asset_class ?? preferences.assetClass,
+        interval: preferences.interval, data_source: preferences.source, adjustment: preferences.adjustment,
+        start: Number.isFinite(Date.parse(start)) ? new Date(start).toISOString() : null,
+        end: Number.isFinite(Date.parse(end)) ? new Date(end).toISOString() : null,
+        initial_capital: capital, commission_rate: commission, slippage_rate: slippage, spread_rate: spread,
+        max_position: maxPosition, max_participation_rate: maxParticipation,
+      }} /></Suspense></WorkspaceErrorBoundary></div> : null}
       {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} />

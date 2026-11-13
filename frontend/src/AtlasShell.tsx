@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState, useRef } from 'react'
 import { ChartCandlestick, Wallet, LogOut, LoaderCircle, X, ChevronUp, ShieldCheck } from 'lucide-react'
 import LoginScreen from './journal/components/LoginScreen'
 import { setStorageUser } from './storage'
+import { guardLabHashChange, requestLabNavigation, trackAtlasHistoryEntry } from './lab-navigation'
 
 const ProofPage = lazy(() => import('./components/ProofPage'))
 const proofRoute = () => window.location.hash.startsWith('#/proof') ? window.location.hash.split('/')[2] ?? '' : null
@@ -68,7 +69,9 @@ export default function AtlasShell() {
     const visible = () => {
       if (document.visibilityState === 'visible') void refreshSession().catch(() => undefined)
     }
-    const hash = () => {
+    const hash = (event: HashChangeEvent) => {
+      if (guardLabHashChange(event)) return
+      trackAtlasHistoryEntry()
       setProofId(proofRoute())
       const next = workspaceFromHash()
       if (next === 'quant' && proofRoute() === null) setQuantHref(window.location.hash || '#single')
@@ -126,13 +129,13 @@ export default function AtlasShell() {
         <a href="#/trading" aria-current={workspace === 'trading' ? 'page' : undefined}><ChartCandlestick size={17} />策略交易</a>
         <a href="#/journal/overview" aria-current={workspace === 'journal' ? 'page' : undefined}><Wallet size={17} />资产总览</a>
       </nav>
-      <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => void logout()} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
+      <div className="atlas-session"><span title={session.email ?? ''}>{session.email}</span><button onClick={() => requestLabNavigation(() => void logout())} disabled={busy} aria-label="退出 Atlas"><LogOut size={16} /><span>退出</span></button></div>
       </details>
     </header>
     {error && <div className="atlas-global-error" role="alert">{error}</div>}
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>
       {proofId !== null && <ProofPage key={proofId} proofId={proofId} />}
-      {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant' || proofId !== null}><QuantWorkspace /></div> : null}
+      {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant' || proofId !== null}><QuantWorkspace ownerId={session.userId} /></div> : null}
       {visited.trading ? <div hidden={workspace !== 'trading'}><TradingWorkspace /></div> : null}
       {visited.journal ? <div className="journal-root" hidden={workspace !== 'journal'}><JournalWorkspace /><div id="journal-portals" /></div> : null}
     </Suspense>

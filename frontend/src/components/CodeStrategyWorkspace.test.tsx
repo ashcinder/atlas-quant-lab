@@ -1,19 +1,36 @@
+import { useState } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request } from '../request'
 import { STRATEGY_LANGUAGES, languageForFile } from './strategy-languages'
-import { CodeStrategyWorkspace, RUNNABLE_PYTHON_TEMPLATE } from './CodeStrategyWorkspace'
+import { CodeStrategyWorkspace } from './CodeStrategyWorkspace'
+import type { StrategyLanguage } from './strategy-languages'
+
+const RUNNABLE_PYTHON_TEMPLATE = `def target_bps(index, close, sma):
+    fast = sma(5)
+    slow = sma(20)
+    return (5000 if fast > slow else 0) if index >= 20 else 0
+`
+
+function Editor() {
+  const [draft, setDraft] = useState({ name: '我的均线策略', language: 'python' as StrategyLanguage, source: RUNNABLE_PYTHON_TEMPLATE })
+  return <CodeStrategyWorkspace ownerId="test-owner" draft={draft} onEdit={patch => setDraft(current => ({ ...current, ...patch }))}
+    onSave={() => undefined} onRun={() => undefined} onHistory={() => undefined}
+    dirty={false} saved={false} saving={false} running={false}>{null}</CodeStrategyWorkspace>
+}
+
 
 vi.mock('../request', () => ({ request: vi.fn() }))
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(request).mockImplementation(async (path) => path.endsWith('/capabilities') ? { configured: true, model: 'local-test' } : { valid: true, error: null }) })
 afterEach(cleanup)
-async function open() { const result = render(<CodeStrategyWorkspace />); await screen.findByText('local-test 已配置'); return result }
+async function open() { const result = render(<Editor />); fireEvent.click(screen.getByRole('button', { name: 'AI 助手' })); await screen.findByText('local-test 已配置'); return result }
 
 describe('code strategy editor', () => {
   it('shows an honest disconnected state and disables generation', async () => {
     vi.mocked(request).mockResolvedValue({ configured: false })
-    render(<CodeStrategyWorkspace />)
+    render(<Editor />)
+    fireEvent.click(screen.getByRole('button', { name: 'AI 助手' }))
     await screen.findByText('尚未配置模型')
     fireEvent.change(screen.getByLabelText('告诉 AI 你想实现什么'), { target: { value: '写策略' } })
     expect((screen.getByRole('button', { name: '发送' }) as HTMLButtonElement).disabled).toBe(true)
@@ -90,23 +107,23 @@ describe('code strategy editor', () => {
   })
 })
 
-it('keeps separate language drafts and sends the selected language to AI', async () => {
+it('keeps the strategy source when changing language and sends the selected language to AI', async () => {
   await open()
   fireEvent.change(screen.getByLabelText('Python 策略代码'), { target: { value: '# saved python draft' } })
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: 'cpp' } })
-  expect((screen.getByLabelText('C++ 策略代码') as HTMLTextAreaElement).value).toContain('#include <vector>')
+  expect((screen.getByLabelText('C++ 策略代码') as HTMLTextAreaElement).value).toBe('# saved python draft')
   expect((screen.getByRole('button', { name: '检查代码' }) as HTMLButtonElement).disabled).toBe(true)
   fireEvent.change(screen.getByLabelText('C++ 策略代码'), { target: { value: '// cpp draft' } })
   fireEvent.change(screen.getByLabelText('告诉 AI 你想实现什么'), { target: { value: '解释代码' } })
   fireEvent.click(screen.getByRole('button', { name: '发送' }))
   await waitFor(() => expect(request).toHaveBeenLastCalledWith('/strategy-code/assist', expect.objectContaining({ body: JSON.stringify({ prompt: '解释代码', code: '// cpp draft', language: 'cpp' }) }), 90000))
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: 'python' } })
-  expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe('# saved python draft')
+  expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe('// cpp draft')
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: 'cpp' } })
   expect((screen.getByLabelText('C++ 策略代码') as HTMLTextAreaElement).value).toBe('// cpp draft')
 })
 
-it('detects the source extension on import and preserves the other language draft', async () => {
+it('detects the source extension and replaces source only after confirming', async () => {
   const { container } = await open()
   fireEvent.change(screen.getByLabelText('Python 策略代码'), { target: { value: '# keep python' } })
   const file = new File(['// imported rust'], 'signal.RS')
@@ -117,7 +134,7 @@ it('detects the source extension on import and preserves the other language draf
   expect((screen.getByLabelText('策略编程语言') as HTMLSelectElement).value).toBe('rust')
   expect((screen.getByLabelText('Rust 策略代码') as HTMLTextAreaElement).value).toBe('// imported rust')
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: 'python' } })
-  expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe('# keep python')
+  expect((screen.getByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toBe('// imported rust')
 })
 
 it('discards an AI response after switching languages', async () => {
@@ -129,20 +146,20 @@ it('discards an AI response after switching languages', async () => {
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: 'java' } })
   await act(async () => response.resolve({ explanation: 'old python response', code: '# stale' }))
   expect(screen.queryByText('old python response')).toBeNull()
-  expect((screen.getByLabelText('Java 策略代码') as HTMLTextAreaElement).value).toContain('class Strategy')
+  expect((screen.getByLabelText('Java 策略代码') as HTMLTextAreaElement).value).toBe(RUNNABLE_PYTHON_TEMPLATE)
 })
 
 
 it.each(STRATEGY_LANGUAGES)('loads and downloads the $label source with its extension', async (language) => {
   await open()
   fireEvent.change(screen.getByLabelText('策略编程语言'), { target: { value: language.id } })
-  expect((screen.getByLabelText(`${language.label} 策略代码`) as HTMLTextAreaElement).value).toBe(language.id === 'python' ? RUNNABLE_PYTHON_TEMPLATE : language.template)
+  expect((screen.getByLabelText(`${language.label} 策略代码`) as HTMLTextAreaElement).value).toBe(RUNNABLE_PYTHON_TEMPLATE)
   for (const extension of language.extensions) expect(languageForFile(`strategy${extension.toUpperCase()}`)?.id).toBe(language.id)
   const create = vi.fn(() => 'blob:test')
   vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() }))
   let downloaded = ''
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { downloaded = this.download })
-  fireEvent.click(screen.getByRole('button', { name: '下载保存' }))
+  fireEvent.click(screen.getByRole('button', { name: '下载源码' }))
   expect(downloaded).toBe(`我的均线策略${language.extensions[0]}`)
   expect(create).toHaveBeenCalledOnce()
   click.mockRestore(); vi.unstubAllGlobals()

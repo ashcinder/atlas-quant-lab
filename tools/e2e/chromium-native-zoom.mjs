@@ -49,7 +49,7 @@ try {
   const surfaces = [
     ['#single', page.getByRole('button', { name: '运行回测', exact: true })],
     ['#portfolio', page.getByRole('button', { name: '选择资产', exact: true })],
-    ['#research', page.getByRole('button', { name: '新建策略项目', exact: true })],
+    ['#research', page.getByRole('button', { name: '新建策略', exact: true })],
     ['#quantjudge', page.getByRole('button', { name: '创建策略身份', exact: true })],
     ['#/journal/accounts', page.getByRole('button', { name: '新增账户', exact: true })],
     ['#/trading', page.getByRole('button', { name: '新建运行', exact: true }).first()],

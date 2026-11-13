@@ -54,6 +54,8 @@ from app.quantjudge_models import (
 from app.research import ResearchService
 from app.bkc_payments import bkc_router
 from app.storage import RunStore
+from app.lab_strategies import LAB_OWNER_HEADER, LabStrategyStore, lab_strategy_router
+from app.sector_backtests import router as sector_backtest_router
 from app.strategies import list_strategies
 from app.strategy_projects import (
     ProjectArtifactLink,
@@ -99,6 +101,7 @@ data_service = MarketDataService()
 market_history_slots = BoundedSemaphore(2)
 fundamentals_service = FundamentalsService()
 run_store = RunStore()
+lab_strategy_store = LabStrategyStore()
 workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
@@ -155,7 +158,9 @@ app.include_router(runtime_router(strategy_runtime_store))
 app.include_router(bkc_router(strategy_runtime_store, run_store))
 app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
-app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store))
+app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store, lab_strategy_store))
+app.include_router(lab_strategy_router(lab_strategy_store, run_store))
+app.include_router(sector_backtest_router)
 app.include_router(public_artifact_router(public_artifacts))
 app.add_middleware(
     CORSMiddleware,
@@ -198,6 +203,10 @@ async def require_atlas_user(request: Request, call_next):
         user = parse_session(request, journal_store.find_session_user)
         if user is None:
             return JSONResponse({"error": "需要登录"}, status_code=401, headers={"X-Atlas-Session-Required": "1"})
+        expected_lab_owner = request.headers.get(LAB_OWNER_HEADER)
+        if expected_lab_owner is not None and expected_lab_owner != user.id:
+            return JSONResponse({"error": "当前登录账号已改变。请刷新工作台后重试。"}, status_code=403,
+                                headers={"Cache-Control": "no-store"})
         request.state.user = user
     retired_package_upload = request.method == 'POST' and re.fullmatch(
         r'/api/v1/quantjudge/agents/[^/]+/packages', request.url.path

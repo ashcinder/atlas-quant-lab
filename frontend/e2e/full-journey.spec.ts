@@ -44,7 +44,8 @@ async function confirmWalletOrder(page: Page, parent: ReturnType<Page['locator']
   return order
 }
 
-test('JOURNEY-full author freezes evidence and subscriber settles the next candle once', async ({ page, browser }, info) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('JOURNEY-full author freezes evidence and subscriber settles the next candle once', async ({ page, browser }, info) => {
   test.setTimeout(180_000)
   const unique = Date.now()
   const name = 'QA Trend ' + unique

@@ -34,6 +34,7 @@ def expensive_request(method: str, path: str) -> bool:
     if method == "POST" and path in {
         "/api/v1/backtests", "/api/v1/portfolio/backtests",
         "/api/v1/strategy-code/assist", "/api/v1/ai-settings/test",
+        "/api/v1/lab-sector-backtests",
     }:
         return True
     patterns = (

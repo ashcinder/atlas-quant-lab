@@ -5,7 +5,9 @@ import { formatNumber, formatPercent } from '../format'
 import type { EquityPoint } from '../types'
 import { bindChartTheme } from '../chartTheme'
 
-export const EquityChart = memo(function EquityChart({ points }: { points: EquityPoint[] }) {
+type ChartPoint = Pick<EquityPoint, 'time' | 'equity' | 'drawdown'> & Partial<Pick<EquityPoint, 'benchmark'>>
+
+export const EquityChart = memo(function EquityChart({ points }: { points: ChartPoint[] }) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const equityCaptionRef = useRef<HTMLDivElement>(null)
@@ -29,10 +31,14 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     })
     const releaseTheme = bindChartTheme(chart)
     const equity = chart.addSeries(AreaSeries, { lineColor: theme.accent, topColor: 'rgba(8,126,120,.16)', bottomColor: 'rgba(8,126,120,.01)', lineWidth: 2, priceLineVisible: false, lastValueVisible: false }, 0)
-    const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, 0)
     const drawdown = chart.addSeries(AreaSeries, { lineColor: '#d95d73', topColor: 'rgba(217,93,115,.04)', bottomColor: 'rgba(217,93,115,.22)', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: { type: 'percent' } }, 1)
     equity.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.equity })))
-    benchmark.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.benchmark })))
+    const benchmarkPoints = points.flatMap(point => point.benchmark === undefined ? [] :
+      [{ time: point.time as UTCTimestamp, value: point.benchmark }])
+    if (benchmarkPoints.length) {
+      const benchmark = chart.addSeries(LineSeries, { color: '#64748b', lineWidth: 1, priceLineVisible: false, lastValueVisible: false }, 0)
+      benchmark.setData(benchmarkPoints)
+    }
     drawdown.setData(points.map((point) => ({ time: point.time as UTCTimestamp, value: point.drawdown * 100 })))
     equity.priceScale().applyOptions({ scaleMargins: { top: .24, bottom: .08 } })
     drawdown.priceScale().applyOptions({ scaleMargins: { top: .3, bottom: .06 } })
@@ -63,12 +69,12 @@ export const EquityChart = memo(function EquityChart({ points }: { points: Equit
     }
   }, [points])
   const latest = points.at(-1)
-  return <div className="equity-chart" ref={wrapRef} aria-label="策略权益、基准权益与回撤曲线">
+  return <div className="equity-chart" ref={wrapRef} aria-label={latest?.benchmark === undefined ? '策略权益与回撤曲线' : '策略权益、基准权益与回撤曲线'}>
     <div className="equity-chart-canvas" ref={canvasRef} />
     <div className="result-pane-caption" ref={equityCaptionRef}>
       <strong>权益曲线</strong>
       <span><i className="strategy" />策略权益 {formatNumber(latest?.equity, 2)}</span>
-      <span><i className="benchmark" />基准权益 {formatNumber(latest?.benchmark, 2)}</span>
+      {latest?.benchmark !== undefined ? <span><i className="benchmark" />基准权益 {formatNumber(latest.benchmark, 2)}</span> : null}
     </div>
     <div className="result-pane-caption drawdown" ref={drawdownCaptionRef}>
       <strong>回撤曲线</strong>

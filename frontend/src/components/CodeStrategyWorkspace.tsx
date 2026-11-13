@@ -1,19 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Check, CheckCheck, ChevronDown, Code2, Download, FileCode2, LoaderCircle, MessageSquare, Send, ShieldCheck, Square, Upload, WandSparkles, X } from 'lucide-react'
+import { Bot, Check, CheckCheck, ChevronDown, Code2, Download, FileCode2, History, LoaderCircle, Play, Save, Send, Square, Upload, WandSparkles, X } from 'lucide-react'
 import { request } from '../request'
-import { api } from '../api'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
-import type { ResearchWorkspaceProps } from './ResearchWorkspace'
+import { labOwnerHeaders, type LabDraft } from '../lab-strategy-types'
+import type { ReactNode } from 'react'
 import { LabConfirmDialog } from './LabConfirmDialog'
 import './code-strategy.css'
-import { STRATEGY_LANGUAGES, languageForFile, type StrategyLanguage } from './strategy-languages'
-
-const MAX_CODE = 60_000
-export const RUNNABLE_PYTHON_TEMPLATE = `def target_bps(index, close, sma):
-    fast = sma(5)
-    slow = sma(20)
-    return (5000 if fast > slow else 0) if index >= 20 else 0
-`
+import { STRATEGY_LANGUAGES, MAX_STRATEGY_SOURCE, STRATEGY_FILE_ACCEPT, readStrategyFile, type StrategyLanguage } from './strategy-languages'
 interface Capabilities { configured: boolean; model?: string; message?: string; bounded_authoring?: boolean; conversation_context?: boolean }
 interface Suggestion { explanation: string; code: string | null; validation?: Validation }
 interface Message { id: number; role: 'user' | 'assistant'; text: string; code?: string | null; baseline?: string; validation?: Validation }
@@ -36,26 +29,37 @@ function ValidationDetails({ value }: { value: Validation }) {
   </div>
 }
 
-export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspaceProps } = {}) {
-  const [code, setCode] = useState<string>(RUNNABLE_PYTHON_TEMPLATE)
-  const [language, setLanguage] = useState<StrategyLanguage>('python')
+type SourceDraft = Pick<LabDraft, 'source' | 'name' | 'language'>
+
+interface Props {
+  draft: SourceDraft
+  ownerId: string
+  onEdit: (patch: Partial<SourceDraft>) => void
+  onSave: () => void
+  onRun: () => void
+  onHistory: () => void
+  runFeedback?: ReactNode
+  dirty: boolean
+  saved: boolean
+  saving: boolean
+  running: boolean
+  children: ReactNode
+}
+
+export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, onHistory, runFeedback, dirty, saved, saving, running, children }: Props) {
+  const { source: code, language, name } = draft
   const languageInfo = STRATEGY_LANGUAGES.find((item) => item.id === language)!
-  const drafts = useRef<Partial<Record<StrategyLanguage, { code: string; name: string; dirty: boolean }>>>({})
-  const [name, setName] = useState('我的均线策略')
-  const [dirty, setDirty] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
   const [capabilityError, setCapabilityError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [backtesting, setBacktesting] = useState(false)
-  const backtestPending = useRef(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [validation, setValidation] = useState<Validation | null>(null)
   const [pane, setPane] = useState<'code' | 'guide'>('code')
-  const [assistantOpen, setAssistantOpen] = useState(!research)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const [pending, setPending] = useState<{ code: string; name?: string; language?: StrategyLanguage; reason: string } | null>(null)
   const [undoCode, setUndoCode] = useState<string | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
@@ -80,60 +84,43 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
     request<Capabilities>('/strategy-code/capabilities').then(setCapabilities).catch(() => setCapabilityError('无法读取 AI 连接状态，请重试。'))
   }
   useEffect(() => { request<Capabilities>('/strategy-code/capabilities').then(setCapabilities).catch(() => setCapabilityError('无法读取 AI 连接状态，请重试。')); return () => { controller.current?.abort(); generation.current += 1; importSequence.current += 1 } }, [])
-  useEffect(() => {
-    if (!dirty && !Object.entries(drafts.current).some(([id, draft]) => id !== language && draft?.dirty)) return
-    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [dirty, language])
   useEffect(() => { if (messages.length || busy) messagesEnd.current?.scrollIntoView?.({ block: 'nearest' }) }, [messages, busy])
 
   const edit = (next: string) => {
-    if (next.length > MAX_CODE) { setError('代码超过 60,000 字符，请拆分后导入。'); return }
-    revision.current += 1; codeRef.current = next
-    setCode(next); setDirty(true); setValidation(null); setNotice('')
+    if (next.length > MAX_STRATEGY_SOURCE) { setError('代码超过 60,000 字符。'); return }
+    revision.current += 1
+    codeRef.current = next
+    onEdit({ source: next })
+    setValidation(null); setNotice('')
   }
   const switchLanguage = (next: StrategyLanguage) => {
     if (next === language) return
-    drafts.current[language] = { code: codeRef.current, name, dirty }
-    const saved = drafts.current[next]
     generation.current += 1; controller.current?.abort(); importSequence.current += 1
     revision.current += 1
-    const nextCode = saved?.code ?? (next === 'python' ? RUNNABLE_PYTHON_TEMPLATE : STRATEGY_LANGUAGES.find((item) => item.id === next)!.template)
-    codeRef.current = nextCode; setCode(nextCode); setLanguage(next)
-    setName(saved?.name ?? '我的均线策略'); setDirty(saved?.dirty ?? false)
+    onEdit({ language: next })
     setMessages([]); setPrompt(''); setBusy(false); setValidation(null); setUndoCode(null)
-    setError(''); setNotice(''); setPending(null); setCursor({ line: 1, column: 1 })
-    if (editor.current) editor.current.scrollTop = editor.current.scrollLeft = 0
-    if (highlight.current) highlight.current.scrollTop = highlight.current.scrollLeft = 0
-    if (gutter.current) gutter.current.scrollTop = 0
+    setError(''); setNotice(''); setPending(null)
   }
   const replace = (next: string, nextName?: string, nextLanguage?: StrategyLanguage) => {
-    if (nextLanguage && nextLanguage !== language) {
-      switchLanguage(nextLanguage)
-      setUndoCode(drafts.current[nextLanguage]?.code ?? STRATEGY_LANGUAGES.find((item) => item.id === nextLanguage)!.template)
-    } else setUndoCode(codeRef.current)
-
+    if (nextLanguage) switchLanguage(nextLanguage)
+    setUndoCode(codeRef.current)
     edit(next)
-    if (nextName) setName(nextName)
+    if (nextName) onEdit({ name: nextName })
     setPending(null); setPane('code')
   }
   const importFile = async (file: File) => {
     const sequence = ++importSequence.current
     const baseRevision = revision.current
-    const detected = languageForFile(file.name)
-    if (!detected) { setError('不支持此文件扩展名，请导入语言列表中对应的 UTF-8 源码文件。'); return }
-    if (file.size > MAX_CODE) { setError('文件不能超过 60 KB。'); return }
     try {
-      const bytes = await file.arrayBuffer()
-      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      const imported = await readStrategyFile(file)
       if (sequence !== importSequence.current) return
-      if (text.includes('\0')) throw new Error('binary')
-      const payload = { code: text, name: file.name.replace(/\.[^.]+$/, ''), language: detected.id, reason: `导入文件将打开 ${detected.label} 编辑器，并替换该语言的当前代码。` }
+      const payload = { code: imported.source, name: imported.name, language: imported.language, reason: '导入文件会替换当前编辑器中的源码。' }
       setError('')
-      if (dirty || drafts.current[detected.id]?.dirty || revision.current !== baseRevision) setPending(payload)
+      if (codeRef.current || revision.current !== baseRevision) setPending(payload)
       else replace(payload.code, payload.name, payload.language)
-    } catch { if (sequence === importSequence.current) setError('无法读取文件，请使用 UTF-8 文本格式的源码文件。') }
+    } catch (reason) {
+      if (sequence === importSequence.current) setError(reason instanceof Error ? reason.message : '无法读取文件')
+    }
   }
   const download = () => {
     const blob = new Blob([code], { type: 'text/plain;charset=utf-8' })
@@ -141,33 +128,18 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
     const link = document.createElement('a')
     link.href = url; link.download = `${[...name].filter((char) => char.charCodeAt(0) >= 32).join('').replace(/[<>:"/\\|?*]/g, '_').trim() || 'strategy'}${languageInfo.extensions[0]}`
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
-    setDirty(false); setNotice(`已发起 ${languageInfo.extensions[0]} 文件下载。草稿仍保留在当前页面。`)
+    setNotice(`已发起 ${languageInfo.extensions[0]} 文件下载。`)
   }
   const check = async () => {
     if (checking || language !== 'python') return
     const snapshot = revision.current
     setChecking(true); setError('')
     try {
-      const result = await request<Validation>('/strategy-code/validate', { method: 'POST', body: JSON.stringify({ code, language, ...(capabilities?.bounded_authoring ? { profile: 'bounded' } : {}) }) })
+      const result = await request<Validation>('/strategy-code/validate', { method: 'POST', headers: labOwnerHeaders(ownerId), body: JSON.stringify({ code, language, ...(capabilities?.bounded_authoring ? { profile: 'bounded' } : {}) }) })
       if (snapshot === revision.current) setValidation(result)
       else setNotice('代码已修改，请重新检查当前版本。')
     } catch (reason) { setError(reason instanceof Error ? reason.message : '检查失败，请重试。') }
     finally { setChecking(false) }
-  }
-  const runCodeBacktest = async () => {
-    if (!research?.asset || backtestPending.current || language !== 'python') return
-    backtestPending.current = true; setBacktesting(true); setError(''); research.onLoading(true)
-    try {
-      const result = await api.runBacktest({ symbol: research.asset.symbol, asset_class: research.asset.asset_class,
-        interval: research.interval, data_source: research.source, strategy_id: 'python_bounded', python_source: code,
-        params: {}, initial_capital: research.initialCapital, commission_rate: research.commission,
-        slippage_rate: research.slippage, spread_rate: research.spread, max_position: research.maxPosition,
-        max_participation_rate: research.maxParticipation, execution_pipeline: research.executionPipeline })
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code))
-      research.onCustomResult(result, { name, source: code, executionPipeline: research.executionPipeline, hash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('') })
-      setNotice(`代码回测完成：${result.trades.length} 笔交易；收益、曲线与交易明细已更新。`)
-    } catch (reason) { setError(reason instanceof Error ? reason.message : '代码回测失败') }
-    finally { backtestPending.current = false; setBacktesting(false); research.onLoading(false) }
   }
   const send = async () => {
     if (!prompt.trim() || busy || !capabilities?.configured) return
@@ -183,7 +155,7 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
     setMessages((items) => [...items, { id: current * 2, role: 'user', text }])
     setPrompt(''); setBusy(true); setError('')
     try {
-      const response = await request<Suggestion>('/strategy-code/assist', { method: 'POST', body: JSON.stringify({ prompt: text, code: baseline, language, ...(structured ? { generation_mode: 'rules' } : {}), ...(capabilities.conversation_context ? { history } : {}) }), signal: abort.signal }, structured ? 120_000 : 90_000)
+      const response = await request<Suggestion>('/strategy-code/assist', { method: 'POST', headers: labOwnerHeaders(ownerId), body: JSON.stringify({ prompt: text, code: baseline, language, ...(structured ? { generation_mode: 'rules' } : {}), ...(capabilities.conversation_context ? { history } : {}) }), signal: abort.signal }, structured ? 120_000 : 90_000)
       if (generation.current !== current) return
       setMessages((items) => [...items, { id: current * 2 + 1, role: 'assistant', text: response.explanation, code: response.code, baseline, validation: response.validation }])
     } catch (reason) {
@@ -197,34 +169,36 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
     setCursor({ line: lines.length, column: lines.at(-1)!.length + 1 })
   }
 
-  return <section className={`code-studio ${assistantOpen ? '' : 'assistant-closed'}`} aria-label="代码策略工作区">
+  const canCheck = language === 'python' && !!code.trim()
+  return <section className="lab-code-workbench" aria-label="代码策略工作区">
     {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
-    <header className="code-studio-toolbar">
-      <div className="code-language"><Code2 size={17} /><select aria-label="策略编程语言" value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></div>
-      <input aria-label="代码策略名称" className="code-name" value={name} maxLength={80} onChange={(event) => { setName(event.target.value); setDirty(true) }} />
-      <span className="code-draft-state">{dirty ? '未下载的修改' : '页面草稿'}</span>
-      <button onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
-      <input ref={fileInput} type="file" accept={STRATEGY_LANGUAGES.flatMap((item) => [...item.extensions]).join(',')} hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} />
-      <button onClick={download}><Download size={15} />下载保存</button>
-      <button className="code-check" title={language === 'python' ? (capabilities?.bounded_authoring ? '语法、回测兼容、证明兼容及合成行情试跑' : '当前服务仅提供语法检查，完整检测待服务更新') : `${languageInfo.label} 编译检查尚未接入`} disabled={checking || !code.trim() || language !== 'python'} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
+    <header className="lab-code-command">
+      <div className="lab-code-title">
+        <label>策略名称<input aria-label="代码策略名称" value={name} maxLength={80} onChange={(event) => onEdit({ name: event.target.value })} /></label>
+        <label>语言<select aria-label="策略编程语言" value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <span className="lab-save-state">{saving ? '正在保存…' : dirty || !saved ? '未保存' : '已保存'}</span>
+      </div>
+      <div className="lab-command-actions">
+        <button onClick={onHistory} disabled={!saved}><History size={15} />历史回测</button>
+        <button onClick={onSave} disabled={saving || !name.trim()}><Save size={15} />保存策略</button>
+        <button disabled={checking || !canCheck} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
+        <button className="lab-primary" disabled={running || saving || !saved || !canCheck} title={!saved ? '先保存策略，再运行回测' : undefined} onClick={onRun}><Play size={15} />{running ? '回测中…' : '运行回测'}</button>
+      </div>
+      {runFeedback}
     </header>
-    {language === 'python' ? <div className="code-runtime-actions">
-      <button type="button" onClick={() => setPending({ code: RUNNABLE_PYTHON_TEMPLATE, reason: '载入受限 Python 持续运行模板。现有代码可以先下载保存。' })}>载入可证明 Python 模板</button>
-        <button type="button" disabled={!research?.asset || backtesting || !code.trim()} onClick={() => void runCodeBacktest()}>{backtesting ? '代码回测中…' : '进行回测'}</button>
-      <PublishRuntimeStrategy draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={backtesting || code.length > 16_384} />
-      <details className="code-runtime-help"><summary>支持范围与本地证明</summary><p>支持 target_bps(index, close, sma) 整数子集，仓位 0–9500 bps。保存版本后可直接公开或付费申请云端 Proof。本地脚本 scripts/prepare-zk-witness.py 与 strategy/zkvm 保留；普通回测不产生 Proof。</p></details>
-    </div> : null}
-    <div className="code-studio-body">
+    <div className="lab-code-columns">
+      <div className="lab-source-column">
+        <div className="lab-source-tools">
+          <button onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
+          <input ref={fileInput} type="file" accept={STRATEGY_FILE_ACCEPT} hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} />
+          <button onClick={download}><Download size={15} />下载源码</button>
+          {language === 'python' ? <PublishRuntimeStrategy ownerId={ownerId} draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={running || !code.trim() || code.length > 16_384} /> : null}
+        </div>
       <div className="code-editor-panel">
         <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}{!assistantOpen ? <button onClick={() => setAssistantOpen(true)}><Bot size={15} />AI 助手</button> : null}</div></div>
         {pane === 'code' ? <div className="code-editor-surface"><div ref={gutter} className="code-line-numbers" aria-hidden="true">{code.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><div className="code-text-layer"><pre ref={highlight} aria-hidden="true" className="code-highlight">{highlightedCode}{'\n'}</pre><textarea ref={editor} aria-label={`${languageInfo.label} 策略代码`} value={code} spellCheck={false} autoCapitalize="off" autoComplete="off" wrap="off" onChange={(event) => edit(event.target.value)} onSelect={position} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; if (highlight.current) { highlight.current.scrollTop = event.currentTarget.scrollTop; highlight.current.scrollLeft = event.currentTarget.scrollLeft } }} onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); download() }
-          if (event.key === 'Tab' && !event.shiftKey) {
-            event.preventDefault(); const start = event.currentTarget.selectionStart; const end = event.currentTarget.selectionEnd
-            edit(code.slice(0, start) + '    ' + code.slice(end))
-            requestAnimationFrame(() => editor.current?.setSelectionRange(start + 4, start + 4))
-          }
-        }} /></div></div> : <article className="code-writing-guide"><h2>用 {languageInfo.label} 表达你的交易想法</h2><p>{languageInfo.environment}。右侧助手会按所选语言与当前代码生成建议。</p><dl><dt>起步模板</dt><dd>{language === 'python' ? '使用单个 target_bps(index, close, sma) 函数，返回 0–9500 的整数仓位；5000 表示 50%。默认示例兼容回测与 zkVM 证明。' : '模板演示 20 周期均线信号。通用语言返回目标仓位；平台语言使用对应平台接口。行情、执行与回测需要在目标环境中接入。'}</dd><dt>导入与保存</dt><dd>支持 UTF-8 {languageInfo.extensions.join(" / ")} 文件，最大 60 KB。导入只读取到编辑器；下载保存到自己的设备。切换语言或模块保留代码草稿，刷新或退出前请下载。</dd><dt>AI 与隐私</dt><dd>发送问题时，当前代码和问题会交给服务端配置的模型。请不要在代码或提问中放入密钥。</dd><dt>检查与执行</dt><dd>Python 按后端能力检测，完整检测包括语法、平台回测及证明兼容与合成行情试跑；其他语言暂未接入编译检查，请下载到对应工具中验证。受限 Python 可通过上方入口回测、保存并订阅，使用平台模拟或币安测试账户持续运行；普通 SDK 类请使用隔离执行工具。不能直接自动运行实盘。</dd></dl></article>}
+          if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (!saving && name.trim()) onSave() }
+        }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{languageInfo.environment}</p><p>{language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '当前语言支持编辑和下载，检查和回测使用受限 Python。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
         <footer className="code-editor-status"><span>UTF-8</span><span>{languageInfo.label}</span><span>{code.split('\n').length} 行</span><span>行 {cursor.line}，列 {cursor.column}</span><span>{code.length.toLocaleString()} 字符</span></footer>
         {validation ? <ValidationDetails value={validation} /> : null}
       </div>
@@ -237,7 +211,13 @@ export function CodeStrategyWorkspace({ research }: { research?: ResearchWorkspa
           }}><Check size={14} />应用到编辑器</button></div> : null}</article>)}{busy ? <div className="code-ai-thinking"><LoaderCircle size={16} className="spin" />正在根据当前代码生成建议…</div> : null}<div ref={messagesEnd} /></div>
         <form className="code-ai-composer" onSubmit={(event) => { event.preventDefault(); void send() }}><label htmlFor="code-ai-prompt">告诉 AI 你想实现什么</label><textarea id="code-ai-prompt" value={prompt} maxLength={4000} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：用 20 / 60 日均线判断趋势，单次仓位不超过 20%…" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} /><div><small>发送当前代码 · Shift + Enter 换行</small>{busy ? <button type="button" onClick={cancel}><Square size={14} />停止</button> : <button type="submit" disabled={!prompt.trim() || !capabilities?.configured}><Send size={15} />发送</button>}</div>{!capabilities?.configured ? <details className="code-connect-help"><summary>如何连接 AI？</summary><p>打开右上角设置 → AI 服务，选择 DeepSeek 或通义千问，填写模型与 Key，授权后保存并测试连接。也可以在服务端配置本机 Ollama（ATLAS_AI_URL 与 ATLAS_AI_MODEL），启动模型后刷新连接状态。代码助手会发送当前代码和提问；保密策略请使用开发者自己控制的本地模型。</p></details> : null}</form>
       </aside> : null}
+        <div className="lab-editor-feedback">
+          {error ? <p role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></p> : null}
+          {notice ? <p role="status">{notice}</p> : null}
+          <p>{language === 'python' ? '受限 Python · 单标的历史回测' : '此语言可编辑和下载，尚未接入检查与回测。'}</p>
+        </div>
+      </div>
+      <div className="lab-backtest-column">{children}</div>
     </div>
-    <div className="code-studio-feedback">{error ? <p role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></p> : null}{notice ? <p role="status">{notice}</p> : null}<span><ShieldCheck size={13} />{language === 'python' ? (capabilities?.bounded_authoring ? 'Python 检测使用受限解释器与合成行情；真实回测及 Proof 需另行操作。' : '当前服务仅提供 Python 语法检查，完整检测待服务更新。') : `${languageInfo.label} 支持编辑与 AI 编写，编译和回测尚未接入。`}</span><span><MessageSquare size={13} />AI 建议需自行审阅</span></div>
   </section>
 }
