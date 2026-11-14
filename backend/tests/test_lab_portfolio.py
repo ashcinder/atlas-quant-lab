@@ -10,9 +10,9 @@ from fastapi.testclient import TestClient
 
 from app import lab_portfolio, lab_portfolio_engine, main
 from app.compute_objects import ComputeObjects
-from app.lab_portfolio import LabPortfolioStore
+from app.lab_portfolio import JobInput, LabPortfolioStore, ReleaseInput
 from app.lab_portfolio_market import CHINA, PortfolioMarketError, session_windows
-from app.lab_strategies import LabStrategyStore
+from app.lab_strategies import LabDraftCreate, LabMultiSettings, LabStrategyStore
 from app import publish_portfolio_market
 from app.strategy_runtime import StrategyRuntimeStore
 
@@ -97,6 +97,9 @@ def setup(tmp_path, monkeypatch):
 def create_draft(client, **kwargs):
     body = {"id": uuid4().hex, "name": "跨股", "kind": "multi_python", "language": "python", "source": SOURCE,
             "settings": {"symbols": SYMBOLS}, **kwargs}
+    if body["settings"].get("engine_id") != "rqalpha":
+        owner = client.headers["X-Atlas-Lab-Owner"]
+        return main.lab_strategy_store.create(owner, LabDraftCreate.model_validate(body))
     response = client.post("/api/v1/lab-strategies", json=body)
     assert response.status_code == 201, response.text
     return response.json()
@@ -106,13 +109,12 @@ def complete_job(store, client):
     settings = create_draft(client)
     manifest, events = dataset([date(2025, 1, d) for d in (2, 3, 6)])
     digest = store.market.publish(manifest, events)
-    assert client.post(ROOT + "/preflight", json={"settings": settings["settings"]}).json()["dataset_sha256"] == digest
+    assert store.market.resolve(LabMultiSettings.model_validate(settings["settings"]), "historical")["digest"] == digest
     body = {"strategy_id": settings["id"], "expected_revision": 1, "request_id": uuid4().hex}
-    response = client.post(ROOT + "/jobs", json=body)
-    assert response.status_code == 202, response.text
-    job = response.json()
+    owner = client.headers["X-Atlas-Lab-Owner"]
+    job = store.submit(owner, JobInput.model_validate(body))
     assert job["status"] == "queued"
-    assert client.post(ROOT + "/jobs", json=body).json()["id"] == job["id"]
+    assert store.submit(owner, JobInput.model_validate(body))["id"] == job["id"]
     store.work_job()
     result = client.get(ROOT + "/jobs/" + job["id"]).json()
     assert result["status"] == "succeeded", result
@@ -127,12 +129,12 @@ def test_draft_job_release_permissions_and_idempotency(setup):
     assert other.get(ROOT + "/jobs/" + result["id"]).status_code == 404
     assert other.get("/api/v1/lab-strategies/" + draft["id"]).status_code == 404
     release_data = {"strategy_id": draft["id"], "expected_revision": 1, "job_id": result["id"]}
-    response = client.post(ROOT + "/releases", json=release_data)
-    assert response.status_code == 201, response.text
-    release = response.json()
+    assert client.post(ROOT + "/releases", json=release_data).status_code == 422
+    owner = client.headers["X-Atlas-Lab-Owner"]
+    release = store.create_release(owner, ReleaseInput.model_validate(release_data))
     identifier = release["id"]
     assert release["lab_strategy_id"] == draft["id"]
-    assert client.post(ROOT + "/releases", json=release_data).json()["id"] == identifier
+    assert store.create_release(owner, ReleaseInput.model_validate(release_data))["id"] == identifier
     assert other.get(ROOT + f"/releases/{identifier}/draft").status_code == 404
     assert client.get(ROOT + f"/releases/{identifier}/draft").json()["source"] == SOURCE
     assert client.post(f"/api/v1/strategy-releases/{identifier}/publish").status_code == 200
@@ -145,7 +147,7 @@ def test_draft_job_release_permissions_and_idempotency(setup):
 def test_missing_rules_and_cancelled_job(setup):
     store, client, _ = setup
     draft = create_draft(client)
-    assert client.post(ROOT + "/preflight", json={"settings": draft["settings"]}).json()["available"] is False
+    assert client.post(ROOT + "/preflight", json={"settings": draft["settings"]}).status_code == 422
     manifest, events = dataset([date(2025, 1, d) for d in (2, 3)])
     del events[1]["bars"][SYMBOLS[1]]["limit_up"]
     with pytest.raises(PortfolioMarketError, match="涨跌停"):
@@ -153,7 +155,7 @@ def test_missing_rules_and_cancelled_job(setup):
     events[1]["bars"][SYMBOLS[1]]["limit_up"] = 100
     store.market.publish(manifest, events)
     body = {"strategy_id": draft["id"], "expected_revision": 1, "request_id": uuid4().hex}
-    job = client.post(ROOT + "/jobs", json=body).json()
+    job = store.submit(client.headers["X-Atlas-Lab-Owner"], JobInput.model_validate(body))
     assert client.post(ROOT + f"/jobs/{job['id']}/cancel").json()["status"] == "cancelled"
     store.work_job()
     assert client.get(ROOT + f"/jobs/{job['id']}").json()["result"] is None
@@ -194,9 +196,9 @@ def test_market_watcher_retries_mismatched_batch_without_replacing_snapshot(setu
 def test_simulation_pause_reanchor_and_ledger(setup, monkeypatch):
     store, client, other = setup
     draft, result = complete_job(store, client)
-    release = client.post(ROOT + "/releases", json={
+    release = store.create_release(client.headers["X-Atlas-Lab-Owner"], ReleaseInput.model_validate({
         "strategy_id": draft["id"], "expected_revision": 1, "job_id": result["id"],
-    }).json()
+    }))
     days = [datetime.now(CHINA).date() - timedelta(days=n) for n in (6, 5, 4, 3, 2)]
     manifest, events = dataset(days, "live")
     latest = events[0]
@@ -385,3 +387,66 @@ def test_rqalpha_cleanup_failure_remains_visible_after_cancel(setup, monkeypatch
     assert result["result"] is None
     assert "清理未确认" in result["error"]
     assert "cleanup failed" in caplog.text
+
+
+def test_new_entry_rejects_legacy_but_keeps_historical_source_unchanged(setup):
+    store, client, other = setup
+    body = {"id": uuid4().hex, "name": "旧协议", "language": "python", "source": SOURCE,
+            "kind": "multi_python", "settings": {"symbols": SYMBOLS}}
+    assert client.post("/api/v1/lab-strategies", json=body).status_code == 422
+    legacy = create_draft(client)
+    response = client.patch("/api/v1/lab-strategies/" + legacy["id"], json={
+        "name": "不能改写", "kind": "multi_python", "language": "python", "source": RQ_SOURCE,
+        "settings": {"engine_id": "rqalpha", "symbols": SYMBOLS}, "expected_revision": 1,
+    })
+    assert response.status_code == 409
+    assert client.get("/api/v1/lab-strategies/" + legacy["id"]).json()["source"] == SOURCE
+    assert other.get("/api/v1/lab-strategies/" + legacy["id"]).status_code == 404
+    assert client.post(ROOT + "/jobs", json={"strategy_id": legacy["id"],
+        "expected_revision": 1, "request_id": uuid4().hex}).status_code == 422
+    assert client.post(ROOT + "/check", json={"engine_id": "atlas_portfolio", "source": SOURCE}).status_code == 422
+
+
+def test_native_entry_requires_explicit_rqalpha_and_accepts_a_single_symbol(setup, monkeypatch):
+    _, client, _ = setup
+    configure_rqalpha(monkeypatch)
+    body = {"id": uuid4().hex, "name": "唯一原生入口", "kind": "multi_python",
+            "language": "python", "source": RQ_SOURCE,
+            "settings": {"engine_id": "rqalpha", "symbols": [SYMBOLS[0]]}}
+    response = client.post("/api/v1/lab-strategies", json=body)
+    assert response.status_code == 201, response.text
+    assert client.post(ROOT + "/check", json={"source": RQ_SOURCE}).json()["valid"] is True
+    assert client.post(ROOT + "/jobs", json={"strategy_id": body["id"], "expected_revision": 1,
+        "request_id": uuid4().hex}).status_code == 202
+    assert client.patch("/api/v1/lab-strategies/" + body["id"], json={
+        **{key: value for key, value in body.items() if key != "id"},
+        "settings": {"symbols": SYMBOLS}, "expected_revision": 1}).status_code == 422
+
+
+def test_four_industry_catalog_does_not_claim_minute_coverage(setup, monkeypatch):
+    _, client, other = setup
+    monkeypatch.delenv("ATLAS_RQALPHA_SECTOR_MEMBERSHIP", raising=False)
+    response = client.get(ROOT + "/industries")
+    assert response.status_code == 200
+    entries = response.json()
+    assert [row["name"] for row in entries] == ["半导体", "军工", "商业航天", "机器人"]
+    assert all(row["symbols"] == [] and row["minute_intervals"] == [] for row in entries)
+    assert all(row["start"] is None and row["end"] is None for row in entries)
+    assert all("2025" in row["reason"] for row in entries)
+    assert TestClient(main.app).get(ROOT + "/industries").status_code == 401
+    assert other.get(ROOT + "/industries", headers={"X-Atlas-Lab-Owner": client.headers["X-Atlas-Lab-Owner"]}).status_code == 403
+
+
+@pytest.mark.parametrize("interval", ["1m", "5m", "15m", "30m", "60m"])
+def test_minute_preflight_reports_the_real_data_blocker(setup, monkeypatch, interval):
+    _, client, _ = setup
+    def not_a_daily_run(*args):
+        pytest.fail("Minute request must not silently use the daily dataset")
+    monkeypatch.setattr(lab_portfolio.rqalpha_backtests, "_dataset", not_a_daily_run)
+    body = {"engine_id": "rqalpha", "symbols": [SYMBOLS[0]],
+            "industry": "semiconductor", "interval": interval}
+    response = client.post(ROOT + "/preflight", json={"settings": body})
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert "2025" in response.json()["reason"] and "1分钟" in response.json()["reason"]
+    assert client.post(ROOT + "/preflight", json={"settings": {**body, "industry": None}}).status_code == 422

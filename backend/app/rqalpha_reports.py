@@ -483,6 +483,9 @@ def build_report(result, settings, market, raw):
         else None,
         "conventions": {
             "timezone": "Asia/Shanghai",
+            "execution_interval": settings.interval,
+            "valuation_interval": "1d",
+            "sampling": "交易和日志保留执行时刻；净值、持仓、账户及风险统计按原生每日结算采样",
             "trading_days_per_year": 252,
             "risk_free_rate": rows["risk_free_rate"],
             "risk_free_source": "RQAlpha 冻结 yield_curve 按回测起止期限取值；null表示未记录",

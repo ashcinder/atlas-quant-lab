@@ -1,9 +1,23 @@
 import { labOwnerHeaders } from './lab-strategy-types'
-import type { LabDraft, LabMultiCoverage, LabMultiDraft, LabMultiEngine, LabMultiJob, LabMultiSettings, LabReportExport, LabReportPage, LabReportQuery, LabReportTable } from './lab-strategy-types'
+import type { LabDraft, LabIndustry, LabMinuteInterval, LabMultiCoverage, LabMultiDraft, LabMultiEngine, LabMultiJob, LabMultiSettings, LabReportExport, LabReportPage, LabReportQuery, LabReportTable } from './lab-strategy-types'
 import { ApiError, request } from './request'
 import type { StrategyRelease } from './types'
 
 export interface LabMultiExample { id: string; name: string }
+export interface LabIndustryCoverage {
+  id: LabIndustry
+  name: string
+  symbols: Array<{ symbol: string; name: string | null; minute_available?: boolean; start?: string | null; end?: string | null; missing_sessions?: number | null; minute_reason?: string | null }>
+  as_of?: string
+  coverage_note?: string | null
+  minute_source?: { repo_id: string; revision: string; last_complete_day: string } | null
+  membership_sha256: string | null
+  membership_note?: string
+  start: string | null
+  end: string | null
+  minute_intervals: LabMinuteInterval[]
+  reason: string | null
+}
 export interface LabMultiCapabilities {
   available: boolean
   reason: string | null
@@ -12,6 +26,8 @@ export interface LabMultiCapabilities {
   can_release?: boolean
   matching_type?: string
   benchmarks?: Array<{ symbol: string; name: string; start: string; end: string }>
+  minute_intervals?: LabMinuteInterval[]
+  minute_reason?: string | null
 }
 
 const reportQuery = (query: LabReportQuery = {}) => new URLSearchParams(
@@ -57,8 +73,10 @@ export function labMultiRequest<T>(owner: string, path: string, options: Request
 }
 
 export const labMultiApi = {
-  capabilities: (owner: string, signal?: AbortSignal, engine: LabMultiEngine = 'atlas_portfolio') =>
+  capabilities: (owner: string, signal?: AbortSignal, engine: LabMultiEngine = 'rqalpha') =>
     labMultiRequest<LabMultiCapabilities>(owner, `capabilities?engine_id=${engine}`, { signal }),
+  industries: (owner: string, signal?: AbortSignal, asOf?: string) =>
+    labMultiRequest<LabIndustryCoverage[]>(owner, `industries${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`, { signal }),
   examples: (owner: string, signal?: AbortSignal) => labMultiRequest<LabMultiExample[]>(owner, 'examples', { signal }),
   example: (owner: string, id: string) => labMultiRequest<LabMultiDraft>(owner, `examples/${encodeURIComponent(id)}`),
   fromRelease: (owner: string, id: string, signal?: AbortSignal) => labMultiRequest<LabDraft>(owner, `releases/${encodeURIComponent(id)}/draft`, { signal }),

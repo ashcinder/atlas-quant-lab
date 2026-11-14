@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from app import lab_report_storage, rqalpha_backtests
+from app import lab_report_storage, rqalpha_backtests, rqalpha_industries
 from app.compute_objects import canonical_bytes
 from app.execution import parameter_values
 from app.lab_portfolio_market import PortfolioMarket, PortfolioMarketError
@@ -118,7 +118,7 @@ class PackageInput(MultiInput):
 
 
 class CheckInput(MultiInput):
-    engine_id: Literal["atlas_portfolio", "rqalpha"] = "atlas_portfolio"
+    engine_id: Literal["atlas_portfolio", "rqalpha"] = "rqalpha"
     source: str = Field(max_length=SOURCE_BYTES)
     package_b64: str | None = Field(default=None, max_length=MAX_LAB_PACKAGE_B64)
 
@@ -968,7 +968,7 @@ def portfolio_router(store):
     router = APIRouter(prefix="/api/v1/lab-multi")
 
     @router.get("/capabilities")
-    def capabilities(request: Request, engine_id: Literal["atlas_portfolio", "rqalpha"] = "atlas_portfolio"):
+    def capabilities(request: Request, engine_id: Literal["atlas_portfolio", "rqalpha"] = "rqalpha"):
         require_lab_owner(request)
         if engine_id == "rqalpha":
             available, reason = rqalpha_backtests.runner_status()
@@ -976,39 +976,44 @@ def portfolio_router(store):
                 benchmarks = rqalpha_backtests.benchmark_options()
             except (RunnerFailure, RunnerUnavailable, OSError, ValueError):
                 benchmarks = []
+            minute, minute_reason = rqalpha_backtests.minute_status()
             return {"available": available, "reason": reason, "engine_id": engine_id,
                     "engine_version": rqalpha_backtests.ENGINE_VERSION, "benchmarks": benchmarks,
-                    "can_release": False, "matching_type": "current_bar"}
+                    "can_release": False, "matching_type": "current_bar",
+                    "minute_intervals": list(rqalpha_industries.MINUTE_INTERVALS)
+                    if minute and available else [], "minute_reason": minute_reason}
         from app.lab_portfolio_engine import ENGINE_VERSION
 
-        available, reason = runner_status()
-        return {"available": available, "reason": reason, "engine_id": engine_id,
-                "engine_version": ENGINE_VERSION, "can_release": True, "matching_type": "next_open"}
+        return {"available": False, "reason": "旧协议策略只供查看和下载，新策略统一使用RQAlpha",
+                "engine_id": engine_id, "engine_version": ENGINE_VERSION,
+                "can_release": False, "matching_type": "next_open"}
+
+    @router.get("/industries")
+    def industries(request: Request, as_of: date | None = None):
+        require_lab_owner(request)
+        try:
+            minute, reason = rqalpha_backtests.minute_status()
+            return rqalpha_industries.catalog(as_of=as_of.isoformat() if as_of else None,
+                                              minute=minute, minute_reason=reason)
+        except RunnerFailure as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     @router.post("/inspect")
     def inspect(body: PackageInput, request: Request):
         require_lab_owner(request)
-        return package_draft(body.package_b64)
+        raise HTTPException(422, "新策略仅接受 RQAlpha 原生 .py，旧策略包不能自动转换协议")
 
     @router.post("/check")
     def check(body: CheckInput, request: Request):
-        from app.lab_portfolio_engine import PortfolioSandbox
-
         require_lab_owner(request)
+        if body.engine_id != "rqalpha":
+            raise HTTPException(422, "源码检查仅支持 RQAlpha Python，旧协议策略只供查看与下载")
         if not store.check_slot.acquire(blocking=False):
             raise HTTPException(429, "代码检查繁忙，请稍后重试")
         try:
-            if body.engine_id == "rqalpha":
-                rqalpha_backtests.validate_source(body.source, body.package_b64)
-                return {"valid": True, "error": None,
-                        "note": "仅静态语法和入口检查，未运行历史回测或生成证明"}
-            archive, params = build_package(body.source, body.package_b64)
-            available, reason = runner_status()
-            if not available:
-                return {"valid": False, "error": {"message": f"静态检查通过。{reason or '隔离 Runner 未就绪'}"}}
-            with PortfolioSandbox(archive, params):
-                pass
-            return {"valid": True, "error": None}
+            rqalpha_backtests.validate_source(body.source, body.package_b64)
+            return {"valid": True, "error": None,
+                    "note": "仅静态语法和入口检查，未运行历史回测或生成证明"}
         except (StrategyPackageError, RunnerUnavailable, RunnerFailure, UnicodeError) as exc:
             return {"valid": False, "error": {"message": str(exc)[:400]}}
         finally:
@@ -1017,27 +1022,14 @@ def portfolio_router(store):
     @router.post("/preflight")
     def preflight(body: PreflightInput, request: Request):
         require_lab_owner(request)
+        if body.settings.engine_id != "rqalpha":
+            raise HTTPException(422, "旧协议策略已设为只读，新回测仅使用RQAlpha")
         try:
-            if body.settings.engine_id == "rqalpha":
-                market = rqalpha_backtests.resolve(body.settings)
-                return {"available": True, "reason": None, "start": market["start"],
-                        "end": market["end"], "dataset_sha256": market["digest"]}
-            market = store.market.resolve(body.settings, "historical")
-            events = store.market.events(market, body.settings)
-            first = next(events, None)
-            last = next(events, None)
-            if first is None or last is None:
-                raise PortfolioMarketError("选择的时间区间内不足两根已发布行情")
-            if body.settings.end is None:
-                last_time = market["end"]
-            else:
-                for event in events:
-                    last = event
-                last_time = last["time"]
+            market = rqalpha_backtests.resolve(body.settings)
+            return {"available": True, "reason": None, "start": market["start"],
+                    "end": market["end"], "dataset_sha256": market["digest"]}
         except (PortfolioMarketError, RunnerFailure, RunnerUnavailable) as exc:
             return {"available": False, "reason": str(exc), "start": None, "end": None}
-        return {"available": True, "reason": None, "start": first["time"], "end": last_time,
-                "dataset_sha256": market["digest"]}
 
     @router.get("/examples")
     def examples(request: Request):
@@ -1067,6 +1059,9 @@ def portfolio_router(store):
     @router.post("/jobs", status_code=202)
     def submit(body: JobInput, request: Request):
         owner = require_lab_owner(request)
+        draft = store.drafts.get(owner, body.strategy_id)
+        if draft.get("kind") != "multi_python" or draft["settings"].get("engine_id") != "rqalpha":
+            raise HTTPException(422, "旧协议策略只供查看与下载，新回测仅使用RQAlpha")
         try:
             return store.submit(owner, body)
         except (RunnerFailure, PortfolioMarketError, StrategyPackageError) as exc:
@@ -1110,7 +1105,9 @@ def portfolio_router(store):
 
     @router.post("/releases", status_code=201)
     def release(body: ReleaseInput, request: Request):
-        return store.create_release(require_lab_owner(request), body)
+        owner = require_lab_owner(request)
+        store.drafts.require_owned(owner, body.strategy_id)
+        raise HTTPException(422, "当前策略实验室仅支持RQAlpha历史回测，旧策略与运行版本只读保留")
 
     @router.get("/releases/{identifier}/draft")
     def release_draft(identifier: str, request: Request):

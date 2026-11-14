@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, time
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
+from app import rqalpha_industries, rqalpha_minute_data
 from app.compute_objects import canonical_bytes
 from app.rqalpha_reports import (
     BENCHMARKS,
@@ -173,6 +174,21 @@ def runner_status():
     return True, None
 
 
+def minute_status():
+    try:
+        minute, _ = rqalpha_minute_data.load()
+        dataset, _, _ = _dataset()
+        membership = rqalpha_industries.load_membership()
+        if membership is None:
+            raise RunnerFailure("四行业成员清单尚未准备")
+        rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
+        if not any(len(row["complete_sessions"]) >= 2 for row in minute["instruments"].values()):
+            raise RunnerFailure("分钟快照没有覆盖至少两个完整交易日的股票")
+        return minute, None
+    except (RunnerFailure, RunnerUnavailable) as exc:
+        return None, str(exc)
+
+
 def benchmark_options():
     dataset, _, _ = _dataset()
     return [{"symbol": symbol, "name": BENCHMARKS[symbol],
@@ -185,10 +201,15 @@ def _close(day):
 
 
 def resolve(settings):
-    if settings.interval != "1d" or settings.universe:
-        raise RunnerFailure("RQAlpha 首期只支持静态股票池日线回测")
-    if len(settings.symbols) < 2 or any(not SYMBOL.fullmatch(s) for s in settings.symbols):
-        raise RunnerFailure("RQAlpha 首期需要至少两只带 .SS 或 .SZ 后缀的沪深 A 股")
+    if settings.interval != "1d" and not settings.industry:
+        raise RunnerFailure("分钟回测仅支持半导体、军工、商业航天和机器人，请选择行业")
+    if settings.universe:
+        raise RunnerFailure("旧动态股票池不能作为 RQAlpha 原生配置")
+    if not settings.symbols or any(not SYMBOL.fullmatch(s) for s in settings.symbols):
+        raise RunnerFailure("请加入至少一只带 .SS 或 .SZ 后缀的沪深 A 股")
+    minute, membership = None, None
+    if settings.interval != "1d":
+        minute, _ = rqalpha_minute_data.load()
     dataset, _, _ = _dataset()
     try:
         coverage = [dataset["instruments"][symbol] for symbol in settings.symbols]
@@ -196,19 +217,59 @@ def resolve(settings):
         raise RunnerFailure("所选股票未被当前 RQAlpha 日线快照覆盖") from exc
     lower = max(row["start"] for row in coverage)
     upper = min(row["end"] for row in coverage)
+    if minute:
+        membership = rqalpha_industries.load_membership()
+        if membership is None:
+            raise RunnerFailure("四行业成员清单尚未准备，请先检查行业数据覆盖")
+        rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
+        try:
+            minute_coverage = [minute["instruments"][symbol] for symbol in settings.symbols]
+        except KeyError as exc:
+            raise RunnerFailure("所选股票未被当前 HF 分钟快照覆盖") from exc
+        if any(not row["start"] or not row["end"] for row in minute_coverage):
+            raise RunnerFailure("所选股票没有通过完整交易日审计的分钟行情")
+        lower = max(lower, *(row["start"] for row in minute_coverage))
+        upper = min(upper, *(row["end"] for row in minute_coverage))
     start = settings.start.astimezone(CHINA).date().isoformat() if settings.start else lower
     end = settings.end.astimezone(CHINA).date().isoformat() if settings.end else upper
     if start < lower or end > upper:
-        raise RunnerFailure(f"股票池共同日线覆盖范围为 {lower} 至 {upper}，请调整区间")
+        kind = "分钟与日线规则" if minute else "日线"
+        raise RunnerFailure(f"股票池共同{kind}覆盖范围为 {lower} 至 {upper}，请调整区间")
     now = int(datetime.now(UTC).timestamp())
     days = [day for day in dataset["sessions"] if start <= day <= end
             and _close(day) <= now
-            and (settings.start is None or _close(day) >= settings.start.timestamp())
-            and (settings.end is None or _close(day) <= settings.end.timestamp())]
+            and (minute is not None or settings.start is None
+                 or _close(day) >= settings.start.timestamp())
+            and (minute is not None or settings.end is None
+                 or _close(day) <= settings.end.timestamp())]
     if len(days) < 2:
         raise RunnerFailure("选择的区间内不足两个已收盘的真实交易日")
+    if minute:
+        start_clock = settings.start.astimezone(CHINA) if settings.start else None
+        end_clock = settings.end.astimezone(CHINA) if settings.end else None
+        if (start_clock and start_clock.date().isoformat() == days[0]
+                and start_clock.time() > time(9, 30)
+                or end_clock and end_clock.date().isoformat() == days[-1]
+                and end_clock.time() < time(15)):
+            raise RunnerFailure("分钟回测首批按完整交易日运行，请设置开始不晚于09:30、"
+                                "结束不早于15:00；不会忽略盘中边界")
     if len(days) * (len(settings.symbols) + 2) + len(days) > MAX_RECORDS:
         raise RunnerFailure("RQAlpha 逐日持仓与账户预计超过 250,000 条，请缩短区间或股票池")
+    if minute:
+        if not set(days) <= set(minute["sessions"]):
+            raise RunnerFailure("分钟源与原生交易日历不一致，不能跳过缺失交易日")
+        for symbol in settings.symbols:
+            item = minute["instruments"][symbol]
+            absent = sorted(set(days) - set(item["complete_sessions"])
+                            - set(item["no_trade_sessions"]))
+            if absent:
+                raise RunnerFailure(
+                    f"{symbol} 在 {absent[0]} 的分钟行情不完整（共 {len(absent)} 日）；"
+                    "请选择无缺口区间或移除该股，不会填充缺根"
+                )
+        symbol_bars = len(days) * (240 // int(settings.interval[:-1])) * len(settings.symbols)
+        if symbol_bars > rqalpha_minute_data.MAX_SYMBOL_BARS:
+            raise RunnerFailure("所选分钟根数超过隔离执行预算，请减少股票或使用更大周期")
     benchmark = None
     if settings.benchmark:
         benchmark = dataset.get("benchmarks", {}).get(settings.benchmark)
@@ -223,11 +284,39 @@ def resolve(settings):
                   if dataset["sessions"][0] < f"{year}-01-01"
                   and dataset["sessions"][-1] > f"{year}-12-31"
                   and {day for day in dataset["sessions"] if day.startswith(str(year))} <= selected]
-    return {"digest": dataset["digest"], "rule_version": RULE_VERSION,
-            "engine_version": ENGINE_VERSION, "benchmark": settings.benchmark,
-            "benchmark_coverage": benchmark, "full_years": full_years,
-            "engine_id": "rqalpha", "start": _close(days[0]), "end": _close(days[-1]),
-            "count": len(days), "sessions": days, "window": {"start": days[0], "end": days[-1]}}
+    sector = rqalpha_industries.validate_daily_selection(settings, days, manifest=membership)
+    market = {"digest": dataset["digest"], "rule_version": RULE_VERSION,
+              "industry": sector,
+              "engine_version": ENGINE_VERSION, "benchmark": settings.benchmark,
+              "benchmark_coverage": benchmark, "full_years": full_years,
+              "engine_id": "rqalpha", "start": _close(days[0]), "end": _close(days[-1]),
+              "count": len(days), "sessions": days, "window": {"start": days[0], "end": days[-1]}}
+    if minute:
+        records = membership["industries"][settings.industry]
+        first = rqalpha_industries.membership_at(membership, settings.industry, days[0])
+        sector["selection_mode"] = "static-pool-with-dated-entry-eligibility"
+        sector["versions"] = [
+            {key: row[key] for key in ("as_of", "published", "effective", "symbols")}
+            for row in records if first["as_of"] <= row["as_of"] <= days[-1]
+        ]
+        market.update(
+            digest=rqalpha_minute_data.combined_digest(minute), daily_digest=dataset["digest"],
+            minute_digest=minute["digest"], minute_adapter_version=minute["adapter_version"],
+            bar_interval=settings.interval, symbol_bars=symbol_bars,
+            count=len(days) * (240 // int(settings.interval[:-1])),
+            minute_source={**{key: minute["source"][key] for key in (
+                "repo_id", "revision", "license_declared", "last_complete_day",
+                "timezone", "price_adjustment", "volume_unit", "turnover_unit",
+            )}, "start": minute["start"], "end": minute["end"],
+                "bar_convention": minute["bar_convention"],
+                "extra_session_policy": minute["extra_session_policy"],
+                "provenance_note": (
+                    "发布者未披露上游提供方；固定摘要不是行情来源证明。"
+                    "HF分钟与原生日线是不同来源，历史日线查询仍用原生包；"
+                    "开盘价或最高价可能不同，保留原值而不强行改平。"
+                )},
+        )
+    return market
 
 
 def _number(value, *, minimum=None, maximum=None):
@@ -242,6 +331,12 @@ def validate_result(result, settings, market):
     if (not isinstance(result, dict) or result.get("engine_version") != ENGINE_VERSION
             or result.get("matching_type") != "current_bar"):
         raise RunnerFailure("RQAlpha 返回的引擎版本或撮合规则不一致")
+    if settings.interval != "1d" and (
+        result.get("bar_interval") != settings.interval
+        or result.get("minute_digest") != market["minute_digest"]
+        or result.get("minute_adapter_version") != market["minute_adapter_version"]
+    ):
+        raise RunnerFailure("RQAlpha 返回的分钟周期或冻结数据身份不一致")
     collections = ("equity", "trades", "positions", "rejections", "corporate_actions")
     if any(not isinstance(result.get(key), list) for key in collections):
         raise RunnerFailure("RQAlpha 结果缺少必要记录")
@@ -281,6 +376,15 @@ def validate_result(result, settings, market):
         if trade.get("symbol") not in settings.symbols or trade.get("side") not in ("buy", "sell"):
             raise RunnerFailure("RQAlpha 成交含池外标的或非法方向")
         _number(trade.get("time"), minimum=lower, maximum=upper)
+        if settings.interval != "1d":
+            clock = datetime.fromtimestamp(trade["time"], CHINA)
+            minute_of_day = clock.hour * 60 + clock.minute
+            offset = minute_of_day - (570 if minute_of_day <= 690 else 780)
+            if (clock.date().isoformat() not in market["sessions"]
+                    or clock.second or clock.microsecond
+                    or not (570 < minute_of_day <= 690 or 780 < minute_of_day <= 900)
+                    or offset % int(settings.interval[:-1])):
+                raise RunnerFailure("RQAlpha 分钟成交不在已完成的所选周期收盘时刻")
         _number(trade.get("quantity"), minimum=1e-12, maximum=1e12)
         _number(trade.get("price"), minimum=1e-12, maximum=1e9)
         fee = _number(trade.get("fee"), minimum=0)
@@ -343,7 +447,8 @@ def validate_result(result, settings, market):
         "equity": equity, "trades": trades,
         "kind": "multi_python", "engine_id": "rqalpha", "engine_version": ENGINE_VERSION,
         "sdk_version": "atlas.rqalpha/v1", "matching_type": "current_bar", "currency": "CNY",
-        "proof_status": "unverified", "interval": "1d", "symbols": settings.symbols,
+        "proof_status": "unverified", "interval": settings.interval, "symbols": settings.symbols,
+        "industry_snapshot": market.get("industry"),
         "initial_capital": settings.initial_capital, "final_equity": equity[-1]["equity"],
         "total_return": equity[-1]["equity"] / settings.initial_capital - 1,
         "max_drawdown": drawdown, "native_metrics": metrics,
@@ -351,6 +456,10 @@ def validate_result(result, settings, market):
                        "commission_rate": settings.commission_rate,
                        "slippage_rate": settings.slippage_rate},
     }
+    if market.get("minute_digest"):
+        validated.update({key: market[key] for key in (
+            "daily_digest", "minute_digest", "minute_adapter_version", "minute_source",
+        )})
     if "report_data" in result:
         validated.update(build_report(validated, settings, market, result["report_data"]))
         validated["total_return"] = metrics.get("total_returns")
@@ -366,8 +475,28 @@ def validate_result(result, settings, market):
 def execute(source, settings, market, *, cancelled=None):
     validate_source(source)
     dataset, root, bundle = _dataset()
-    if market["digest"] != dataset["digest"]:
-        raise RunnerFailure("RQAlpha 日线快照已变更，请重新检查并创建回测")
+    minute, minute_root = None, None
+    payload = {"op": "run", "source": source,
+               "bundle_files": runner_files(dataset, root, bundle),
+               "settings": settings.model_dump(mode="json"),
+               "parameters": settings.parameters, "window": market["window"]}
+    expected = dataset["digest"]
+    if settings.interval != "1d":
+        minute, minute_root = rqalpha_minute_data.load()
+        membership = rqalpha_industries.load_membership()
+        if membership is None:
+            raise RunnerFailure("四行业成员清单尚未准备")
+        rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
+        expected = rqalpha_minute_data.combined_digest(minute)
+        if (market.get("minute_digest") != minute["digest"]
+                or market.get("bar_interval") != settings.interval
+                or market.get("daily_digest") != dataset["digest"]):
+            raise RunnerFailure("RQAlpha 分钟快照或周期已变更，请重新检查并创建回测")
+        rqalpha_minute_data.verify_files(minute, minute_root, settings.symbols, cancelled=cancelled)
+        payload.update(minute_digest=minute["digest"], expected_daily_digest=dataset["digest"],
+                       minute_membership=market["industry"]["versions"])
+    if market["digest"] != expected:
+        raise RunnerFailure("RQAlpha 行情快照已变更，请重新检查并创建回测")
     for row in dataset["files"]:
         digest = hashlib.sha256()
         try:
@@ -380,13 +509,10 @@ def execute(source, settings, market, *, cancelled=None):
             raise RunnerFailure("RQAlpha 冻结数据文件无法读取") from exc
         if digest.hexdigest() != row["sha256"]:
             raise RunnerFailure("RQAlpha 冻结数据文件摘要不符")
-    runner = RqalphaSandbox(bundle, cancelled=cancelled)
+    runner = RqalphaSandbox(bundle, minute_bundle=minute_root, cancelled=cancelled)
     try:
         with runner:
-            result = runner.run({"op": "run", "source": source,
-                                 "bundle_files": runner_files(dataset, root, bundle),
-                                 "settings": settings.model_dump(mode="json"),
-                                 "parameters": settings.parameters, "window": market["window"]})
+            result = runner.run(payload)
         return validate_result(result, settings, market)
     except (RunnerFailure, RunnerUnavailable) as exc:
         if not hasattr(exc, "report_logs"):

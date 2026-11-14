@@ -312,11 +312,12 @@ RQALPHA_MAX_LOGS = 2000
 
 
 class RqalphaSandbox(DockerSandbox):
-    def __init__(self, bundle: Path, *, cancelled=None):
+    def __init__(self, bundle: Path, *, minute_bundle: Path | None = None, cancelled=None):
         super().__init__(b"", {})
         self.socket = os.environ.get("ATLAS_RQALPHA_RUNNER_SOCKET", "")
         self.image = os.environ.get("ATLAS_RQALPHA_RUNNER_IMAGE", "")
         self.bundle = Path(bundle)
+        self.minute_bundle = Path(minute_bundle) if minute_bundle is not None else None
         self._should_cancel = cancelled
         self.input_limit = 131_072
         self.output_limit = 16 * 1024 * 1024
@@ -368,13 +369,18 @@ class RqalphaSandbox(DockerSandbox):
         self._check_runtime()
         if not self.bundle.is_dir() or any(c in str(self.bundle) for c in ",\n\r"):
             raise RunnerUnavailable("RQAlpha 日线包目录未就绪")
+        mounts = ["--mount", f"type=bind,src={self.bundle},dst=/bundle,readonly"]
+        if self.minute_bundle is not None:
+            if (not self.minute_bundle.is_dir()
+                    or any(c in str(self.minute_bundle) for c in ",\n\r")):
+                raise RunnerUnavailable("RQAlpha 分钟快照目录未就绪")
+            mounts.extend(["--mount", f"type=bind,src={self.minute_bundle},dst=/minutes,readonly"])
         command = self._command(
             "run", "--rm", "-i", "--name", self.name, "--pull=never", "--runtime=runsc",
             "--network=none", "--read-only", "--user=65532:65532", "--cap-drop=ALL",
             "--security-opt=no-new-privileges", "--pids-limit=32", "--memory=1g",
             "--memory-swap=1g", "--cpus=1", "--ulimit=nofile=64:64", "--ulimit=core=0:0",
-            "--log-driver=none", "--tmpfs=/tmp:rw,noexec,nosuid,size=32m", "--mount",
-            f"type=bind,src={self.bundle},dst=/bundle,readonly", self.image,
+            "--log-driver=none", "--tmpfs=/tmp:rw,noexec,nosuid,size=32m", *mounts, self.image,
         )
         try:
             self.process = subprocess.Popen(

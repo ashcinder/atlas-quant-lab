@@ -3,16 +3,15 @@ import json
 import math
 import sys
 from datetime import UTC, datetime
-from hashlib import sha256
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.compute_mode import browser_compute_enabled
-from app.lab_strategies import LabBacktestSettings, require_lab_owner
+from app.lab_strategies import require_lab_owner
 from app.models import BacktestResult, PortfolioResult, ResearchResult
 
 
@@ -160,27 +159,7 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None,
             if lab_strategies is None:
                 raise HTTPException(404, "代码策略库不可用")
             lab_strategies.require_owned(owner, body.lab_strategy_id)
-            source = body.request.get("python_source")
-            if (body.mode != "single" or body.request.get("strategy_id") != "python_bounded"
-                    or body.request.get("release_id") or not isinstance(source, str)
-                    or not source.strip() or len(source) > 16_384 or "\0" in source):
-                raise HTTPException(422, "策略历史只接受受限 Python 单标的回测")
-            try:
-                settings = LabBacktestSettings.model_validate({
-                    key: body.request[key] for key in LabBacktestSettings.model_fields if key in body.request
-                })
-            except ValidationError:
-                raise HTTPException(422, "回测设置无效") from None
-            if settings.symbol is None:
-                raise HTTPException(422, "回测缺少标的")
-            try:
-                source_sha256 = sha256(source.encode("utf-8")).hexdigest()
-            except UnicodeEncodeError:
-                raise HTTPException(422, "源码必须为 UTF-8 文本") from None
-            body.request["lab_snapshot"] = {
-                "source_sha256": source_sha256,
-                "settings": settings.model_dump(mode="json"),
-            }
+            raise HTTPException(422, "旧协议策略已设为只读，新回测仅通过RQAlpha隔离任务执行")
         if body.request.get("release_id"):
             permission = capability(runtime, owner, body.request["release_id"])
             if permission["execution_location"] != "browser" or permission["strategy_version"] != body.strategy_version:
@@ -192,13 +171,6 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None,
                 raise HTTPException(422, "结果引用了未登记的行情版本") from None
         result_model = {"single": BacktestResult, "portfolio": PortfolioResult, "research": ResearchResult}[body.mode]
         result = result_model.model_validate(body.result).model_dump(mode="json")
-        if body.lab_strategy_id and (
-            result["strategy"]["id"] != "python_bounded"
-            or result["asset"]["symbol"] != settings.symbol
-            or result["asset"]["asset_class"] != settings.asset_class
-            or result["interval"] != settings.interval
-        ):
-            raise HTTPException(422, "回测结果与策略或标的设置不匹配")
         result["run_id"] = str(uuid4())
         result["created_at"] = datetime.now(UTC).isoformat()
         if body.mode == "research":

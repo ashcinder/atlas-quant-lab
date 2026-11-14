@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { formatMoney, formatNumber, formatPercent } from '../format'
-import { labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
-import type { LabMultiCoverage, LabMultiJob, LabMultiSettings, LabMultiTrade } from '../lab-strategy-types'
+import { labIndustryLabels, labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
+import type { LabIndustry, LabMinuteInterval, LabMultiCoverage, LabMultiJob, LabMultiSettings, LabMultiTrade } from '../lab-strategy-types'
+import type { LabIndustryCoverage, LabMultiCapabilities } from '../lab-multi-api'
 import type { Asset } from '../types'
 import { LabBacktestReport } from './LabBacktestReport'
 
@@ -21,7 +22,7 @@ const cnSymbol = /^(?:[036][0-9]{5}\.(?:SS|SZ)|[489][0-9]{5}\.BJ)$/
 const cnEquity = (item: Asset) => item.currency === 'CNY' && item.asset_class === 'equity' && cnSymbol.test(item.symbol)
 const symbolsLabel = (settings: LabMultiSettings) => settings.universe ? `行业成员名单 · ${settings.universe}` : settings.symbols.join('、') || '尚未选择'
 
-export function LabMultiBacktestForm({ value, assets, onChange, coverage, coverageBusy, coverageError, onCoverage, engineLocked = false }: {
+export function LabMultiBacktestForm({ value, assets, onChange, coverage, coverageBusy, coverageError, onCoverage, readOnly = false, industries = null, industryError = '', onReloadIndustries, capabilities = null }: {
   value: LabMultiSettings
   assets: Asset[]
   onChange: (patch: Partial<LabMultiSettings>) => void
@@ -29,11 +30,26 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
   coverageBusy: boolean
   coverageError: string
   onCoverage: () => void
-  engineLocked?: boolean
+  readOnly?: boolean
+  industries?: LabIndustryCoverage[] | null
+  industryError?: string
+  onReloadIndustries?: () => void
+  capabilities?: LabMultiCapabilities | null
 }) {
   const rqalpha = value.engine_id === 'rqalpha'
+  const industry = industries?.find(row => row.id === value.industry)
+  const restricted = rqalpha && !!value.industry
+  const minute = rqalpha && value.interval !== '1d'
   const acceptsSymbol = (symbol: string) => cnSymbol.test(symbol) && (!rqalpha || !symbol.endsWith('.BJ'))
+    && (!restricted || !!industry?.symbols.some(item => item.symbol === symbol && (!minute || item.minute_available !== false)))
+  const poolMembers = industry?.symbols.filter(item => !minute || item.minute_available !== false) ?? []
   const invalidPool = rqalpha && (!!value.universe || value.symbols.some(symbol => !acceptsSymbol(symbol)))
+  const industryUnavailable = restricted && (!industry?.symbols.length || !!industryError || industries === null)
+  const minutePeriods: LabMinuteInterval[] = ['1m', '5m', '15m', '30m', '60m']
+  const minuteReady = (period: LabMinuteInterval) => !readOnly && !industryError && capabilities?.available === true && !!industry
+    && !!industry.start && !!industry.end
+    && !!capabilities?.minute_intervals?.includes(period) && industry.minute_intervals.includes(period)
+  const minuteBlocked = value.interval !== '1d' && !minuteReady(value.interval)
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<Asset[]>([])
   const [searchError, setSearchError] = useState('')
@@ -42,7 +58,7 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
   const [parameterError, setParameterError] = useState('')
   useEffect(() => {
     const text = query.trim()
-    if (!text) return
+    if (!text || readOnly || restricted) return
     let active = true
     const timer = window.setTimeout(() => {
       api.searchAssets(text).then(items => {
@@ -50,18 +66,19 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
       }).catch(() => { if (active) setSearchError('无法搜索行情目录。') })
     }, 200)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [query])
+  }, [query, readOnly, restricted])
   const catalog = useMemo(() => new Map([...assets.filter(cnEquity), ...matches].map(asset => [asset.symbol, asset])), [assets, matches])
-  const choices = [...catalog.values()].filter(asset => !value.symbols.includes(asset.symbol) && acceptsSymbol(asset.symbol))
+  const choices = (restricted ? industry?.symbols ?? [] : [...catalog.values()]).filter(asset => !value.symbols.includes(asset.symbol) && acceptsSymbol(asset.symbol))
   const add = () => {
     const code = (selected || query.trim()).toUpperCase()
-    if (!acceptsSymbol(code) || value.symbols.includes(code) || value.symbols.length >= 150) return
+    if (readOnly || !acceptsSymbol(code) || value.symbols.includes(code) || value.symbols.length >= 150) return
     onChange({ symbols: [...value.symbols, code] })
     setSelected(''); setQuery(''); setMatches([])
   }
   const candidate = selected || query.trim().toUpperCase()
   const parameterChanged = parameterText !== JSON.stringify(value.parameters ?? {}, null, 2)
   const applyParameters = () => {
+    if (readOnly) return
     try {
       const parsed = JSON.parse(parameterText) as unknown
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.values(parsed).some(item => !['number', 'boolean', 'string'].includes(typeof item) || typeof item === 'number' && !Number.isFinite(item))) {
@@ -75,25 +92,50 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
   }
 
   return <section className="lab-settings" aria-labelledby="lab-settings-title">
-    <h2 id="lab-settings-title">多股回测设置</h2>
-    <div className="lab-settings-grid"><label>回测引擎<select value={value.engine_id ?? 'atlas_portfolio'} disabled={engineLocked || !!value.universe} onChange={event => {
-      const engine_id = event.target.value === 'rqalpha' ? 'rqalpha' : 'atlas_portfolio'
-      onChange({ engine_id, ...(engine_id === 'rqalpha' ? { interval: '1d' } : { benchmark: null }) })
-    }}>
-      <option value="atlas_portfolio">Atlas 自研引擎</option>
-      <option value="rqalpha">RQAlpha 公开版 · 日线</option>
-    </select></label></div>
-    <p className="lab-form-note">切换引擎只修改配置，不会转换或替换源码；请按所选协议编写，保存后重新回测。</p>
-    {(engineLocked || value.universe) && <p className="lab-form-note">现有策略包和行业示例使用 Atlas 协议；RQAlpha 请从原生源码入口新建。</p>}
-    {rqalpha && <p className="lab-form-note">学术非商用 · 原生 init / handle_bar · 仅静态沪深 A 股日线。按当前 K 线收盘价撮合（current_bar），不等于收盘后可按该价格实盘成交。最低佣金 5 元，卖出印花税按历史日期计算；仓位上限为订单前风控，不能作为实盘保障。首期不支持发布、持续模拟或 Proof，结果未经 ZKP 验证。</p>}
-    {invalidPool && <p className="lab-form-note" role="alert">RQAlpha 首期不支持北交所或动态行业股票池，请移除不支持的标的或切回 Atlas。</p>}
+    <h2 id="lab-settings-title">回测设置</h2>
+    {rqalpha && <>
+      <div className="lab-settings-grid"><label>行业股票池<select value={value.industry ?? ''} onChange={event => {
+        if (readOnly) return
+        const id = (event.target.value || null) as LabIndustry | null
+        const next = industries?.find(row => row.id === id)
+        onChange({ industry: id, symbols: id ? value.symbols.filter(symbol => next?.symbols.some(item => item.symbol === symbol)) : value.symbols })
+        setSelected(''); setQuery(''); setMatches([])
+      }}><option value="">不指定行业（日线）</option>{Object.entries(labIndustryLabels).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label></div>
+      <p className="lab-form-note">RQAlpha Python · 学术非商用。分钟回测仅限半导体、军工、商业航天、机器人，使用 HF 固定历史快照，按各股实际完整日期开放；日线可选择一只或多只沪深 A 股。</p>
+      {industryError ? <div role="alert" className="lab-command-actions"><span>{industryError}</span>{onReloadIndustries && <button type="button" onClick={onReloadIndustries}>重试行业股票池</button>}</div> : restricted && industries === null ? <p role="status">正在读取行业股票池…</p> : null}
+      {industry && <div className="lab-industry-coverage">
+        <p>{industry.name} · 已核验成员 {industry.symbols.length} 只{industry.as_of ? ` · 名单时点 ${industry.as_of}` : ''}</p>
+        {industry.membership_note && <p className="lab-form-note">{industry.membership_note}</p>}
+        {industry.membership_sha256 && <code>成员版本 SHA-256 {industry.membership_sha256}</code>}
+        <p className="lab-form-note">分钟覆盖：{industry.start && industry.end ? `${industry.start} 至 ${industry.end}（成员可用范围外边界）` : '尚未核验完整历史覆盖'}</p>
+        {industry.coverage_note && <p className="lab-form-note">{industry.coverage_note}</p>}
+        {industry.minute_source && <>
+          <p className="lab-form-note">HF 历史快照 · <code>{industry.minute_source.repo_id}</code> · 完整日上限 {industry.minute_source.last_complete_day}</p>
+          <code>来源固定版本 {industry.minute_source.revision}</code>
+        </>}
+        {industry.reason && <p className="lab-form-note">{industry.reason}</p>}
+        {!industry.symbols.length && <p role="status">该行业股票池尚未准备，不能用示例或任意股票代替。</p>}
+        {industry.minute_source && value.symbols.length > 0 && <div className="lab-form-note" aria-label="已选股票分钟覆盖">
+          {value.symbols.map(symbol => {
+            const item = industry.symbols.find(row => row.symbol === symbol)
+            return <p key={symbol}><strong>{symbol}</strong> · {item?.start && item.end ? `${item.start} 至 ${item.end}` : '暂无已核验分钟范围'}{typeof item?.missing_sessions === 'number' ? ` · 缺口 ${item.missing_sessions} 日` : ''}{item?.minute_reason ? ` · ${item.minute_reason}` : ''}</p>
+          })}
+          <p>可用日期可能含内部缺口；覆盖预检按所选股票和区间逐日检查，不会自动缩短区间或填充缺根。</p>
+        </div>}
+        <button type="button" disabled={readOnly || !poolMembers.length || value.symbols.length >= 150} onClick={() => {
+          if (!readOnly) onChange({ symbols: [...new Set([...value.symbols, ...poolMembers.map(item => item.symbol)])].slice(0, 150) })
+        }}>加入行业股票池（{poolMembers.length}只）</button>
+      </div>}
+      <p className="lab-form-note">按当前 K 线收盘价撮合（current_bar），不是实盘或持续模拟。最低佣金 5 元，卖出印花税按历史日期计算；结果未经 ZKP 验证。</p>
+    </>}
+    {invalidPool && <p className="lab-form-note" role="alert">所选股票与所选日期的行业、沪深范围或分钟覆盖不匹配，请核对并手动移除；旧版动态股票池不能作为新 RQAlpha 输入。</p>}
     <div className="lab-stock-pool">
       {value.universe ? <p>{symbolsLabel(value)}</p> : <>
         <div className="lab-settings-grid">
           <label>搜索或输入股票代码<input type="search" value={query} placeholder="例如 600519.SS" onChange={event => { setQuery(event.target.value); setSelected(''); setMatches([]); setSearchError('') }} /></label>
           <label>行情目录<select value={selected} onChange={event => setSelected(event.target.value)}>
             <option value="">选择 A 股</option>
-            {choices.map(asset => <option key={asset.symbol} value={asset.symbol}>{asset.symbol} · {asset.name}</option>)}
+            {choices.map(asset => <option key={asset.symbol} value={asset.symbol}>{asset.symbol} · {asset.name ?? asset.symbol}</option>)}
           </select></label>
         </div>
         {searchError && <p className="lab-form-note" role="status">{searchError}</p>}
@@ -107,11 +149,13 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
       </>}
     </div>
     <div className="lab-settings-grid">
+      {minute && <p className="lab-form-note">按完整交易日回测（至少两个交易日）；开始时间不晚于09:30，结束时间不早于15:00。不会自动修改已填时间。</p>}
       <label>开始时间（北京时间）<input type="datetime-local" value={localDate(value.start)} onChange={event => onChange({ start: marketDate(event.target.value) })} /></label>
       <label>结束时间（北京时间）<input type="datetime-local" value={localDate(value.end)} onChange={event => onChange({ end: marketDate(event.target.value) })} /></label>
-      <label>行情周期<select value={value.interval} disabled={rqalpha} onChange={event => onChange({ interval: event.target.value === '15m' ? '15m' : '1d' })}>
-        <option value="1d">日线</option>{!rqalpha && <option value="15m">15 分钟</option>}
+      <label>行情周期<select value={value.interval} onChange={event => { if (!readOnly) onChange({ interval: event.target.value as LabMultiSettings['interval'] }) }}>
+        <option value="1d">日线</option>{minutePeriods.map(period => <option key={period} value={period} disabled={rqalpha ? !minuteReady(period) : true}>{parseInt(period)} 分钟{minuteReady(period) ? '' : '（数据未就绪）'}</option>)}
       </select></label>
+      {rqalpha && <p className="lab-form-note">{industry?.reason || capabilities?.minute_reason || '分钟周期须在行业成员、真实数据和原生执行均核验通过后开放；不能从15分钟或日线补造1分钟。'}</p>}
       <label>共享初始资金（元）<input type="number" min="0.01" step="any" value={value.initial_capital || ''} onChange={event => onChange({ initial_capital: Number(event.target.value) })} /></label>
       {rqalpha && <label>收益基准<select value={value.benchmark ?? ''} onChange={event => onChange({ benchmark: event.target.value ? event.target.value as LabMultiSettings['benchmark'] : null })}>
         <option value="">无基准</option><option value="000300.SS">沪深300 · 000300.SS</option><option value="000905.SS">中证500 · 000905.SS</option><option value="000001.SS">上证指数 · 000001.SS</option>
@@ -130,7 +174,7 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
     </details>
     <div className="lab-command-actions lab-coverage">
       <p className="lab-form-note">覆盖检查只读取已准备的数据快照，不会下载或订购行情。</p>
-      <button type="button" disabled={coverageBusy || invalidPool || !value.universe && value.symbols.length < 2} onClick={onCoverage}>{coverageBusy ? '检查中…' : '检查行情覆盖'}</button>
+      <button type="button" disabled={readOnly || coverageBusy || invalidPool || industryUnavailable || minuteBlocked || !value.universe && value.symbols.length < 1} onClick={onCoverage}>{coverageBusy ? '检查中…' : '检查行情覆盖'}</button>
       {coverage && <p role="status">{coverage.available ? '可回测' : '暂不可回测'}{coverage.start != null && coverage.end != null ? ` · ${marketTime(coverage.start)} 至 ${marketTime(coverage.end)}` : ''}{coverage.reason ? ` · ${coverage.reason}` : ''}</p>}
       {coverageError && <p role="alert">{coverageError}</p>}
     </div>

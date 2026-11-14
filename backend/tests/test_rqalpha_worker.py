@@ -110,6 +110,13 @@ def test_configuration_matches_native_cost_and_simulation_semantics(settings):
     assert config["mod"]["sys_analyser"]["output_file"] is None
 
 
+def test_configuration_accepts_one_native_stock_without_loosening_the_protocol(settings):
+    value = worker.run_config({**settings, "symbols": ["600519.SS"]},
+                              {"start": "2025-01-02", "end": "2025-01-03"})
+    assert value["base"]["frequency"] == "1d"
+    assert value["base"]["rqdatac_uri"] == "disabled"
+
+
 @pytest.mark.parametrize("patch", [{"interval": "15m"}, {"universe": "semiconductor"},
                                     {"max_position": 0}, {"commission_rate": -1},
                                     {"max_participation_rate": float("inf")}, {"symbols": []}])

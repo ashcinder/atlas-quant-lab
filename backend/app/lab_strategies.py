@@ -63,7 +63,8 @@ class LabMultiSettings(BaseModel):
 
     engine_id: Literal["atlas_portfolio", "rqalpha"] = "atlas_portfolio"
     symbols: list[str] = Field(default_factory=list, max_length=150)
-    interval: Literal["1d", "15m"] = "1d"
+    interval: Literal["1d", "1m", "5m", "15m", "30m", "60m"] = "1d"
+    industry: Literal["semiconductor", "defense", "space", "robotics"] | None = None
     start: datetime | None = None
     end: datetime | None = None
     initial_capital: float = Field(default=1_000_000, gt=0, le=1e12)
@@ -97,12 +98,16 @@ class LabMultiSettings(BaseModel):
     def validate_window(self):
         if self.start and self.end and self.start >= self.end:
             raise ValueError("结束时间必须晚于开始时间")
-        if self.engine_id != "rqalpha" and self.benchmark is not None:
-            raise ValueError("基准指数配置仅用于 RQAlpha 历史回测")
+        if self.engine_id != "rqalpha" and (self.benchmark is not None or self.industry is not None):
+            raise ValueError("基准指数和行业配置仅用于 RQAlpha 回测")
+        if self.engine_id != "rqalpha" and self.interval not in ("1d", "15m"):
+            raise ValueError("历史Atlas策略周期不能改写")
         if self.engine_id == "rqalpha" and (
-            self.interval != "1d" or self.universe or any(s.endswith(".BJ") for s in self.symbols)
+            self.universe or any(s.endswith(".BJ") for s in self.symbols)
         ):
-            raise ValueError("RQAlpha 首期仅支持静态沪深 A 股日线")
+            raise ValueError("RQAlpha 仅支持沪深 A 股，请使用行业设置而非旧动态股票池")
+        if self.engine_id == "rqalpha" and self.interval != "1d" and self.industry is None:
+            raise ValueError("分钟回测必须选择半导体、军工、商业航天或机器人行业")
         return self
 
 
@@ -255,6 +260,12 @@ class LabStrategyStore:
                 "revision": draft.expected_revision + 1, "updated_at": updated_at}
 
 
+def require_native_draft(draft):
+    if (draft.kind != "multi_python" or not isinstance(draft.settings, LabMultiSettings)
+            or draft.settings.engine_id != "rqalpha" or draft.language != "python"):
+        raise HTTPException(422, "新建及编辑策略仅支持 RQAlpha Python；旧协议策略只供查看与下载")
+
+
 def lab_strategy_router(store, runs):
     router = APIRouter(prefix="/api/v1/lab-strategies")
 
@@ -264,7 +275,9 @@ def lab_strategy_router(store, runs):
 
     @router.post("", response_model=LabStrategy, status_code=201)
     def create_strategy(draft: LabDraftCreate, request: Request):
-        return store.create(require_lab_owner(request), draft)
+        owner = require_lab_owner(request)
+        require_native_draft(draft)
+        return store.create(owner, draft)
 
     @router.get("/{strategy_id}", response_model=LabStrategy)
     def get_strategy(strategy_id: str, request: Request):
@@ -272,7 +285,13 @@ def lab_strategy_router(store, runs):
 
     @router.patch("/{strategy_id}", response_model=LabStrategy)
     def update_strategy(strategy_id: str, draft: LabDraftUpdate, request: Request):
-        return store.update(require_lab_owner(request), strategy_id, draft)
+        owner = require_lab_owner(request)
+        current = store.get(owner, strategy_id)
+        if (current.get("kind") != "multi_python"
+                or current["settings"].get("engine_id") != "rqalpha"):
+            raise HTTPException(409, "旧协议策略已设为只读，源码和历史保持原样")
+        require_native_draft(draft)
+        return store.update(owner, strategy_id, draft)
 
     @router.get("/{strategy_id}/runs", response_model=list[LabRunSummary])
     def list_runs(strategy_id: str, request: Request):

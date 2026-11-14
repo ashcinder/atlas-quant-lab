@@ -43,6 +43,7 @@ interface Props {
   runDisabledReason?: string
   packageB64?: string | null
   engineId?: LabMultiEngine
+  readOnly?: boolean
   dirty: boolean
   saved: boolean
   saving: boolean
@@ -50,7 +51,7 @@ interface Props {
   children: ReactNode
 }
 
-export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, onHistory, runFeedback, runtimeActions, runDisabledReason, packageB64, engineId = 'atlas_portfolio', dirty, saved, saving, running, children }: Props) {
+export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, onHistory, runFeedback, runtimeActions, runDisabledReason, packageB64, engineId = 'atlas_portfolio', readOnly = false, dirty, saved, saving, running, children }: Props) {
   const { source: code, language, name } = draft
   const multi = draft.kind === 'multi_python'
   const rqalpha = multi && engineId === 'rqalpha'
@@ -94,6 +95,7 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
   useEffect(() => { if (messages.length || busy) messagesEnd.current?.scrollIntoView?.({ block: 'nearest' }) }, [messages, busy])
 
   const edit = (next: string) => {
+    if (readOnly) return
     if (sourceBytes(next) > MAX_STRATEGY_SOURCE) { setError('代码超过 60,000 字节。'); return }
     revision.current += 1
     codeRef.current = next
@@ -101,7 +103,7 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     setValidation(null); setNotice('')
   }
   const switchLanguage = (next: StrategyLanguage) => {
-    if (next === language) return
+    if (readOnly || next === language) return
     generation.current += 1; controller.current?.abort(); importSequence.current += 1
     revision.current += 1
     onEdit({ language: next })
@@ -109,6 +111,7 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     setError(''); setNotice(''); setPending(null)
   }
   const replace = (next: string, nextName?: string, nextLanguage?: StrategyLanguage) => {
+    if (readOnly) return
     if (nextLanguage) switchLanguage(nextLanguage)
     setUndoCode(codeRef.current)
     edit(next)
@@ -116,11 +119,12 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     setPending(null); setPane('code')
   }
   const importFile = async (file: File) => {
+    if (readOnly) return
     const sequence = ++importSequence.current
     const baseRevision = revision.current
     try {
       const imported = await readStrategyFile(file)
-      if (multi && imported.language !== 'python') throw new Error('多标的策略使用 Python 源码。')
+      if (multi && imported.language !== 'python') throw new Error('RQAlpha 策略仅支持 Python 源码。')
       if (sequence !== importSequence.current) return
       const payload = { code: imported.source, name: imported.name, language: imported.language, reason: '导入文件会替换当前编辑器中的源码。' }
       setError('')
@@ -135,7 +139,8 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url; link.download = `${[...name].filter((char) => char.charCodeAt(0) >= 32).join('').replace(/[<>:"/\\|?*]/g, '_').trim() || 'strategy'}${languageInfo.extensions[0]}`
-    link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+    document.body.append(link)
+    link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
     setNotice(`已发起 ${languageInfo.extensions[0]} 文件下载。`)
   }
   const check = async () => {
@@ -160,7 +165,7 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     }
   }
   const send = async () => {
-    if (!prompt.trim() || busy || !capabilities?.configured) return
+    if (readOnly || !prompt.trim() || busy || !capabilities?.configured) return
     const current = ++generation.current
     const text = prompt.trim()
     const baseline = codeRef.current
@@ -189,18 +194,18 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
 
   const sourceSize = sourceBytes(code)
   const oversize = sourceSize > (multi ? MAX_STRATEGY_SOURCE : MAX_BOUNDED_SOURCE)
-  const canCheck = language === 'python' && !!code.trim() && !oversize
+  const canCheck = !readOnly && language === 'python' && !!code.trim() && !oversize
   return <section className="lab-code-workbench" aria-label="代码策略工作区">
     {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
     <header className="lab-code-command">
       <div className="lab-code-title">
-        <label>策略名称<input aria-label="代码策略名称" value={name} maxLength={80} onChange={(event) => onEdit({ name: event.target.value })} /></label>
-        <label>语言<select aria-label="策略编程语言" disabled={multi} value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+        <label>策略名称<input aria-label="代码策略名称" readOnly={readOnly} value={name} maxLength={80} onChange={(event) => { if (!readOnly) onEdit({ name: event.target.value }) }} /></label>
+        {rqalpha || readOnly ? <span className="lab-language-label">{languageInfo.label}{readOnly ? ' · 历史只读' : ''}</span> : <label>语言<select aria-label="策略编程语言" value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
         <span className="lab-save-state">{saving ? '正在保存…' : dirty || !saved ? '未保存' : '已保存'}</span>
       </div>
       <div className="lab-command-actions">
         <button onClick={onHistory} disabled={!saved}><History size={15} />历史回测</button>
-        <button onClick={onSave} disabled={saving || !name.trim()}><Save size={15} />保存策略</button>
+        <button onClick={onSave} disabled={readOnly || saving || !name.trim()}><Save size={15} />保存策略</button>
         <button disabled={checking || !canCheck} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
         <button className="lab-primary" disabled={running || saving || !saved || !canCheck || !!runDisabledReason} title={!saved ? '先保存策略，再运行回测' : runDisabledReason} onClick={onRun}><Play size={15} />{running ? '回测中…' : '运行回测'}</button>
       </div>
@@ -209,22 +214,22 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
     <div className="lab-code-columns">
       <div className="lab-source-column">
         <div className="lab-source-tools">
-          <button onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
+          <button disabled={readOnly} onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
           <input ref={fileInput} type="file" accept={multi ? ".py" : STRATEGY_FILE_ACCEPT} hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} />
           <button onClick={download}><Download size={15} />下载源码</button>
-          {runtimeActions !== undefined ? runtimeActions : !multi && language === 'python' ? <PublishRuntimeStrategy ownerId={ownerId} draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={running || !canCheck} /> : null}
+          {runtimeActions !== undefined ? runtimeActions : !readOnly && !multi && language === 'python' ? <PublishRuntimeStrategy ownerId={ownerId} draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={running || !canCheck} /> : null}
         </div>
       <div className="code-editor-panel">
-        <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}{!multi && !assistantOpen ? <button onClick={() => setAssistantOpen(true)}><Bot size={15} />AI 助手</button> : null}</div></div>
-        {pane === 'code' ? <div className="code-editor-surface"><div ref={gutter} className="code-line-numbers" aria-hidden="true">{code.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><div className="code-text-layer"><pre ref={highlight} aria-hidden="true" className="code-highlight">{highlightedCode}{'\n'}</pre><textarea ref={editor} aria-label={`${languageInfo.label} 策略代码`} value={code} spellCheck={false} autoCapitalize="off" autoComplete="off" wrap="off" onChange={(event) => edit(event.target.value)} onSelect={position} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; if (highlight.current) { highlight.current.scrollTop = event.currentTarget.scrollTop; highlight.current.scrollLeft = event.currentTarget.scrollLeft } }} onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (!saving && name.trim()) onSave() }
-        }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{rqalpha ? 'RQAlpha 公开版 · 原生日线 Python' : multi ? 'A 股多标的 · Atlas Python SDK' : languageInfo.environment}</p><p>{rqalpha ? '使用 init(context) 和 handle_bar(context, bar_dict)，通过 order_target_percent 等原生 API 提交订单。context.symbols 为所选股票池的米筐代码（如 600519.XSHG），context.parameters 为已保存的参数字典。检查代码仅做静态语法与入口检查，不运行策略，也不证明回测兼容或计算正确。' : multi ? '策略通过 SDK 读取已收盘行情与共享账户，返回目标仓位或订单意图。请按策略包声明的执行方式编写。' : language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '当前语言支持编辑和下载，检查和回测使用受限 Python。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
+        <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}{!readOnly && !multi && !assistantOpen ? <button onClick={() => setAssistantOpen(true)}><Bot size={15} />AI 助手</button> : null}</div></div>
+        {pane === 'code' ? <div className="code-editor-surface"><div ref={gutter} className="code-line-numbers" aria-hidden="true">{code.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><div className="code-text-layer"><pre ref={highlight} aria-hidden="true" className="code-highlight">{highlightedCode}{'\n'}</pre><textarea ref={editor} readOnly={readOnly} aria-label={`${languageInfo.label} 策略代码`} value={code} spellCheck={false} autoCapitalize="off" autoComplete="off" wrap="off" onChange={(event) => edit(event.target.value)} onSelect={position} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; if (highlight.current) { highlight.current.scrollTop = event.currentTarget.scrollTop; highlight.current.scrollLeft = event.currentTarget.scrollLeft } }} onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (!readOnly && !saving && name.trim()) onSave() }
+        }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{rqalpha ? 'RQAlpha 公开版 · 原生 Python' : multi ? 'A 股多标的 · Atlas Python SDK' : languageInfo.environment}</p><p>{rqalpha ? '使用 init(context) 和 handle_bar(context, bar_dict)，通过 order_target_percent 等原生 API 提交订单。context.symbols 为所选股票池的米筐代码（如 600519.XSHG），context.parameters 为已保存的参数字典。检查代码仅做静态语法与入口检查，不运行策略，也不证明回测兼容或计算正确。' : multi ? '策略通过 SDK 读取已收盘行情与共享账户，返回目标仓位或订单意图。请按策略包声明的执行方式编写。' : language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '当前语言支持编辑和下载，检查和回测使用受限 Python。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
         <footer className="code-editor-status"><span>UTF-8</span><span>{languageInfo.label}</span><span>{code.split('\n').length} 行</span><span>行 {cursor.line}，列 {cursor.column}</span><span>{sourceSize.toLocaleString()} 字节</span></footer>
         {validation ? <ValidationDetails value={validation} staticOnly={rqalpha} /> : null}
       </div>
       {assistantOpen ? <aside className="code-assistant" aria-label="AI 代码助手"><header><span><WandSparkles size={17} /><strong>AI 助手</strong></span><button aria-label="收起 AI 助手" onClick={() => setAssistantOpen(false)}><X size={17} /></button></header>
         <div className="code-ai-status"><i className={capabilities?.configured ? 'is-ready' : ''} /><span>{capabilities?.configured ? `${capabilities.model ?? '模型'} 已配置` : capabilityError || capabilities?.message || (capabilities ? '尚未配置模型' : '正在检查模型连接…')}</span><button onClick={loadCapabilities} aria-label="刷新 AI 连接状态">刷新</button></div>
-        <div className="code-conversation" aria-live="polite">{!messages.length ? <div className="code-assistant-intro"><div className="code-assistant-mark"><Bot size={30} /></div><h2>把想法写成策略</h2><p>描述你的交易逻辑，或让我帮你检查当前代码。</p><div className="code-prompt-examples">{['写一个双均线交叉策略', '加入止损与仓位限制', '分析当前策略的风险', '给代码添加中文注释'].map((text) => <button key={text} onClick={() => setPrompt(text)}>{text}<ChevronDown size={12} /></button>)}</div><small>AI 修改先预览，由你决定是否应用。</small></div> : messages.map((message) => <article className={`code-message is-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><p>{message.text}</p>{message.code ? <div className="code-suggestion"><details><summary><Code2 size={14} />查看建议代码 · {message.code.split('\n').length} 行</summary><pre>{message.code}</pre></details>{message.validation ? <ValidationDetails value={message.validation} /> : null}<button disabled={message.validation?.valid === false} onClick={() => {
+        <div className="code-conversation" aria-live="polite">{!messages.length ? <div className="code-assistant-intro"><div className="code-assistant-mark"><Bot size={30} /></div><h2>把想法写成策略</h2><p>描述你的交易逻辑，或让我帮你检查当前代码。</p><div className="code-prompt-examples">{['写一个双均线交叉策略', '加入止损与仓位限制', '分析当前策略的风险', '给代码添加中文注释'].map((text) => <button key={text} onClick={() => setPrompt(text)}>{text}<ChevronDown size={12} /></button>)}</div><small>AI 修改先预览，由你决定是否应用。</small></div> : messages.map((message) => <article className={`code-message is-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><p>{message.text}</p>{message.code ? <div className="code-suggestion"><details><summary><Code2 size={14} />查看建议代码 · {message.code.split('\n').length} 行</summary><pre>{message.code}</pre></details>{message.validation ? <ValidationDetails value={message.validation} /> : null}<button disabled={readOnly || message.validation?.valid === false} onClick={() => {
             if (message.validation?.valid === false) return
             if (codeRef.current !== message.baseline) setPending({ code: message.code!, reason: '生成建议后代码已有修改。应用建议会替换当前版本，你可以取消以保留编辑。' })
             else replace(message.code!)
@@ -234,7 +239,7 @@ export function CodeStrategyWorkspace({ draft, ownerId, onEdit, onSave, onRun, o
         <div className="lab-editor-feedback">
           {error ? <p role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></p> : null}
           {notice ? <p role="status">{notice}</p> : null}
-          <p>{rqalpha ? 'RQAlpha 公开版 · 学术非商用 · 原生日线回测' : multi ? '标准 Python · A 股多标的 · 共享人民币账户' : language === 'python' ? '受限 Python · 单标的历史回测' : '此语言可编辑和下载，尚未接入检查与回测。'}</p>
+          <p>{rqalpha ? 'RQAlpha Python · 学术非商用 · 历史回测' : multi ? '标准 Python · A 股多标的 · 共享人民币账户' : language === 'python' ? '受限 Python · 单标的历史回测' : '此语言可编辑和下载，尚未接入检查与回测。'}</p>
           {language === 'python' && oversize ? <p role="status">源码超过 {multi ? '60,000 字节' : '16 KiB'}，请缩短后再检查或运行。</p> : null}
         </div>
       </div>

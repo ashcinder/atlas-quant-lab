@@ -316,3 +316,26 @@ def test_benchmark_settings_are_rqalpha_only():
         LabMultiSettings(symbols=SYMBOLS, benchmark="000300.SS")
     with pytest.raises(ValidationError):
         settings(benchmark="510300.SS")
+
+
+def test_native_daily_coverage_accepts_one_stock_without_changing_legacy_defaults(frozen_dataset):
+    config = LabMultiSettings(engine_id="rqalpha", symbols=[SYMBOLS[0]])
+    assert rq.resolve(config)["sessions"] == DAYS
+    assert LabMultiSettings(symbols=SYMBOLS).engine_id == "atlas_portfolio"
+
+
+def test_daily_result_freezes_the_actual_industry_membership_identity(frozen_dataset, tmp_path, monkeypatch):
+    record = {"as_of": "2025-01-02", "published": "2024-12-20", "effective": "2025-01-01",
+              "source": "https://example.test/verified-pool", "symbols": [SYMBOLS[0]]}
+    identity = {"schema": "atlas.rqalpha.sectors/v1", "industries": {
+        key: [record] for key in rq.rqalpha_industries.INDUSTRIES}}
+    identity["digest"] = hashlib.sha256(canonical_bytes(identity)).hexdigest()
+    path = tmp_path / "membership.json"
+    path.write_bytes(canonical_bytes(identity))
+    monkeypatch.setenv("ATLAS_RQALPHA_SECTOR_MEMBERSHIP", str(path))
+    config = LabMultiSettings(engine_id="rqalpha", symbols=[SYMBOLS[0]], industry="semiconductor")
+    market = rq.resolve(config)
+    result = rq.validate_result(result_for(config, market), config, market)
+    assert result["industry_snapshot"]["membership_sha256"] == identity["digest"]
+    assert result["industry_snapshot"]["as_of"] == "2025-01-02"
+    assert result["industry_snapshot"]["selection_mode"] == "static-pool-from-start-of-run-membership"

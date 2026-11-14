@@ -80,8 +80,7 @@ class ReleaseCreate(BaseModel):
     @model_validator(mode="after")
     def valid_source(self):
         if any(value is not None for value in (self.lab_strategy_id, self.lab_revision, self.lab_run_id)):
-            if self.source_kind != "python" or not self.lab_strategy_id or self.lab_revision is None:
-                raise ValueError("运行版本的草稿关联必须指定 Python 草稿和修订")
+            raise ValueError("策略实验室已统一为RQAlpha历史回测，旧协议草稿不再创建运行版本")
         if self.source_kind == "python":
             if (
                 not self.python_source or self.params or self.execution_mode != "candles"

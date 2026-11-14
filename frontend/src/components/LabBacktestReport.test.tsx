@@ -23,6 +23,13 @@ const report: LabBacktestReport = {
   logs_truncated: false, performance: { enabled: false },
 }
 const job: LabMultiJob = { id: 'synthetic-job-a', strategy_id: 'synthetic-strategy', revision: 3, name: '合成回测', status: 'succeeded', progress: 1, error: null, created_at: '2025-01-06T08:00:00Z', started_at: '2025-01-06T08:00:00Z', finished_at: '2025-01-06T08:00:02Z', elapsed_seconds: 2, settings: { ...defaultMultiSettings, engine_id: 'rqalpha', symbols: ['600519.SS', '000001.SZ'] }, source_sha256: 'a'.repeat(64), dataset_sha256: 'b'.repeat(64), engine_id: 'rqalpha', engine_version: '6.5.0', matching_type: 'current_bar', result: { equity: report.series.map(point => ({ time: point.time, equity: point.equity, cash: 5000, market_value: point.equity - 5000 })), trades: [], initial_capital: 10000, final_equity: 10400, total_return: .04, max_drawdown: .01, report } }
+const minuteJob: LabMultiJob = { ...job, id: 'synthetic-minute-job', settings: { ...job.settings, interval: '30m', industry: 'semiconductor' },
+  result: { ...job.result!, interval: '30m', minute_digest: 'c'.repeat(64), daily_digest: 'd'.repeat(64), minute_adapter_version: 'atlas.rqalpha.minutes/v1',
+    industry_snapshot: { industry: 'semiconductor', membership_sha256: 'e'.repeat(64), as_of: '2025-01-02', published: '2024-10-25', effective: '2024-09-30', selection_mode: 'static-pool-with-dated-entry-eligibility' },
+    minute_source: { repo_id: 'neigezhu/china-a-share-1min-ohlcv', revision: 'f'.repeat(40), license_declared: 'apache-2.0', last_complete_day: '2026-08-06', timezone: 'Asia/Singapore', price_adjustment: 'none', volume_unit: 'shares', turnover_unit: 'CNY', start: '2025-01-02', end: '2026-08-06', bar_convention: 'end-label-session-local/v1', extra_session_policy: 'retained-for-cumulative-snapshot;excluded-from-continuous-bars-and-orders', provenance_note: '发布者未披露上游提供方；固定摘要不是行情来源证明' },
+    report: { ...report, conventions: { ...report.conventions, execution_interval: '30m', valuation_interval: '1d', sampling: '交易和日志保留执行时刻；净值、持仓、账户及风险统计按原生每日结算采样' } },
+  },
+}
 const trade: LabReportRow = { time: days[0], symbol: '600519.SS', name: '合成标的甲', side: 'buy', position_effect: 'open', quantity: 100, price: 10, fee: 5, commission: 5, tax: 0, order_id: 'synthetic-order', exec_id: 'synthetic-fill' }
 const page = (rows: LabReportRow[] = [trade], total = 120): LabReportPage => ({ rows, total, unfiltered_total: total, offset: 0, limit: 50, recorded: true, logs_truncated: false })
 const openTab = (name: string) => fireEvent.click(screen.getByRole('tab', { name }))
@@ -52,6 +59,36 @@ describe('synthetic six-tab report', () => {
     expect(screen.getByRole('tab', { name: '性能分析' })).toHaveFocus()
     expect(screen.getByText('该次回测未开启性能分析。')).toBeVisible()
     expect(labMultiApi.reportRows).not.toHaveBeenCalled()
+  })
+
+  it('shows recorded minute execution separately from daily settlement and preserves frozen source identity', () => {
+    render(<Report job={minuteJob} ownerId="synthetic-owner" />)
+    expect(screen.getByText('30 分钟 · current_bar 收盘价撮合')).toBeVisible()
+    expect(screen.getByText('执行行情：30 分钟；净值、持仓、账户与风险指标按原生日结采样，不按分钟根数年化。')).toBeVisible()
+    fireEvent.click(screen.getByText('本次运行参数和源码摘要'))
+    expect(screen.getByText('neigezhu/china-a-share-1min-ohlcv')).toBeVisible()
+    for (const digest of ['c'.repeat(64), 'd'.repeat(64), 'e'.repeat(64), 'f'.repeat(40)]) expect(screen.getByText(digest)).toBeVisible()
+    expect(screen.getByText('2026-08-06')).toBeVisible()
+    expect(screen.getByText(/2026-08-07仅有部分记录，之后未覆盖/)).toBeVisible()
+    expect(screen.getByText(/固定摘要不是行情来源证明/)).toBeVisible()
+    expect(screen.getByText(/移出名单后仍可退出原持仓/)).toBeVisible()
+    fireEvent.click(screen.getByText('指标口径与计算来源'))
+    expect(screen.getByText('交易和日志保留执行时刻；净值、持仓、账户及风险统计按原生每日结算采样')).toBeVisible()
+    expect(screen.getByText('未经 ZKP 验证')).toBeVisible()
+    expect(labMultiApi.reportRows).not.toHaveBeenCalled()
+  })
+
+  it('does not invent HF metadata or minute-settlement claims for daily or unrecorded legacy results', () => {
+    const view = render(<Report job={job} ownerId="synthetic-owner" />)
+    expect(screen.getByText('日线 · current_bar 收盘价撮合')).toBeVisible()
+    expect(screen.queryByText('分钟数据源')).toBeNull()
+    expect(screen.queryByText(/执行行情：.*按原生日结采样/)).toBeNull()
+    view.rerender(<Report job={{ ...job, id: 'legacy-minute-settings', settings: { ...job.settings, interval: '5m' }, result: { ...job.result!, report: undefined } }} ownerId="synthetic-owner" />)
+    expect(screen.getByText('5 分钟 · current_bar 收盘价撮合')).toBeVisible()
+    expect(screen.getByText(/此历史结果未记录新版报告数据/)).toBeVisible()
+    expect(screen.queryByText('分钟数据源')).toBeNull()
+    expect(screen.queryByText(/HF 为固定历史快照/)).toBeNull()
+    expect(screen.queryByText(/执行行情：.*按原生日结采样/)).toBeNull()
   })
 
   it('opens the annual table with partial-year coverage and exports the full annual report', async () => {
@@ -362,13 +399,12 @@ describe('synthetic six-tab report', () => {
   })
 })
 
-it('offers only frozen benchmark settings and clears the benchmark when returning to Atlas', () => {
+it('offers frozen benchmark settings without an engine selector', () => {
   const change = vi.fn()
   render(<LabMultiBacktestForm value={{ ...job.settings, benchmark: '000300.SS' }} assets={[]} onChange={change} coverage={null} coverageBusy={false} coverageError="" onCoverage={vi.fn()} />)
   expect(screen.getByLabelText('收益基准')).toHaveValue('000300.SS')
   fireEvent.change(screen.getByLabelText('收益基准'), { target: { value: '000905.SS' } })
   expect(change).toHaveBeenLastCalledWith({ benchmark: '000905.SS' })
   expect(screen.getByText(/缺少覆盖时会明确提示/)).toBeVisible()
-  fireEvent.change(screen.getByLabelText('回测引擎'), { target: { value: 'atlas_portfolio' } })
-  expect(change).toHaveBeenLastCalledWith({ engine_id: 'atlas_portfolio', benchmark: null })
+  expect(screen.queryByLabelText('回测引擎')).toBeNull()
 })

@@ -9,6 +9,7 @@ import os
 import re
 import sys
 from importlib.metadata import version
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path, PurePosixPath
 from uuid import UUID
 
@@ -403,13 +404,16 @@ def run_config(settings, window):
     if not isinstance(settings, dict) or not isinstance(window, dict):
         raise WorkerError("回测设置缺失")
     symbols = settings.get("symbols")
-    if (not isinstance(symbols, list) or not 2 <= len(symbols) <= 150
+    if (not isinstance(symbols, list) or not 1 <= len(symbols) <= 150
             or len(set(symbols)) != len(symbols)):
-        raise WorkerError("请配置 2–150 只不重复的沪深 A 股")
+        raise WorkerError("请配置 1–150 只不重复的沪深 A 股")
     for symbol in symbols:
         native_symbol(symbol)
-    if settings.get("interval") != "1d" or settings.get("universe") is not None:
-        raise WorkerError("首期 RQAlpha 仅支持静态股票池日线回测")
+    interval = settings.get("interval")
+    minute = interval in {"1m", "5m", "15m", "30m", "60m"}
+    if (interval != "1d" and not minute or settings.get("universe") is not None
+            or minute and settings.get("industry") not in {"semiconductor", "defense", "space", "robotics"}):
+        raise WorkerError("RQAlpha 分钟仅支持四行业及 1/5/15/30/60 分钟")
     initial = finite(settings.get("initial_capital"))
     commission = finite(settings.get("commission_rate"))
     slippage = finite(settings.get("slippage_rate"))
@@ -426,7 +430,7 @@ def run_config(settings, window):
         raise WorkerError("仅支持已冻结的沪深300、中证500或上证指数基准")
     return {
         "base": {"start_date": start.isoformat(), "end_date": end.isoformat(),
-                 "frequency": "1d", "run_type": "b", "accounts": {"stock": initial},
+                 "frequency": "1m" if minute else "1d", "run_type": "b", "accounts": {"stock": initial},
                  "data_bundle_path": str(BUNDLE), "persist": False, "auto_update_bundle": False,
                  "rqdatac_uri": "disabled", "capital_gain_tax_rate": 0},
         "extra": {"log_level": "debug"},
@@ -648,10 +652,32 @@ def convert_result(native, initial, sellable, rejections, *, snapshots=None,
             "engine_version": ENGINE_VERSION, "report_data": report}
 
 
+def load_minute_extension():
+    path = Path(__file__).resolve().with_name("rqalpha_minutes.py")
+    spec = spec_from_file_location("atlas_rqalpha_minutes", path)
+    module = module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def run_backtest(request):
     compiled = check_source(request.get("source"))
     settings = request.get("settings")
     config = run_config(settings, request.get("window"))
+    minute_extension, minute_store = None, None
+    if settings["interval"] != "1d":
+        minute_extension = load_minute_extension()
+        try:
+            minute_store = minute_extension.MinuteStore(
+                request.get("minute_digest"), request.get("expected_daily_digest"),
+                settings, request.get("window"),
+            )
+            config["mod"]["atlas_minutes"] = minute_extension.configure(
+                minute_store, request.get("minute_membership"),
+            )
+        except minute_extension.MinuteError as exc:
+            raise WorkerError(str(exc)) from exc
     parameters = _parameters(request, settings)
     symbols = [native_symbol(symbol) for symbol in settings["symbols"]]
     from rqalpha import run_func
@@ -737,6 +763,8 @@ def run_backtest(request):
 
     def initialize(context):
         env = Environment.get_instance()
+        if minute_extension is not None:
+            minute_extension.activate(env)
         env.add_frontend_validator(PoolRiskValidator(env, symbols, settings["max_position"]))
         env.event_bus.add_listener(EVENT.ORDER_CREATION_REJECT, creation_rejected)
         env.event_bus.add_listener(EVENT.ORDER_UNSOLICITED_UPDATE, unsolicited_update)
@@ -790,9 +818,13 @@ def run_backtest(request):
         native = run_func(config=config, init=initialize, handle_bar=handle_bar,
                           before_trading=before_trading, after_trading=after_trading,
                           open_auction=open_auction)["sys_analyser"]
-    return convert_result(native, config["base"]["accounts"]["stock"], sellable, rejections,
-                          snapshots=snapshots, daily_snapshots=daily, sellable_snapshots=available,
-                          capture=capture, **rates)
+    result = convert_result(native, config["base"]["accounts"]["stock"], sellable, rejections,
+                            snapshots=snapshots, daily_snapshots=daily, sellable_snapshots=available,
+                            capture=capture, **rates)
+    if minute_store is not None:
+        result.update(bar_interval=settings["interval"], minute_digest=minute_store.digest,
+                      minute_adapter_version=minute_extension.SCHEMA)
+    return result
 
 
 def dispatch(request):

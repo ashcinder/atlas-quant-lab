@@ -15,9 +15,23 @@ it('queries capabilities with an explicit requested engine and account header', 
   expect(new Headers(options?.headers).get('X-Atlas-Lab-Owner')).toBe('owner-a')
 })
 
-it('uses Atlas for capabilities without an engine instead of detecting installed packages', async () => {
+it('uses RQAlpha explicitly for the unified workflow without probing installed packages', async () => {
   await labMultiApi.capabilities('owner-a')
-  expect(request).toHaveBeenCalledWith('/lab-multi/capabilities?engine_id=atlas_portfolio', expect.anything())
+  expect(request).toHaveBeenCalledWith('/lab-multi/capabilities?engine_id=rqalpha', expect.anything())
+})
+
+it('loads industry membership for the requested Beijing date with owner and cancellation scope', async () => {
+  const signal = new AbortController().signal
+  await labMultiApi.industries('owner-a', signal, '2025-01-02')
+  const [path, options] = vi.mocked(request).mock.calls[0]
+  expect(path).toBe('/lab-multi/industries?as_of=2025-01-02')
+  expect(options?.signal).toBe(signal)
+  expect(new Headers(options?.headers).get('X-Atlas-Lab-Owner')).toBe('owner-a')
+})
+
+it('omits an unspecified membership date instead of inventing a current or cutoff date', async () => {
+  await labMultiApi.industries('owner-a')
+  expect(request).toHaveBeenCalledWith('/lab-multi/industries', expect.anything())
 })
 
 it('sends bounded report filters and cancellation without changing owner scope', async () => {

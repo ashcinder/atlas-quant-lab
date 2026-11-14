@@ -163,6 +163,9 @@ function ReportContent({ job, ownerId, legacyOverview, onLegacyDownload, onExpan
   const legacy = !!job.result && !report
   const engine = multiJobEngine(job)
   const version = job.engine_version ?? job.result?.engine_version
+  const interval = job.result?.interval ?? job.settings.interval
+  const intervalLabel = interval === '1d' ? '日线' : `${parseInt(interval)} 分钟`
+  const minuteSource = interval !== '1d' && job.result?.minute_digest ? job.result.minute_source : undefined
   const first = report?.series[0]?.time ?? job.result?.equity[0]?.time
   const last = report?.series.at(-1)?.time ?? job.result?.equity.at(-1)?.time
   useEffect(() => () => { sourceController.current?.abort(); downloadController.current?.abort() }, [])
@@ -222,9 +225,10 @@ function ReportContent({ job, ownerId, legacyOverview, onLegacyDownload, onExpan
   </>
   return <div className="lab-report">
     <header className="lab-report-heading"><div><h3>{job.name || 'RQAlpha 回测报告'}</h3><p>草稿修订 {job.revision} · {multiJobStatus[job.status]} · {labMultiEngineLabels[engine]}{version ? ` ${version}` : ''}</p></div><span className="lab-report-unverified">未经 ZKP 验证</span></header>
-    <div className="lab-report-run-strip"><span>{first !== undefined && last !== undefined ? `${dateOnly(first)} 至 ${dateOnly(last)}` : '实际运行区间尚未记录'}</span><span>{typeof job.elapsed_seconds === 'number' ? `耗时 ${numeric(job.elapsed_seconds, 2)} 秒` : '耗时未记录'}</span><span>日线 · current_bar 收盘价撮合</span></div>
+    <div className="lab-report-run-strip"><span>{first !== undefined && last !== undefined ? `${dateOnly(first)} 至 ${dateOnly(last)}` : '实际运行区间尚未记录'}</span><span>{typeof job.elapsed_seconds === 'number' ? `耗时 ${numeric(job.elapsed_seconds, 2)} 秒` : '耗时未记录'}</span><span>{intervalLabel} · current_bar 收盘价撮合</span></div>
     <div className="lab-report-toolbar"><button type="button" onClick={() => void loadSource()} disabled={sourceBusy}>查看本次源码</button><button type="button" disabled={!!downloading} onClick={() => void download('snapshot')}>{downloading === 'snapshot' ? '正在下载…' : '下载回测快照'}</button>{onExpand && <button type="button" onClick={onExpand}>查看完整报告</button>}</div>
     <p className="lab-report-note">学术非商用历史回测，不是实盘或持续模拟。当前 K 线收盘价撮合不代表收盘后可以该价格成交。</p>
+    {minuteSource && <p className="lab-report-note">执行行情：{intervalLabel}；净值、持仓、账户与风险指标按原生日结采样，不按分钟根数年化。</p>}
     {multiJobActive(job) && <progress aria-label="多股回测进度" max={1} value={job.progress ?? undefined} />}
     {job.error && <p className="lab-report-error" role="alert">{job.error}</p>}
     {downloadError && <p className="lab-report-error" role="alert">{downloadError}</p>}
@@ -235,7 +239,31 @@ function ReportContent({ job, ownerId, legacyOverview, onLegacyDownload, onExpan
           : legacy && tab !== 'trades' ? <p className="lab-report-empty">此历史回测未记录新版{tabs.find(([key]) => key === tab)?.[1]}。原始成交和完整快照仍保留在“收益概览”中，不会自动重跑。</p>
             : <ReportRows key={`${job.id}:${tab}`} ownerId={ownerId} job={job} table={tab} report={report} download={download} downloading={downloading} />}
     </section>
-    <details className="lab-report-snapshot"><summary>本次运行参数和源码摘要</summary><p>{labMultiEngineLabels[engine]} · 引擎版本 {version ?? '历史未记录'} · current_bar 收盘价撮合</p><p>使用本次已保存快照，不跟随当前草稿修改。</p><dl><div><dt>源码 SHA-256</dt><dd><code>{job.source_sha256}</code></dd></div><div><dt>行情 SHA-256</dt><dd><code>行情 SHA-256 {job.dataset_sha256 ?? '历史未记录'}</code></dd></div><div><dt>手续费率</dt><dd>{percent(job.settings.commission_rate)}</dd></div><div><dt>滑点率</dt><dd>{percent(job.settings.slippage_rate)}</dd></div><div><dt>股票池</dt><dd>{job.settings.symbols.join('、') || '未记录'}</dd></div></dl>{!!Object.keys(job.settings.parameters ?? {}).length && <pre>{JSON.stringify(job.settings.parameters, null, 2)}</pre>}</details>
+    <details className="lab-report-snapshot"><summary>本次运行参数和源码摘要</summary><p>{labMultiEngineLabels[engine]} · 引擎版本 {version ?? '历史未记录'} · {intervalLabel} · current_bar 收盘价撮合</p><p>使用本次已保存快照，不跟随当前草稿修改。</p><dl>
+      <div><dt>源码 SHA-256</dt><dd><code>{job.source_sha256}</code></dd></div>
+      <div><dt>行情 SHA-256</dt><dd><code>行情 SHA-256 {job.dataset_sha256 ?? '历史未记录'}</code></dd></div>
+      <div><dt>手续费率</dt><dd>{percent(job.settings.commission_rate)}</dd></div>
+      <div><dt>滑点率</dt><dd>{percent(job.settings.slippage_rate)}</dd></div>
+      <div><dt>股票池</dt><dd>{job.settings.symbols.join('、') || '未记录'}</dd></div>
+      {minuteSource && <>
+        <div><dt>分钟数据源</dt><dd>HF · <code>{minuteSource.repo_id}</code></dd></div>
+        <div><dt>来源固定版本</dt><dd><code>{minuteSource.revision}</code></dd></div>
+        <div><dt>发布者声明许可</dt><dd>{minuteSource.license_declared}</dd></div>
+        <div><dt>源完整日上限</dt><dd>{minuteSource.last_complete_day}</dd></div>
+        <div><dt>源已准备范围</dt><dd>{minuteSource.start} 至 {minuteSource.end}；本次仅使用预检通过的所选区间</dd></div>
+        <div><dt>分钟 SHA-256</dt><dd><code>{job.result?.minute_digest}</code></dd></div>
+        <div><dt>日线规则 SHA-256</dt><dd><code>{job.result?.daily_digest ?? '未记录'}</code></dd></div>
+        <div><dt>成员 SHA-256</dt><dd><code>{job.result?.industry_snapshot?.membership_sha256 ?? '未记录'}</code></dd></div>
+        <div><dt>分钟适配版本</dt><dd><code>{job.result?.minute_adapter_version ?? '未记录'}</code></dd></div>
+        <div><dt>价格与单位</dt><dd>{minuteSource.price_adjustment === 'none' ? '不复权' : minuteSource.price_adjustment} · 成交量 {minuteSource.volume_unit} · 成交额 {minuteSource.turnover_unit} · {minuteSource.timezone}</dd></div>
+        <div><dt>时间标签规则</dt><dd><code>{minuteSource.bar_convention}</code></dd></div>
+        <div><dt>额外时段记录</dt><dd><code>{minuteSource.extra_session_policy}</code></dd></div>
+      </>}
+    </dl>{minuteSource && <>
+      <p className="lab-report-note">HF 为固定历史快照，不是实时数据；2026-08-07仅有部分记录，之后未覆盖。本次只使用完整交易日，不填充缺根。</p>
+      <p className="lab-report-note">{minuteSource.provenance_note}</p>
+      {job.result?.industry_snapshot?.selection_mode === 'static-pool-with-dated-entry-eligibility' && <p className="lab-report-note">买入按各日已公开生效的行业名单检查；移出名单后仍可退出原持仓。</p>}
+    </>}{!!Object.keys(job.settings.parameters ?? {}).length && <pre>{JSON.stringify(job.settings.parameters, null, 2)}</pre>}</details>
     <Dialog open={annualOpen} title="策略年度收益" onClose={() => setAnnualOpen(false)}><div className="lab-report-modal-body"><p className="lab-report-note">按每年实际交易日复利计算；部分年度只反映所列覆盖区间，不是全年或年化收益。</p><div className="lab-report-table-scroll"><table><thead><tr><th>时间</th><th>策略</th><th>基准</th><th>实际覆盖</th></tr></thead><tbody>{report?.annual_returns.map(row => <tr key={row.year}><th scope="row">{row.year}{row.partial ? '（部分年度）' : ''}</th><td className="numeric">{percent(row.strategy)}</td><td className="numeric">{percent(row.benchmark)}</td><td>{dateOnly(row.start)} 至 {dateOnly(row.end)}</td></tr>)}</tbody></table></div><button type="button" disabled={!!downloading} onClick={() => void download('annual')}>下载年度收益 CSV</button>{downloadError && <p role="alert">{downloadError}</p>}</div></Dialog>
     <Dialog open={sourceOpen} title="本次运行源码" onClose={() => { sourceController.current?.abort(); sourceController.current = null; setSourceBusy(false); setSourceOpen(false) }}><div className="lab-report-modal-body">{sourceBusy ? <p role="status">正在读取固定版本源码…</p> : sourceError ? <div role="alert"><p>{sourceError}</p><button type="button" onClick={() => void loadSource()}>重试读取源码</button></div> : source ? <><p>草稿修订 {source.revision} · SHA-256 <code>{source.source_sha256}</code></p><pre className="lab-report-source"><code>{source.source}</code></pre></> : null}</div></Dialog>
   </div>

@@ -20,6 +20,11 @@ export interface LabBacktestSettings {
 }
 
 export type LabMultiEngine = 'atlas_portfolio' | 'rqalpha'
+export type LabIndustry = 'semiconductor' | 'defense' | 'space' | 'robotics'
+export type LabMinuteInterval = '1m' | '5m' | '15m' | '30m' | '60m'
+export const labIndustryLabels: Record<LabIndustry, string> = {
+  semiconductor: '半导体', defense: '军工', space: '商业航天', robotics: '机器人',
+}
 
 export const labMultiEngineLabels: Record<LabMultiEngine, string> = {
   atlas_portfolio: 'Atlas 自研引擎', rqalpha: 'RQAlpha 公开版',
@@ -28,7 +33,8 @@ export const labMultiEngineLabels: Record<LabMultiEngine, string> = {
 export interface LabMultiSettings {
   engine_id?: LabMultiEngine
   symbols: string[]
-  interval: '1d' | '15m'
+  interval: '1d' | LabMinuteInterval
+  industry?: LabIndustry | null
   start: string | null
   end: string | null
   initial_capital: number
@@ -181,6 +187,14 @@ export interface LabMultiResult {
   engine_version?: string
   matching_type?: string
   native_metrics?: Record<string, unknown>
+  industry_snapshot?: { industry: LabIndustry; membership_sha256: string; as_of: string; published: string; effective: string; selection_mode: string; versions?: Array<{ as_of: string; published: string; effective: string; symbols: string[] }> } | null
+  interval?: LabMultiSettings['interval']
+  minute_digest?: string
+  daily_digest?: string
+  minute_adapter_version?: string
+  minute_source?: { repo_id: string; revision: string; license_declared: string; last_complete_day: string;
+    timezone: string; price_adjustment: string; volume_unit: string; turnover_unit: string;
+    start: string; end: string; bar_convention: string; extra_session_policy: string; provenance_note: string }
 }
 
 export interface LabMultiJob {

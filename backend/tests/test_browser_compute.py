@@ -17,7 +17,7 @@ from app.cloud_proofs import CloudProofService
 from app.compute_mode import browser_compute_enabled, cloud_generation_enabled
 from app.compute_objects import ComputeObjects
 from app.data.service import DataBundle
-from app.lab_strategies import LabStrategyStore
+from app.lab_strategies import LabDraftCreate, LabStrategyStore
 from app.market_publication import MarketPublication
 from app.models import Asset, BacktestRequest
 from app.storage import RunStore
@@ -93,10 +93,8 @@ def test_code_lab_keeps_private_drafts_and_separate_run_snapshots(architecture, 
     assert other.post("/api/v1/compute/compile", json={"source": initial},
                       headers={"X-Atlas-Lab-Owner": client_owner}).status_code == 403
     assert other.get(root).json() == []
-    created = client.post(root, json=draft)
-    assert created.status_code == 201, created.text
-    item = created.json()
-    assert client.post(root, json=draft).json() == item
+    assert client.post(root, json=draft).status_code == 422
+    item = main.lab_strategy_store.create(client_owner, LabDraftCreate.model_validate(draft))
     url = f"{root}/{item['id']}"
     assert item["revision"] == 1
     assert client.get(url).json()["source"] == initial
@@ -109,10 +107,9 @@ def test_code_lab_keeps_private_drafts_and_separate_run_snapshots(architecture, 
     assert other.get(f"{url}/runs").status_code == 404
     changed = {**{key: value for key, value in draft.items() if key != "id"}, "expected_revision": 1, "name": "改名"}
     assert other.patch(url, json=changed).status_code == 404
-    updated = client.patch(url, json=changed)
-    assert updated.json()["revision"] == 2
     assert client.patch(url, json=changed).status_code == 409
-    assert client.patch(url, json={**changed, "source": "\0", "expected_revision": 2}).status_code == 422
+    assert client.get(url).json()["revision"] == 1
+    assert client.patch(url, json={**changed, "source": "\0", "expected_revision": 1}).status_code == 422
 
     expected = {}
     for target, capital in ((3000, 8000), (9500, 9000)):
@@ -122,10 +119,18 @@ def test_code_lab_keeps_private_drafts_and_separate_run_snapshots(architecture, 
         result = run_backtest(request, published.bundle).model_dump(mode="json")
         body = upload(published, request=request.model_dump(mode="json"), result=result, lab_strategy_id=item["id"])
         assert other.post("/api/v1/compute/runs", json=body).status_code == 404
-        run = client.post("/api/v1/compute/runs", json=body)
-        assert run.status_code == 201, run.text
-        assert run.json()["compute"]["proof_status"] == "unverified"
-        expected[run.json()["run_id"]] = (hashlib.sha256(source.encode()).hexdigest(), capital)
+        assert client.post("/api/v1/compute/runs", json=body).status_code == 422
+        digest = hashlib.sha256(source.encode()).hexdigest()
+        body["request"]["lab_snapshot"] = {
+            "source_sha256": digest,
+            "settings": {"symbol": "BTC-USD", "asset_class": "crypto", "initial_capital": capital},
+        }
+        result["compute"] = {"proof_status": "unverified", "engine_version": "browser-ts/v1",
+                             "dataset_ids": body["dataset_ids"]}
+        result["bars"] = []
+        architecture.runs.save_computed(client_owner, "single", body["request"], result,
+                                       architecture.objects, lab_strategy_id=item["id"])
+        expected[result["run_id"]] = (digest, capital)
     assert client.post("/api/v1/compute/runs", json=upload(published, lab_strategy_id=item["id"])).status_code == 422
     history = client.get(f"{url}/runs").json()
     assert len(history) == 2
