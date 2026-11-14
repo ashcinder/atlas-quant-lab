@@ -20,10 +20,22 @@ export interface LabBacktestSettings {
 }
 
 export type LabMultiEngine = 'atlas_portfolio' | 'rqalpha'
-export type LabIndustry = 'semiconductor' | 'defense' | 'space' | 'robotics'
+export type LabIndustry = 'semiconductor' | 'defense' | 'space' | 'robotics' | 'strait'
 export type LabMinuteInterval = '1m' | '5m' | '15m' | '30m' | '60m'
 export const labIndustryLabels: Record<LabIndustry, string> = {
-  semiconductor: '半导体', defense: '军工', space: '商业航天', robotics: '机器人',
+  semiconductor: '半导体', defense: '军工', space: '商业航天', robotics: '机器人', strait: '海峡两岸（研究池）',
+}
+
+export interface LabMembershipEvidence {
+  name: string
+  basis: 'historical-concept-news' | 'annual-report-business-proxy'
+  source: string
+  published: string
+}
+
+export const labMembershipBasisLabels: Record<LabMembershipEvidence['basis'], string> = {
+  'historical-concept-news': '历史概念报道',
+  'annual-report-business-proxy': '年报两岸业务代理',
 }
 
 export const labMultiEngineLabels: Record<LabMultiEngine, string> = {
@@ -187,7 +199,8 @@ export interface LabMultiResult {
   engine_version?: string
   matching_type?: string
   native_metrics?: Record<string, unknown>
-  industry_snapshot?: { industry: LabIndustry; membership_sha256: string; as_of: string; published: string; effective: string; selection_mode: string; versions?: Array<{ as_of: string; published: string; effective: string; symbols: string[] }> } | null
+  industry_snapshot?: { industry: LabIndustry; membership_sha256: string; as_of: string; published: string; effective: string; selection_mode: string; versions?: Array<{ as_of: string; published: string; effective: string; symbols: string[] }>;
+    membership_scope?: string; membership_note?: string; membership_selected_on?: string; membership_evidence?: Record<string, LabMembershipEvidence> } | null
   interval?: LabMultiSettings['interval']
   minute_digest?: string
   daily_digest?: string

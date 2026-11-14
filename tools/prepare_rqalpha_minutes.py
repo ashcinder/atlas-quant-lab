@@ -10,6 +10,7 @@ import re
 import stat
 import urllib.request
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 REPO_ID = "neigezhu/china-a-share-1min-ohlcv"
 REVISION = "ba589a11534825044fe5a6b84838f50ba8d8d188"
@@ -17,6 +18,7 @@ SCHEMA = "atlas.rqalpha.minutes/v1"
 LAST_COMPLETE_DAY = "2026-08-06"
 DEFAULT_START = "2025-01-02"
 INDUSTRIES = {"semiconductor", "defense", "space", "robotics"}
+OPTIONAL_INDUSTRIES = {"strait"}
 SYMBOL = re.compile(r"(?:6[0-9]{5}\.SS|[03][0-9]{5}\.SZ)")
 DIGEST = re.compile(r"[a-f0-9]{64}")
 CANONICAL = re.compile(r"data/stock_1m/(?:SH/6[0-9]{5}|SZ/[03][0-9]{5})\.parquet")
@@ -146,22 +148,58 @@ def source_path(symbol):
     return f"data/stock_1m/{'SH' if symbol.endswith('.SS') else 'SZ'}/{symbol[:6]}.parquet"
 
 
+def evidence_url(value):
+    if (not isinstance(value, str) or not 1 <= len(value) <= 2048
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)):
+        raise ValueError("海峡研究池证据来源必须是无凭据 HTTPS 地址")
+    parsed = urlsplit(value)
+    if (parsed.scheme != "https" or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None):
+        raise ValueError("海峡研究池证据来源必须是无凭据 HTTPS 地址")
+
+
+def validate_strait_record(record):
+    as_of = iso_day(record.get("as_of"))
+    published = iso_day(record.get("published"))
+    effective = iso_day(record.get("effective"))
+    selected_on = iso_day(record.get("selected_on"))
+    note = record.get("membership_note")
+    evidence = record.get("member_evidence")
+    if (record.get("scope") != "historical-theme-research-sample"
+            or record.get("partial") is not True
+            or published >= as_of or effective > as_of or selected_on < as_of
+            or not isinstance(note, str) or not note.strip() or len(note) > 1000
+            or not isinstance(evidence, dict) or set(evidence) != set(record["symbols"])):
+        raise ValueError("海峡研究池范围、日期或逐股证据无效")
+    evidence_url(record.get("source"))
+    for item in evidence.values():
+        if not isinstance(item, dict):
+            raise TypeError("海峡研究池逐股证据无效")
+        name = item.get("name")
+        if (not isinstance(name, str) or not name.strip() or len(name) > 80
+                or item.get("basis") not in {
+                    "historical-concept-news", "annual-report-business-proxy",
+                } or iso_day(item.get("published")) > published):
+            raise ValueError("海峡研究池证据类型、名称或公开日期无效")
+        evidence_url(item.get("source"))
+
+
 def load_membership(path, symbols=None):
     manifest = read_json(path, MAX_MEMBERSHIP_BYTES)
     if not isinstance(manifest, dict):
-        raise TypeError("四行业成员清单无效")
+        raise TypeError("行业/题材成员清单无效")
     identity = {key: value for key, value in manifest.items() if key != "digest"}
     if (
         manifest.get("schema") != "atlas.rqalpha.sectors/v1"
         or manifest.get("digest") != hashlib.sha256(canonical_bytes(identity)).hexdigest()
         or not isinstance(manifest.get("industries"), dict)
-        or set(manifest["industries"]) != INDUSTRIES
+        or not INDUSTRIES <= set(manifest["industries"]) <= INDUSTRIES | OPTIONAL_INDUSTRIES
     ):
-        raise ValueError("四行业成员清单或摘要无效")
+        raise ValueError("行业/题材成员清单或摘要无效")
     members = set()
-    for records in manifest["industries"].values():
+    for industry, records in manifest["industries"].items():
         if not isinstance(records, list) or not records or len(records) > 500:
-            raise ValueError("四行业成员版本无效")
+            raise ValueError("行业/题材成员版本无效")
         for record in records:
             pool = record.get("symbols") if isinstance(record, dict) else None
             if (
@@ -171,6 +209,8 @@ def load_membership(path, symbols=None):
                 or len(set(pool)) != len(pool)
             ):
                 raise ValueError("行业成员代码无效")
+            if industry == "strait":
+                validate_strait_record(record)
             members.update(pool)
     selected = sorted(members) if symbols is None else list(symbols)
     if (
@@ -179,7 +219,7 @@ def load_membership(path, symbols=None):
         or any(not isinstance(s, str) or not SYMBOL.fullmatch(s) for s in selected)
         or not set(selected) <= members
     ):
-        raise ValueError("只允许选择四行业历史成员中不重复的 1–150 只股票")
+        raise ValueError("只允许选择已配置行业/题材历史成员中不重复的 1–150 只股票")
     return manifest, sorted(selected)
 
 
@@ -789,7 +829,7 @@ def prepare(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="固定 HF 四行业主数据下载与只读分钟快照准备；不执行数据集代码"
+        description="固定 HF 行业/题材主数据下载与只读分钟快照准备；不执行数据集代码"
     )
     commands = parser.add_subparsers(dest="command", required=True)
     get = commands.add_parser("download")

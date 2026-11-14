@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { labMultiApi } from '../lab-multi-api'
-import { labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
+import { labIndustryLabels, labMembershipBasisLabels, labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
 import type { LabBacktestReport, LabMultiJob, LabReportExport, LabReportPage, LabReportQuery, LabReportRow, LabReportTable } from '../lab-strategy-types'
 import { LabReportCharts } from './LabReportCharts'
 import './lab-backtest-report.css'
@@ -166,6 +166,7 @@ function ReportContent({ job, ownerId, legacyOverview, onLegacyDownload, onExpan
   const interval = job.result?.interval ?? job.settings.interval
   const intervalLabel = interval === '1d' ? '日线' : `${parseInt(interval)} 分钟`
   const minuteSource = interval !== '1d' && job.result?.minute_digest ? job.result.minute_source : undefined
+  const membership = job.result?.industry_snapshot
   const first = report?.series[0]?.time ?? job.result?.equity[0]?.time
   const last = report?.series.at(-1)?.time ?? job.result?.equity.at(-1)?.time
   useEffect(() => () => { sourceController.current?.abort(); downloadController.current?.abort() }, [])
@@ -259,7 +260,18 @@ function ReportContent({ job, ownerId, legacyOverview, onLegacyDownload, onExpan
         <div><dt>时间标签规则</dt><dd><code>{minuteSource.bar_convention}</code></dd></div>
         <div><dt>额外时段记录</dt><dd><code>{minuteSource.extra_session_policy}</code></dd></div>
       </>}
-    </dl>{minuteSource && <>
+    </dl>{membership?.membership_scope && <div>
+      <p className="lab-report-note">股票池：{labIndustryLabels[membership.industry]} · 本次记录的样本口径</p>
+      {membership.membership_note && <p className="lab-report-note">{membership.membership_note}</p>}
+      {membership.membership_selected_on && <p className="lab-report-note">样本整理日期：{membership.membership_selected_on}；采用此前公开依据，不代表当时完整成分或无偏选股。</p>}
+      {!!Object.keys(membership.membership_evidence ?? {}).length && <details className="lab-report-conventions">
+        <summary>本次题材样本依据</summary>
+        <dl>{Object.entries(membership.membership_evidence ?? {}).map(([symbol, evidence]) => <div key={symbol}>
+          <dt>{evidence.name} · {symbol}</dt>
+          <dd>{labMembershipBasisLabels[evidence.basis] ?? evidence.basis} · 公开日期 {evidence.published}<code>{evidence.source}</code>{evidence.basis === 'annual-report-business-proxy' && <p>两岸医疗业务关联不等于福建区域股，也不证明当时行情商的概念标签或龙头身份。</p>}</dd>
+        </div>)}</dl>
+      </details>}
+    </div>}{minuteSource && <>
       <p className="lab-report-note">HF 为固定历史快照，不是实时数据；2026-08-07仅有部分记录，之后未覆盖。本次只使用完整交易日，不填充缺根。</p>
       <p className="lab-report-note">{minuteSource.provenance_note}</p>
       {job.result?.industry_snapshot?.selection_mode === 'static-pool-with-dated-entry-eligibility' && <p className="lab-report-note">买入按各日已公开生效的行业名单检查；移出名单后仍可退出原持仓。</p>}

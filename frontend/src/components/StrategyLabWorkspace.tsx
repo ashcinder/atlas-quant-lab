@@ -63,7 +63,7 @@ function settingsError(settings: LabDraft['settings']) {
   if ([settings.max_position, settings.max_participation_rate].some(value => !Number.isFinite(value) || value <= 0 || value > 1)) return '最大仓位和成交参与率须大于 0%，且不超过 100%。'
   if ('symbols' in settings && settings.engine_id === 'rqalpha') {
     if (settings.universe) return '此设置属于旧版行业策略，只能查看历史。'
-    if (settings.interval !== '1d' && !settings.industry) return '分钟回测仅支持四个行业，请先选择行业。'
+    if (settings.interval !== '1d' && !settings.industry) return '分钟回测仅支持已准备的行业/题材股票池，请先选择股票池。'
     if (settings.symbols.some(symbol => symbol.endsWith('.BJ'))) return 'RQAlpha 仅支持沪深 A 股，请移除北交所标的。'
   }
   return ''
@@ -145,7 +145,7 @@ export function StrategyLabWorkspace({ ownerId, assets, active }: Props) {
       : multi.settings.symbols.some(symbol => !selectedIndustry.symbols.some(item => item.symbol === symbol && (multi.settings.interval === '1d' || item.minute_available !== false))) ? '所选股票不属于所选日期的行业名单，或尚无可用分钟行情，请核对并手动移除。' : '')
     : ''
   const minuteUnavailable = multi && multi.settings.interval !== '1d'
-    ? !multi.settings.industry ? '分钟回测仅支持四个行业，请先选择行业。'
+    ? !multi.settings.industry ? '分钟回测仅支持已准备的行业/题材股票池，请先选择股票池。'
       : !selectedIndustry?.start || !selectedIndustry.end || !capability?.minute_intervals?.includes(multi.settings.interval) || !selectedIndustry.minute_intervals.includes(multi.settings.interval)
         ? selectedIndustry?.reason || capability?.minute_reason || '尚未准备与当前行业配套的冻结分钟行情。' : ''
     : ''

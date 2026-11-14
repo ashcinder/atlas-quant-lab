@@ -78,6 +78,45 @@ describe('synthetic six-tab report', () => {
     expect(labMultiApi.reportRows).not.toHaveBeenCalled()
   })
 
+  it('shows only the recorded strait sample basis even when current settings name another pool', () => {
+    const historical: LabMultiJob = { ...minuteJob, id: 'strait-frozen-evidence', settings: { ...minuteJob.settings, industry: 'robotics' },
+      result: { ...minuteJob.result!, industry_snapshot: { ...minuteJob.result!.industry_snapshot!, industry: 'strait',
+        membership_scope: 'historical-theme-research-sample', membership_selected_on: '2026-11-15',
+        membership_note: '合成历史样本说明：采用2025年前公开依据，不代表当时完整成分、关注度、无偏样本或龙头。',
+        membership_evidence: {
+          '000592.SZ': { name: '平潭发展', basis: 'historical-concept-news', source: 'https://example.test/frozen-strait-concept', published: '2024-10-29' },
+          '603122.SS': { name: '合富中国', basis: 'annual-report-business-proxy', source: 'https://example.test/frozen-strait-annual-report', published: '2023-03-22' },
+        },
+      } },
+    }
+    const view = render(<Report job={historical} ownerId="synthetic-owner" />)
+    fireEvent.click(screen.getByText('本次运行参数和源码摘要'))
+    expect(screen.getByText('股票池：海峡两岸（研究池） · 本次记录的样本口径')).toBeVisible()
+    expect(screen.getByText(/合成历史样本说明/)).toBeVisible()
+    expect(screen.getByText(/样本整理日期：2026-11-15/)).toBeVisible()
+    fireEvent.click(screen.getByText('本次题材样本依据'))
+    expect(screen.getByText('平潭发展 · 000592.SZ')).toBeVisible()
+    expect(screen.getByText('合富中国 · 603122.SS')).toBeVisible()
+    expect(screen.getByText(/历史概念报道 · 公开日期 2024-10-29/)).toBeVisible()
+    expect(screen.getByText(/年报两岸业务代理 · 公开日期 2023-03-22/)).toBeVisible()
+    expect(screen.getByText(/不等于福建区域股/)).toBeVisible()
+    const source = screen.getByText('https://example.test/frozen-strait-annual-report')
+    expect(source.closest('a')).toBeNull()
+    view.rerender(<Report job={{ ...historical, settings: { ...historical.settings, industry: 'semiconductor', interval: '1m' } }} ownerId="synthetic-owner" />)
+    expect(screen.getByText(/股票池：海峡两岸（研究池）/)).toBeVisible()
+    expect(screen.getByText('30 分钟 · current_bar 收盘价撮合')).toBeVisible()
+    expect(source).toBeVisible()
+    expect(labMultiApi.reportSource).not.toHaveBeenCalled()
+  })
+
+  it('does not infer strait evidence from settings when a historical result did not record it', () => {
+    render(<Report job={{ ...minuteJob, id: 'unrecorded-strait-evidence', settings: { ...minuteJob.settings, industry: 'strait' } }} ownerId="synthetic-owner" />)
+    fireEvent.click(screen.getByText('本次运行参数和源码摘要'))
+    expect(screen.queryByText('本次题材样本依据')).toBeNull()
+    expect(screen.queryByText(/样本整理日期/)).toBeNull()
+    expect(screen.queryByText(/本次记录的样本口径/)).toBeNull()
+  })
+
   it('does not invent HF metadata or minute-settlement claims for daily or unrecorded legacy results', () => {
     const view = render(<Report job={job} ownerId="synthetic-owner" />)
     expect(screen.getByText('日线 · current_bar 收盘价撮合')).toBeVisible()

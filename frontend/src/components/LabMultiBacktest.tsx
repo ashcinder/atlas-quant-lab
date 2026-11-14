@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { formatMoney, formatNumber, formatPercent } from '../format'
-import { labIndustryLabels, labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
+import { labIndustryLabels, labMembershipBasisLabels, labMultiEngineLabels, multiJobActive, multiJobEngine, multiJobStatus } from '../lab-strategy-types'
 import type { LabIndustry, LabMinuteInterval, LabMultiCoverage, LabMultiJob, LabMultiSettings, LabMultiTrade } from '../lab-strategy-types'
 import type { LabIndustryCoverage, LabMultiCapabilities } from '../lab-multi-api'
 import type { Asset } from '../types'
@@ -38,6 +38,7 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
 }) {
   const rqalpha = value.engine_id === 'rqalpha'
   const industry = industries?.find(row => row.id === value.industry)
+  const configuredPools = Object.entries(labIndustryLabels).filter(([id]) => id !== 'strait' || industries?.some(row => row.id === id))
   const restricted = rqalpha && !!value.industry
   const minute = rqalpha && value.interval !== '1d'
   const acceptsSymbol = (symbol: string) => cnSymbol.test(symbol) && (!rqalpha || !symbol.endsWith('.BJ'))
@@ -100,12 +101,21 @@ export function LabMultiBacktestForm({ value, assets, onChange, coverage, covera
         const next = industries?.find(row => row.id === id)
         onChange({ industry: id, symbols: id ? value.symbols.filter(symbol => next?.symbols.some(item => item.symbol === symbol)) : value.symbols })
         setSelected(''); setQuery(''); setMatches([])
-      }}><option value="">不指定行业（日线）</option>{Object.entries(labIndustryLabels).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label></div>
-      <p className="lab-form-note">RQAlpha Python · 学术非商用。分钟回测仅限半导体、军工、商业航天、机器人，使用 HF 固定历史快照，按各股实际完整日期开放；日线可选择一只或多只沪深 A 股。</p>
+      }}><option value="">不指定行业（日线）</option>{configuredPools.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label></div>
+      <p className="lab-form-note">RQAlpha Python · 学术非商用。分钟回测使用已准备的行业/题材股票池和 HF 固定历史快照，按各股实际完整日期开放{industries?.some(row => row.id === 'strait') ? '，含海峡两岸研究池' : ''}；日线可选择一只或多只沪深 A 股。</p>
       {industryError ? <div role="alert" className="lab-command-actions"><span>{industryError}</span>{onReloadIndustries && <button type="button" onClick={onReloadIndustries}>重试行业股票池</button>}</div> : restricted && industries === null ? <p role="status">正在读取行业股票池…</p> : null}
       {industry && <div className="lab-industry-coverage">
-        <p>{industry.name} · 已核验成员 {industry.symbols.length} 只{industry.as_of ? ` · 名单时点 ${industry.as_of}` : ''}</p>
+        <p>{industry.name} · {industry.id === 'strait' ? '研究样本' : '已核验成员'} {industry.symbols.length} 只{industry.as_of ? ` · 名单时点 ${industry.as_of}` : ''}</p>
         {industry.membership_note && <p className="lab-form-note">{industry.membership_note}</p>}
+        {!!Object.keys(industry.membership_evidence ?? {}).length && <details className="lab-advanced">
+          <summary>查看题材样本依据</summary>
+          {industry.membership_selected_on && <p className="lab-form-note">本次样本整理日期：{industry.membership_selected_on}；不代表当时完整成分或无偏选股。</p>}
+          {Object.entries(industry.membership_evidence ?? {}).map(([symbol, evidence]) => <div key={symbol}>
+            <p className="lab-form-note"><strong>{evidence.name} · {symbol}</strong> · {labMembershipBasisLabels[evidence.basis] ?? evidence.basis} · 公开日期 {evidence.published}</p>
+            <code>{evidence.source}</code>
+            {evidence.basis === 'annual-report-business-proxy' && <p className="lab-form-note">两岸医疗业务关联不等于福建区域股，也不证明当时行情商的概念标签或龙头身份。</p>}
+          </div>)}
+        </details>}
         {industry.membership_sha256 && <code>成员版本 SHA-256 {industry.membership_sha256}</code>}
         <p className="lab-form-note">分钟覆盖：{industry.start && industry.end ? `${industry.start} 至 ${industry.end}（成员可用范围外边界）` : '尚未核验完整历史覆盖'}</p>
         {industry.coverage_note && <p className="lab-form-note">{industry.coverage_note}</p>}

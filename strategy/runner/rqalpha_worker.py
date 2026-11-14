@@ -412,8 +412,10 @@ def run_config(settings, window):
     interval = settings.get("interval")
     minute = interval in {"1m", "5m", "15m", "30m", "60m"}
     if (interval != "1d" and not minute or settings.get("universe") is not None
-            or minute and settings.get("industry") not in {"semiconductor", "defense", "space", "robotics"}):
-        raise WorkerError("RQAlpha 分钟仅支持四行业及 1/5/15/30/60 分钟")
+            or minute and settings.get("industry") not in {
+                "semiconductor", "defense", "space", "robotics", "strait",
+            }):
+        raise WorkerError("RQAlpha 分钟仅支持已配置行业/题材池及 1/5/15/30/60 分钟")
     initial = finite(settings.get("initial_capital"))
     commission = finite(settings.get("commission_rate"))
     slippage = finite(settings.get("slippage_rate"))

@@ -180,7 +180,7 @@ def minute_status():
         dataset, _, _ = _dataset()
         membership = rqalpha_industries.load_membership()
         if membership is None:
-            raise RunnerFailure("四行业成员清单尚未准备")
+            raise RunnerFailure("股票池成员清单尚未准备")
         rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
         if not any(len(row["complete_sessions"]) >= 2 for row in minute["instruments"].values()):
             raise RunnerFailure("分钟快照没有覆盖至少两个完整交易日的股票")
@@ -202,7 +202,7 @@ def _close(day):
 
 def resolve(settings):
     if settings.interval != "1d" and not settings.industry:
-        raise RunnerFailure("分钟回测仅支持半导体、军工、商业航天和机器人，请选择行业")
+        raise RunnerFailure("分钟回测必须选择已准备的行业或题材股票池")
     if settings.universe:
         raise RunnerFailure("旧动态股票池不能作为 RQAlpha 原生配置")
     if not settings.symbols or any(not SYMBOL.fullmatch(s) for s in settings.symbols):
@@ -220,7 +220,7 @@ def resolve(settings):
     if minute:
         membership = rqalpha_industries.load_membership()
         if membership is None:
-            raise RunnerFailure("四行业成员清单尚未准备，请先检查行业数据覆盖")
+            raise RunnerFailure("股票池成员清单尚未准备，请先检查数据覆盖")
         rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
         try:
             minute_coverage = [minute["instruments"][symbol] for symbol in settings.symbols]
@@ -485,7 +485,7 @@ def execute(source, settings, market, *, cancelled=None):
         minute, minute_root = rqalpha_minute_data.load()
         membership = rqalpha_industries.load_membership()
         if membership is None:
-            raise RunnerFailure("四行业成员清单尚未准备")
+            raise RunnerFailure("股票池成员清单尚未准备")
         rqalpha_minute_data.require_bindings(minute, dataset["digest"], membership["digest"])
         expected = rqalpha_minute_data.combined_digest(minute)
         if (market.get("minute_digest") != minute["digest"]

@@ -45,7 +45,7 @@ def frozen_minutes(tmp_path, monkeypatch):
     record = {"as_of": DAYS[0], "published": "2024-12-20", "effective": "2025-01-01",
               "source": "https://example.test/verified-membership", "symbols": SYMBOLS}
     membership = signed({"schema": "atlas.rqalpha.sectors/v1", "industries": {
-        key: [copy.deepcopy(record)] for key in industries.INDUSTRIES
+        key: [copy.deepcopy(record)] for key in industries.BASE_INDUSTRIES
     }})
     member_path = tmp_path / "members.json"
     member_path.write_bytes(canonical_bytes(membership))

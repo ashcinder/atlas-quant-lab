@@ -118,6 +118,8 @@ def test_configuration_accepts_one_native_stock_without_loosening_the_protocol(s
 
 
 @pytest.mark.parametrize("patch", [{"interval": "15m"}, {"universe": "semiconductor"},
+                                    {"universe": "strait", "industry": "strait", "interval": "1m"},
+                                    {"industry": "unapproved-theme", "interval": "1m"},
                                     {"max_position": 0}, {"commission_rate": -1},
                                     {"max_participation_rate": float("inf")}, {"symbols": []}])
 def test_invalid_configuration_fails_closed(settings, patch):

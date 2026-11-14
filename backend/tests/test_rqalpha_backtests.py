@@ -328,7 +328,7 @@ def test_daily_result_freezes_the_actual_industry_membership_identity(frozen_dat
     record = {"as_of": "2025-01-02", "published": "2024-12-20", "effective": "2025-01-01",
               "source": "https://example.test/verified-pool", "symbols": [SYMBOLS[0]]}
     identity = {"schema": "atlas.rqalpha.sectors/v1", "industries": {
-        key: [record] for key in rq.rqalpha_industries.INDUSTRIES}}
+        key: [record] for key in rq.rqalpha_industries.BASE_INDUSTRIES}}
     identity["digest"] = hashlib.sha256(canonical_bytes(identity)).hexdigest()
     path = tmp_path / "membership.json"
     path.write_bytes(canonical_bytes(identity))

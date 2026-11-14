@@ -149,13 +149,14 @@ def test_frozen_index_and_selected_chunks_are_verified_before_execution(frozen):
     assert len(store.month(SYMBOL, "2025-01")["raw"]) == 482
 
 
+@pytest.mark.parametrize("industry", ["semiconductor", "strait"])
 @pytest.mark.parametrize(
     "interval,per_day", [("1m", 240), ("5m", 48), ("15m", 16), ("30m", 8), ("60m", 4)]
 )
 def test_five_periods_aggregate_exact_continuous_minutes_without_lunch_or_extra_opening(
-    frozen, interval, per_day
+    frozen, interval, per_day, industry,
 ):
-    store = store_for(frozen, interval=interval)
+    store = store_for(frozen, interval=interval, industry=industry)
     size = minutes.INTERVALS[interval]
     bars = store.bars(SYMBOL, "2025-01", size)
     raw = store.bars(SYMBOL, "2025-01", 1)
@@ -171,6 +172,12 @@ def test_five_periods_aggregate_exact_continuous_minutes_without_lunch_or_extra_
     assert bars["high"][0] == raw["high"][:size].max()
     assert bars["low"][0] == raw["low"][:size].min()
     assert not np.isin(bars["datetime"] % 1_000_000, [93000, 130000]).any()
+
+
+@pytest.mark.parametrize("industry", [None, "", "unapproved-theme", "strait-extra"])
+def test_native_minute_store_rejects_unconfigured_industries(frozen, industry):
+    with pytest.raises(minutes.MinuteError, match="行业/题材"):
+        store_for(frozen, industry=industry)
 
 
 def test_raw_one_minute_stays_one_minute_and_n_bar_never_reads_its_future_close(frozen):
@@ -474,11 +481,13 @@ def test_invalid_membership_is_rejected(records):
         minutes.validate_membership(records)
 
 
-def test_worker_uses_one_minute_native_clock_and_trusted_sibling_module():
+@pytest.mark.parametrize("industry", ["semiconductor", "strait"])
+@pytest.mark.parametrize("interval", minutes.INTERVALS)
+def test_worker_uses_one_minute_native_clock_and_trusted_sibling_module(industry, interval):
     base = {
         "symbols": [SYMBOL],
-        "interval": "60m",
-        "industry": "semiconductor",
+        "interval": interval,
+        "industry": industry,
         "initial_capital": 100000,
         "commission_rate": 0.001,
         "slippage_rate": 0,

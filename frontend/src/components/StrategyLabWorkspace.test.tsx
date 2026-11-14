@@ -56,6 +56,22 @@ const preparedIndustries: LabIndustryCoverage[] = industries.map(row => row.id =
   minute_source: { repo_id: 'neigezhu/china-a-share-1min-ohlcv', revision: 'f'.repeat(40), last_complete_day: '2026-08-06' },
   symbols: row.symbols.map(item => ({ ...item, minute_available: true, start: '2025-01-02', end: '2026-08-06', missing_sessions: 2 })),
 } : row)
+const straitIndustry: LabIndustryCoverage = {
+  id: 'strait', name: '海峡两岸（研究池）', as_of: '2025-01-02',
+  symbols: [
+    { symbol: '000592.SZ', name: '平潭发展', minute_available: true, start: '2025-01-02', end: '2026-08-06', missing_sessions: 0 },
+    { symbol: '603122.SS', name: '合富中国', minute_available: true, start: '2025-01-02', end: '2026-08-06', missing_sessions: 0 },
+  ],
+  membership_sha256: '5'.repeat(64), membership_scope: 'historical-theme-research-sample',
+  membership_selected_on: '2026-11-15',
+  membership_note: '合成研究池：本次整理的部分研究观察池，采用2025年前公开依据，不代表当时完整成分、关注度、无偏样本或龙头。',
+  membership_evidence: {
+    '000592.SZ': { name: '平潭发展', basis: 'historical-concept-news', source: 'https://example.test/historical-strait-concept', published: '2024-10-29' },
+    '603122.SS': { name: '合富中国', basis: 'annual-report-business-proxy', source: 'https://example.test/annual-strait-business', published: '2023-03-22' },
+  },
+  start: '2025-01-02', end: '2026-08-06', minute_intervals: minutePeriods, reason: null,
+  minute_source: { repo_id: 'neigezhu/china-a-share-1min-ohlcv', revision: '6'.repeat(40), last_complete_day: '2026-08-06' },
+}
 const props = { ownerId: 'owner-a', active: true, assets, defaults: singleSettings, onRunSaved: vi.fn() }
 const nativeJob: LabMultiJob = { id: 'native-job', strategy_id: saved.id, revision: 1, status: 'succeeded', progress: 1, error: null,
   created_at: saved.updated_at, settings: nativeDraft.settings, source_sha256: 'b'.repeat(64), dataset_sha256: 'c'.repeat(64), engine_id: 'rqalpha', engine_version: '6.5.0', matching_type: 'current_bar',
@@ -333,6 +349,56 @@ it('offers exactly four industry pools and does not silently populate every memb
   expect(screen.getByRole('button', { name: '加入股票池' })).toBeDisabled()
   fireEvent.change(industry, { target: { value: 'defense' } })
   expect(screen.queryByRole('list', { name: '已选股票' })).toBeNull()
+})
+
+it('adds the configured strait research pool without replacing the original four choices', async () => {
+  vi.mocked(labMultiApi.capabilities).mockResolvedValue({ ...nativeCapabilities, minute_intervals: minutePeriods, minute_reason: null })
+  vi.mocked(labMultiApi.industries).mockResolvedValue([...preparedIndustries, straitIndustry])
+  await create()
+  const industry = screen.getByRole('combobox', { name: /^行业股票池/ })
+  await within(industry).findByRole('option', { name: '海峡两岸（研究池）' })
+  expect(within(industry).getAllByRole('option').map(row => row.textContent)).toEqual(['不指定行业（日线）', '半导体', '军工', '商业航天', '机器人', '海峡两岸（研究池）'])
+  fireEvent.change(industry, { target: { value: 'strait' } })
+  expect(screen.getByText(/研究样本 2 只/)).toBeVisible()
+  expect(screen.getByText(straitIndustry.membership_note!)).toBeVisible()
+  expect(within(screen.getByRole('combobox', { name: /^行情目录/ })).getByRole('option', { name: '000592.SZ · 平潭发展' })).toBeEnabled()
+  const period = screen.getByRole('combobox', { name: /^行情周期/ })
+  for (const minutes of [1, 5, 15, 30, 60]) expect(within(period).getByRole('option', { name: `${minutes} 分钟` })).toBeEnabled()
+  fireEvent.click(screen.getByText('查看题材样本依据'))
+  expect(screen.getByText(/本次样本整理日期：2026-11-15/)).toBeVisible()
+  expect(screen.getByText(/历史概念报道 · 公开日期 2024-10-29/)).toBeVisible()
+  expect(screen.getByText(/年报两岸业务代理 · 公开日期 2023-03-22/)).toBeVisible()
+  expect(screen.getByText(/不等于福建区域股/)).toBeVisible()
+  expect(screen.getByText('https://example.test/annual-strait-business').closest('a')).toBeNull()
+  fireEvent.change(period, { target: { value: '5m' } })
+  fireEvent.click(screen.getByRole('button', { name: '加入行业股票池（2只）' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存策略' }))
+  await screen.findByText('已保存')
+  expect(api.createLabStrategy).toHaveBeenCalledWith(props.ownerId, expect.any(String), expect.objectContaining({
+    settings: expect.objectContaining({ industry: 'strait', interval: '5m', symbols: ['000592.SZ', '603122.SS'] }),
+  }))
+  expect(screen.getByRole('button', { name: '运行回测' })).toBeEnabled()
+})
+
+it('does not expose an unconfigured strait pool while retaining the original four choices', async () => {
+  await create()
+  await waitFor(() => expect(labMultiApi.industries).toHaveBeenCalled())
+  const industry = screen.getByRole('combobox', { name: /^行业股票池/ })
+  expect(within(industry).queryByRole('option', { name: '海峡两岸（研究池）' })).toBeNull()
+  expect(within(industry).getAllByRole('option')).toHaveLength(5)
+  expect(screen.queryByText('查看题材样本依据')).toBeNull()
+})
+
+it.each(['runtime', 'pool'])('keeps strait minute periods gated when %s coverage is absent', async missing => {
+  vi.mocked(labMultiApi.capabilities).mockResolvedValue({ ...nativeCapabilities, minute_intervals: missing === 'runtime' ? [] : minutePeriods })
+  vi.mocked(labMultiApi.industries).mockResolvedValue([...preparedIndustries, { ...straitIndustry, minute_intervals: missing === 'pool' ? [] : minutePeriods }])
+  await create()
+  const industry = screen.getByRole('combobox', { name: /^行业股票池/ })
+  await within(industry).findByRole('option', { name: '海峡两岸（研究池）' })
+  fireEvent.change(industry, { target: { value: 'strait' } })
+  const period = screen.getByRole('combobox', { name: /^行情周期/ })
+  for (const minutes of [1, 5, 15, 30, 60]) expect(within(period).getByRole('option', { name: `${minutes} 分钟（数据未就绪）` })).toBeDisabled()
+  expect(within(period).getByRole('option', { name: '日线' })).toBeEnabled()
 })
 
 it('shows the full-minute data gap and disables all five minute periods while daily remains available', async () => {

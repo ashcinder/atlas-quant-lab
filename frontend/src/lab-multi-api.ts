@@ -1,5 +1,5 @@
 import { labOwnerHeaders } from './lab-strategy-types'
-import type { LabDraft, LabIndustry, LabMinuteInterval, LabMultiCoverage, LabMultiDraft, LabMultiEngine, LabMultiJob, LabMultiSettings, LabReportExport, LabReportPage, LabReportQuery, LabReportTable } from './lab-strategy-types'
+import type { LabDraft, LabIndustry, LabMembershipEvidence, LabMinuteInterval, LabMultiCoverage, LabMultiDraft, LabMultiEngine, LabMultiJob, LabMultiSettings, LabReportExport, LabReportPage, LabReportQuery, LabReportTable } from './lab-strategy-types'
 import { ApiError, request } from './request'
 import type { StrategyRelease } from './types'
 
@@ -13,6 +13,9 @@ export interface LabIndustryCoverage {
   minute_source?: { repo_id: string; revision: string; last_complete_day: string } | null
   membership_sha256: string | null
   membership_note?: string
+  membership_scope?: string
+  membership_selected_on?: string
+  membership_evidence?: Record<string, LabMembershipEvidence>
   start: string | null
   end: string | null
   minute_intervals: LabMinuteInterval[]

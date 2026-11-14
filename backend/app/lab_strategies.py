@@ -64,7 +64,7 @@ class LabMultiSettings(BaseModel):
     engine_id: Literal["atlas_portfolio", "rqalpha"] = "atlas_portfolio"
     symbols: list[str] = Field(default_factory=list, max_length=150)
     interval: Literal["1d", "1m", "5m", "15m", "30m", "60m"] = "1d"
-    industry: Literal["semiconductor", "defense", "space", "robotics"] | None = None
+    industry: Literal["semiconductor", "defense", "space", "robotics", "strait"] | None = None
     start: datetime | None = None
     end: datetime | None = None
     initial_capital: float = Field(default=1_000_000, gt=0, le=1e12)
@@ -107,7 +107,7 @@ class LabMultiSettings(BaseModel):
         ):
             raise ValueError("RQAlpha 仅支持沪深 A 股，请使用行业设置而非旧动态股票池")
         if self.engine_id == "rqalpha" and self.interval != "1d" and self.industry is None:
-            raise ValueError("分钟回测必须选择半导体、军工、商业航天或机器人行业")
+            raise ValueError("分钟回测必须选择已准备的行业或题材股票池")
         return self
 
 

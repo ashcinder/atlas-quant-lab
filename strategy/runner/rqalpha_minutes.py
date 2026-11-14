@@ -20,7 +20,7 @@ MONTH_BYTES = 2 * 1024 * 1024
 MONTH_ROWS = 8000
 HISTORY_ROWS = 100_000
 INTERVALS = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "60m": 60}
-INDUSTRIES = {"semiconductor", "defense", "space", "robotics"}
+INDUSTRIES = {"semiconductor", "defense", "space", "robotics", "strait"}
 NO_TRADE = {"confirmed_suspension", "zero_daily_no_trade"}
 SYMBOL = re.compile(r"(?:6[0-9]{5}\.SS|[03][0-9]{5}\.SZ)")
 SHA256 = re.compile(r"[a-f0-9]{64}")
@@ -177,7 +177,7 @@ class MinuteStore:
         self.cache = OrderedDict()
         self.interval = settings.get("interval")
         if self.interval not in INTERVALS or settings.get("industry") not in INDUSTRIES:
-            raise MinuteError("分钟回测仅支持四行业及 1/5/15/30/60 分钟")
+            raise MinuteError("分钟回测仅支持已配置行业/题材池及 1/5/15/30/60 分钟")
         if (
             not isinstance(digest, str)
             or not SHA256.fullmatch(digest)

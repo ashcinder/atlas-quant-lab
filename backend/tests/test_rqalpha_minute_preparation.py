@@ -73,6 +73,179 @@ def membership_file(root, symbols=SYMBOLS):
     return file, value
 
 
+def save_membership(file, value):
+    value.pop("digest", None)
+    value["digest"] = hashlib.sha256(prep.canonical_bytes(value)).hexdigest()
+    file.write_bytes(prep.canonical_bytes(value))
+
+
+def strait_record(symbols=("000592.SZ", "300300.SZ", "603122.SS")):
+    return {
+        "symbols": list(symbols),
+        "as_of": "2025-01-02",
+        "published": "2024-10-29",
+        "effective": "2024-10-30",
+        "source": "https://example.test/historical-concept-report",
+        "scope": "historical-theme-research-sample",
+        "partial": True,
+        "selected_on": "2026-11-15",
+        "membership_note": "本次整理的部分研究观察池，不是官方完整成分或无偏训练样本。",
+        "member_evidence": {
+            symbol: {
+                "name": f"合成研究样本 {index}",
+                "basis": "annual-report-business-proxy"
+                if symbol == "603122.SS" else "historical-concept-news",
+                "source": "https://example.test/annual-report"
+                if symbol == "603122.SS" else "https://example.test/historical-concept-report",
+                "published": "2023-03-22" if symbol == "603122.SS" else "2024-10-29",
+            }
+            for index, symbol in enumerate(symbols)
+        },
+    }
+
+
+def test_original_four_pools_remain_valid_and_optional_strait_extends_members(tmp_path):
+    file, value = membership_file(tmp_path)
+    original = copy.deepcopy(value["industries"])
+    assert set(value["industries"]) == prep.INDUSTRIES
+    assert prep.load_membership(file)[1] == SYMBOLS
+    value["industries"]["strait"] = [strait_record()]
+    save_membership(file, value)
+    loaded, symbols = prep.load_membership(file)
+    assert loaded["industries"]["strait"][0]["member_evidence"]["603122.SS"]["basis"] == (
+        "annual-report-business-proxy"
+    )
+    assert symbols == sorted([*SYMBOLS, "000592.SZ", "300300.SZ", "603122.SS"])
+    assert {key: loaded["industries"][key] for key in prep.INDUSTRIES} == original
+    assert prep.load_membership(file, ["300300.SZ"])[1] == ["300300.SZ"]
+
+
+def test_strait_evidence_accepts_exact_text_size_limits(tmp_path):
+    file, value = membership_file(tmp_path)
+    record = strait_record()
+    record["membership_note"] = "x" * 1000
+    record["member_evidence"]["603122.SS"]["name"] = "x" * 80
+    value["industries"]["strait"] = [record]
+    save_membership(file, value)
+    assert "603122.SS" in prep.load_membership(file)[1]
+
+
+@pytest.mark.parametrize("removed", sorted(prep.INDUSTRIES))
+def test_optional_strait_does_not_replace_a_required_original_pool(tmp_path, removed):
+    file, value = membership_file(tmp_path)
+    value["industries"]["strait"] = [strait_record()]
+    del value["industries"][removed]
+    save_membership(file, value)
+    with pytest.raises(ValueError, match="清单"):
+        prep.load_membership(file)
+
+
+@pytest.mark.parametrize("include_strait", [False, True])
+def test_preparation_rejects_unknown_sector_in_four_or_five_pool_manifest(tmp_path, include_strait):
+    file, value = membership_file(tmp_path)
+    if include_strait:
+        value["industries"]["strait"] = [strait_record()]
+    value["industries"]["unapproved-theme"] = copy.deepcopy(value["industries"]["space"])
+    save_membership(file, value)
+    with pytest.raises(ValueError, match="清单"):
+        prep.load_membership(file)
+
+
+@pytest.mark.parametrize("mutation", [
+    "scope", "partial", "selected_before_as_of", "selected_invalid", "published_on_as_of",
+    "effective_after_as_of", "as_of_invalid", "note_empty", "note_oversized", "evidence_missing",
+    "evidence_extra", "evidence_not_object", "item_not_object", "name_empty", "name_oversized",
+    "basis", "evidence_after_record", "evidence_date_invalid", "source_http", "source_credentials",
+    "source_missing_host", "source_whitespace", "source_control", "source_oversized",
+    "source_not_string",
+    "record_source_http", "record_source_credentials",
+])
+def test_strait_evidence_must_be_complete_visible_and_safe(tmp_path, mutation):
+    file, value = membership_file(tmp_path)
+    record = strait_record()
+    item = record["member_evidence"]["603122.SS"]
+    if mutation == "scope":
+        record["scope"] = "official-complete-industry"
+    elif mutation == "partial":
+        record["partial"] = 1
+    elif mutation == "selected_before_as_of":
+        record["selected_on"] = "2024-12-31"
+    elif mutation == "selected_invalid":
+        record["selected_on"] = "not-a-date"
+    elif mutation == "published_on_as_of":
+        record["published"] = record["as_of"]
+    elif mutation == "effective_after_as_of":
+        record["effective"] = "2025-01-03"
+    elif mutation == "as_of_invalid":
+        record["as_of"] = None
+    elif mutation == "note_empty":
+        record["membership_note"] = "  "
+    elif mutation == "note_oversized":
+        record["membership_note"] = "x" * 1001
+    elif mutation == "evidence_missing":
+        del record["member_evidence"]["000592.SZ"]
+    elif mutation == "evidence_extra":
+        record["member_evidence"]["600519.SS"] = item.copy()
+    elif mutation == "evidence_not_object":
+        record["member_evidence"] = []
+    elif mutation == "item_not_object":
+        record["member_evidence"]["603122.SS"] = "not evidence"
+    elif mutation == "name_empty":
+        item["name"] = "\t"
+    elif mutation == "name_oversized":
+        item["name"] = "x" * 81
+    elif mutation == "basis":
+        item["basis"] = "future-leader"
+    elif mutation == "evidence_after_record":
+        item["published"] = "2024-10-30"
+    elif mutation == "evidence_date_invalid":
+        item["published"] = "2024/10/29"
+    elif mutation == "record_source_http":
+        record["source"] = "http://example.test/report"
+    elif mutation == "record_source_credentials":
+        record["source"] = "https://user:secret@example.test/report"
+    else:
+        item["source"] = {
+            "source_http": "http://example.test/report",
+            "source_credentials": "https://user:secret@example.test/report",
+            "source_missing_host": "https:///report",
+            "source_whitespace": "https://example.test/\nreport",
+            "source_control": "https://example.test/" + chr(127) + "report",
+            "source_oversized": "https://example.test/" + "x" * 2048,
+            "source_not_string": None,
+        }[mutation]
+    value["industries"]["strait"] = [record]
+    save_membership(file, value)
+    with pytest.raises((TypeError, ValueError)):
+        prep.load_membership(file)
+
+
+def test_strait_preparation_keeps_original_csv_contract_and_raw_bytes(source_fixture):
+    fixture = source_fixture
+    fixture.members["industries"]["strait"] = [strait_record(SYMBOLS)]
+    save_membership(fixture.membership, fixture.members)
+    before = {
+        file.relative_to(fixture.raw).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in fixture.raw.rglob("*") if file.is_file()
+    }
+    result = prepare(fixture, symbols=SYMBOLS)
+    assert result["membership_sha256"] == fixture.members["digest"]
+    assert set(result["instruments"]) == set(SYMBOLS)
+    assert result["source"]["revision"] == prep.REVISION
+    for chunk in result["files"]:
+        with gzip.open(fixture.published / chunk["path"], "rt", newline="") as stream:
+            reader = csv.DictReader(stream)
+            rows = list(reader)
+            assert tuple(reader.fieldnames) == prep.CSV_FIELDS
+        assert len(rows) == 482
+        assert rows[1]["datetime"] == "20250102093100"
+        assert float(rows[1]["close"]) == 41.10000228881836
+    assert before == {
+        file.relative_to(fixture.raw).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest()
+        for file in fixture.raw.rglob("*") if file.is_file()
+    }
+
+
 def fixture_metadata():
     provenance = {
         "dataset_schema_version": 1,
