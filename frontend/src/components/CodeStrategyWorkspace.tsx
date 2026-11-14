@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bot, Check, CheckCheck, ChevronDown, Code2, Download, FileCode2, FolderArchive, LoaderCircle, Send, ShieldCheck, Square, Upload, WandSparkles, X, Play, MoreHorizontal, Settings2, PanelRightClose, ArrowUpRight, CircleHelp } from 'lucide-react'
 import { request } from '../request'
 import { api } from '../api'
@@ -13,7 +13,7 @@ import './code-strategy.css'
 import './code-workbench.css'
 import { STRATEGY_LANGUAGES, languageForFile, type StrategyLanguage } from './strategy-languages'
 
-const PythonProjectWorkspace = lazy(() => import('./PythonProjectWorkspace'))
+import PythonProjectWorkspace from './PythonProjectWorkspace'
 
 const MAX_CODE = 60_000
 export const PORTABLE_PYTHON_TEMPLATE = `def initialize(context):
@@ -57,16 +57,14 @@ function ValidationDetails({ value,proofApplicable=true }: { value: Validation;p
   </div>
 }
 
-export function CodeStrategyWorkspace({ research, assets = [], onResearchContextChange }: { research?: ResearchWorkspaceProps; assets?: Asset[]; onResearchContextChange?: (asset: Asset, interval: Interval) => void } = {}) {
-  const [projectMode, setProjectMode] = useState(false)
-  const [projectMounted, setProjectMounted] = useState(false)
+export function CodeStrategyWorkspace({ research, assets = [], onResearchContextChange, draftConfiguration }: {
+  research?: ResearchWorkspaceProps
+  assets?: Asset[]
+  onResearchContextChange?: (asset: Asset, interval: Interval) => void
+  draftConfiguration?: ReactNode
+} = {}) {
   const [incomingArchive, setIncomingArchive] = useState<{ file: File } | null>(null)
   const projectInput = useRef<HTMLInputElement>(null)
-  const openProject = () => {
-    toolsMenu.current?.removeAttribute('open')
-    setProjectMounted(true)
-    setProjectMode(true)
-  }
   const [code, setCode] = useState<string>(RUNNABLE_PYTHON_TEMPLATE)
   const portable = /\bdef\s+target\s*\(/.test(code)
   const [codeEngine,setCodeEngine] = useState<'atlas'|'vnpy'|'rqalpha'>('atlas')
@@ -282,24 +280,15 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
     setCursor({ line: lines.length, column: lines.at(-1)!.length + 1 })
   }
 
-  return <>
-    {projectMounted ? <div className="python-project-host" hidden={!projectMode}>
-      <Suspense fallback={<p role="status">正在加载项目工作区…</p>}>
-        <PythonProjectWorkspace onBack={() => setProjectMode(false)} incomingArchive={incomingArchive} />
-      </Suspense>
-    </div> : null}
-    <section hidden={projectMode} className={`code-studio ${assistantOpen ? '' : 'assistant-closed'}`} aria-label="代码策略工作区">
-    {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
-    <header className="code-studio-toolbar">
+  const draftToolbar = <div className="code-studio-toolbar">
       <div className="studio-document-heading"><span className="studio-document-icon"><FileCode2 size={21} /></span><div>
         <input aria-label="代码策略名称" className="code-name" value={name} maxLength={80} onChange={event=>{setName(event.target.value);setDirty(true)}} />
         <span className="code-draft-state"><i className={dirty?'is-dirty':''} />{dirty?'有未下载的修改':'页面草稿'}<span>·</span>{research?.asset?`${research.asset.name} · ${research.interval}`:'策略开发'}</span>
       </div></div>
       <div className="studio-header-actions">
-        <button className="studio-project-toggle" type="button" aria-label="项目文件" title="项目文件" disabled={backtesting} onClick={() => openProject()}><FolderArchive size={16} /><span>项目文件</span></button>
         <details className="code-tools-menu" ref={toolsMenu}><summary aria-label="代码文件与工具"><MoreHorizontal size={17} /><span>文件</span><ChevronDown size={12} /></summary><div>
           <button type="button" onClick={()=>{toolsMenu.current?.removeAttribute('open');fileInput.current?.click()}}><Upload size={15} /><span>导入代码<small>打开本地源码文件</small></span></button>
-          <button type="button" disabled={backtesting} onClick={() => { toolsMenu.current?.removeAttribute('open'); projectInput.current?.click() }}><FolderArchive size={15} /><span>导入 Python 项目<small>ZIP · 选择入口脚本并运行</small></span></button>
+          <button type="button" disabled={backtesting || checking} onClick={() => { toolsMenu.current?.removeAttribute('open'); projectInput.current?.click() }}><FolderArchive size={15} /><span>导入 Python 项目<small>ZIP · 选择入口脚本并运行</small></span></button>
           <button type="button" onClick={()=>{toolsMenu.current?.removeAttribute('open');download()}}><Download size={15} /><span>下载保存<small>保存到自己的设备 · ⌘ / Ctrl S</small></span></button>
           <hr /><p className="studio-menu-label">从示例开始</p>
           <button type="button" disabled={language!=='python'} onClick={()=>loadExample(PORTABLE_PYTHON_TEMPLATE)}><Code2 size={15} /><span>载入通用Python（三框架）<small>函数、循环、状态 · NumPy / pandas</small></span></button>
@@ -309,16 +298,22 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
         <input ref={projectInput} aria-label="导入 Python 项目 ZIP" type="file" accept=".zip,application/zip" hidden onChange={event => {
           const file = event.currentTarget.files?.[0]
           event.currentTarget.value = ''
-          if (file) { setIncomingArchive({ file }); openProject() }
+          if (file) setIncomingArchive({ file })
         }} />
         <button className="studio-download" title="下载源码（⌘ / Ctrl S）" aria-label="下载保存" onClick={download}><Download size={16} /></button>
         <span className="studio-action-divider" />
-        <button className="code-check" title={portable?'检查语法并使用合成行情试跑':language==='python'?'检查语法与执行兼容性':`${languageInfo.label} 编译检查尚未接入`} disabled={checking||backtesting||!code.trim()||language!=='python'} onClick={()=>void check()}>{checking?<LoaderCircle size={15} className="spin"/>:<CheckCheck size={15}/>}检查代码</button>
+        <button className="code-check" aria-label="检查代码" title={portable?'检查语法并使用合成行情试跑':language==='python'?'检查语法与执行兼容性':`${languageInfo.label} 编译检查尚未接入`} disabled={checking||backtesting||!code.trim()||language!=='python'} onClick={()=>void check()}>{checking?<LoaderCircle size={15} className="spin"/>:<CheckCheck size={15}/>}<span>检查代码</span></button>
         {research&&<button className="code-run-primary" type="button" title="使用右侧设置运行当前代码（⌘ / Ctrl Enter）" disabled={!research.asset||backtesting||checking||!code.trim()||language!=='python'} onClick={()=>void runCodeBacktest()}>{backtesting?<LoaderCircle size={15} className="spin"/>:<Play size={15}/>}<span>{backtesting?'回测中…':'运行回测'}</span></button>}
         <button className="studio-inspector-trigger" title="回测设置" aria-label="回测设置" aria-pressed={assistantOpen&&inspectorTab==='backtest'} onClick={()=>showInspector('backtest')} hidden={!research}><Settings2 size={17}/></button>
-        <button className="code-ai-toggle" aria-pressed={assistantOpen&&inspectorTab==='assistant'} onClick={()=>showInspector('assistant')}><WandSparkles size={16}/><span>AI 助手</span></button>
+        <button className="code-ai-toggle" aria-label="AI 助手" aria-pressed={assistantOpen&&inspectorTab==='assistant'} onClick={()=>showInspector('assistant')}><WandSparkles size={16}/><span>AI 助手</span></button>
       </div>
-    </header>
+    </div>
+
+  return <PythonProjectWorkspace draftFilename={`strategy${languageInfo.extensions[0]}`} draftDirty={dirty}
+    draftToolbar={draftToolbar} draftConfiguration={draftConfiguration}
+    incomingArchive={incomingArchive} importDisabled={backtesting || checking} onOpenArchive={() => projectInput.current?.click()}>
+    <section className={`code-studio ${assistantOpen ? '' : 'assistant-closed'}`} aria-label="代码策略工作区">
+    {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
     <div className="code-studio-body">
       <div className="code-editor-panel">
         <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div><select className="studio-language-select" aria-label="策略编程语言" disabled={checking||backtesting} value={language} onChange={event=>switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}</div></div>
@@ -367,5 +362,5 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
     </div>
     {error||notice?<div className="code-studio-feedback">{error?<p role="alert">{error}<button onClick={()=>setError('')} aria-label="关闭错误"><X size={14}/></button></p>:null}{notice?<p role="status">{notice}</p>:null}</div>:null}
   </section>
-  </>
+  </PythonProjectWorkspace>
 }

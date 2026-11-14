@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Code2, LoaderCircle } from 'lucide-react'
+import { LoaderCircle, Settings2 } from 'lucide-react'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import { api } from '../api'
 import type { Asset, Interval, StrategyProject, StrategyProjectCreate } from '../types'
@@ -83,15 +83,17 @@ export function StrategyLabWorkspace({ assets = [], onResearchContextChange, ...
     finally { setPendingProjectRequests((current) => current - 1) }
   }
 
+  const draftConfiguration = <div className="lab-command-bar" aria-label="草稿配置">
+    <div className="lab-code-heading"><Settings2 size={14} /><span>草稿配置</span></div>
+    <StrategyProjectBar codeOnly projects={projects} project={project} asset={researchProps.asset} assets={assets}
+      interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} />
+  </div>
+
   return <div className="strategy-lab-modules">
-    <header className="lab-command-bar">
-      <div className="lab-code-heading"><Code2 size={16} /><span>代码</span></div>
-      <StrategyProjectBar codeOnly projects={projects} project={project} asset={researchProps.asset} assets={assets}
-        interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} />
-    </header>
     <div className="lab-module-content">
       <Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}>
-        <CodeStrategyWorkspace research={researchProps} assets={assets} onResearchContextChange={onResearchContextChange} />
+        <CodeStrategyWorkspace research={researchProps} assets={assets} onResearchContextChange={onResearchContextChange}
+          draftConfiguration={draftConfiguration} />
       </Suspense>
     </div>
   </div>

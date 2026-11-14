@@ -9,6 +9,12 @@ const worker = `
     self.postMessage({kind:'done',project});
     return;
   }
+  if (data.action === 'preview') {
+    py.globals.set('_preview_path',data.path);
+    const preview=JSON.parse(py.runPython('preview_project_file(_preview_path)'));
+    self.postMessage({kind:'done',preview});
+    return;
+  }
   py.globals.set('_edits_json',JSON.stringify(data.edits));
   py.runPython('_edits = json.loads(_edits_json)');
   if (data.action === 'export') {
@@ -41,6 +47,8 @@ export interface PythonProject {
   sources: Record<string, string>
   root: string
 }
+
+export type ProjectFilePreview = { kind: 'text'; text: string; truncated: boolean } | { kind: 'binary' | 'encoding' }
 
 export interface ProjectReport {
   log: string
@@ -78,4 +86,10 @@ export async function exportPythonProject(file: File, edits: Record<string, stri
     if (!(result.archive instanceof ArrayBuffer)) throw new Error('项目 ZIP 格式无效')
     return new Blob([result.archive], { type: 'application/zip' })
   }, signal, worker)
+}
+
+
+export async function previewPythonProjectFile(file: File, path: string, signal: AbortSignal) {
+  const archive = await readArchive(file, signal)
+  return runIsolatedPython({ archive, path, action: 'preview' }, result => result.preview as ProjectFilePreview, signal, worker)
 }

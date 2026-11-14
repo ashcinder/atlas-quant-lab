@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../api'
@@ -5,7 +6,7 @@ import type { Asset, StrategyProject } from '../types'
 import { StrategyLabWorkspace } from './StrategyLabWorkspace'
 
 vi.mock('../api', () => ({ api: { listStrategyProjects: vi.fn(), updateStrategyProject: vi.fn(), searchAssets: vi.fn() } }))
-vi.mock('./CodeStrategyWorkspace', () => ({ CodeStrategyWorkspace: () => <textarea aria-label="代码编辑器" defaultValue="def target_bps(): pass" /> }))
+vi.mock('./CodeStrategyWorkspace', () => ({ CodeStrategyWorkspace: ({ draftConfiguration }: { draftConfiguration?: ReactNode }) => <>{draftConfiguration}<textarea aria-label="代码编辑器" defaultValue="def target_bps(): pass" /></> }))
 vi.mock('./TemplateStrategyWorkspace', () => ({ TemplateStrategyWorkspace: () => { throw new Error('模板不应加载') } }))
 vi.mock('./ExecutionPipelinePanel', () => ({ ExecutionPipelinePanel: () => null }))
 vi.mock('./QuantStrategyStudio', () => ({ QuantStrategyStudio: () => null }))

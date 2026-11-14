@@ -163,9 +163,9 @@ export function StrategyProjectBar({
         {project ? <button aria-label="编辑项目定义" title="编辑项目定义" onClick={event => { event.currentTarget.focus(); openEditor('edit') }}><Pencil size={12} /></button> : null}
       </div>
       {project ? <>
-        <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{codeOnly?'项目定义：':''}{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
+        <div className="project-thesis" title={project.thesis}><span className={`project-stage is-${project.stage}`}>{stageLabel[project.stage]} · r{project.revision}</span><small>{project.asset_symbol} · {project.interval} · {objectiveLabel[project.objective]}</small></div>
         {!codeOnly && <button className="project-gate-button" aria-label={`${passed}/${project.gates.length} 门禁，${project.next_gate ? `待完成：${project.next_gate.label}` : '可发布'}`} title={project.next_gate ? `待完成：${project.next_gate.label}` : '发布门禁已完成'} onClick={() => setGateOpen((open) => !open)}><ShieldCheck size={14} /><span><strong>{passed}/{project.gates.length} 门禁</strong></span><ChevronDown size={11} /></button>}
-      </> : <div className="project-empty-line">{!codeOnly && <CircleAlert size={13} />}<span><strong>{codeOnly ? '本次回测使用右侧设置' : '未创建项目'}</strong></span>{!codeOnly&&<button aria-label="创建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}>创建项目</button>}</div>}
+      </> : !codeOnly ? <div className="project-empty-line"><CircleAlert size={13} /><span><strong>未创建项目</strong></span><button aria-label="创建策略项目" onClick={event => { event.currentTarget.focus(); openEditor('create') }}>创建项目</button></div> : null}
     </section>
 
     {!codeOnly && gateOpen && project ? <aside className="project-gate-popover">

@@ -219,6 +219,7 @@
 .trine-payment-review button:first-of-type { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
 .trine-payment-review button:hover:not(:disabled) { filter:brightness(1.06); }
 .trine-payment-review button:disabled { opacity:.5; cursor:not-allowed; }
+.supervisor-direct:not(.is-balance-card) .supervisor-status-text { display:inline-flex; align-items:center; gap:6px; }
 .supervisor-direct strong { font-size:12px; font-weight:600; }
 .supervisor-direct.is-balance-card { width:100%; margin-bottom:16px; padding:16px; text-align:left; }
 .supervisor-direct.is-balance-card span { display:grid; gap:6px; }

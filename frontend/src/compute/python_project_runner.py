@@ -71,6 +71,30 @@ def inspect_project():
     }, ensure_ascii=False)
 
 
+def preview_project_file(path):
+    limit = 512 * 1024
+    with zipfile.ZipFile("/atlas-project.zip") as archive:
+        files, _, _ = project_files(archive)
+        info = files.get(path)
+        if info is None:
+            raise ValueError("项目中没有此文件")
+        with archive.open(info) as stream:
+            data = stream.read(limit + 1)
+    if b"\x00" in data:
+        return json.dumps({"kind": "binary"})
+    truncated = len(data) > limit
+    if truncated:
+        data = data[:limit]
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        if truncated and error.reason == "unexpected end of data" and error.end == len(data):
+            text = data[:error.start].decode("utf-8-sig")
+        else:
+            return json.dumps({"kind": "encoding"})
+    return json.dumps({"kind": "text", "text": text, "truncated": truncated}, ensure_ascii=False)
+
+
 def updated_files(archive, changes):
     files, _, root = project_files(archive)
     prefix = f"{root}/" if root else ""
