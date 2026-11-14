@@ -144,6 +144,8 @@ export type StrategyLanguage = typeof STRATEGY_LANGUAGES[number]['id']
 export const languageForFile = (name: string) => STRATEGY_LANGUAGES.find((language) => language.extensions.some((extension) => name.toLowerCase().endsWith(extension)))
 
 export const MAX_STRATEGY_SOURCE = 60_000
+export const MAX_BOUNDED_SOURCE = 16_384
+export const sourceBytes = (source: string) => new TextEncoder().encode(source).byteLength
 export const STRATEGY_FILE_ACCEPT = STRATEGY_LANGUAGES.flatMap((language) => [...language.extensions]).join(',')
 
 export async function readStrategyFile(file: File) {

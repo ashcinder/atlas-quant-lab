@@ -2,7 +2,7 @@
 
 DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平台，代码仓库沿用 Atlas Quant Lab 名称。前端使用 React / TypeScript，业务后端使用 FastAPI / SQLite，完整实验室栈另运行 Supervisor 与 MySQL。
 
-本分支包含本机验收通过的 r23 应用源码，采用浏览器计算和独立行情发布器。更新于 2026-11-09。运行方式、验收结果与既有镜像适用范围见[当前状态](docs/CURRENT_STATUS.md)。
+本分支以 r23 应用为基础，包含账号私有策略工作台、A 股多标的接入，以及学术非商用 RQAlpha 日线回测与六标签报告。更新于 2026-11-14；首版本机验收通过不等于正式部署或计算证明。原有部署与镜像范围见[当前状态](docs/CURRENT_STATUS.md)，新增入口见下方指南。
 
 ## 文档入口
 
@@ -15,7 +15,8 @@ DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平�
 | 浏览器计算 | [行情发布、运行租约与作者 Proof](docs/BROWSER_COMPUTE.md) |
 | 历史固定镜像交付 | [基础两镜像](docs/LAB_OFFLINE_DEPLOYMENT.md)、[完整四镜像测试链](docs/LAB_CHAIN_DEPLOYMENT.md) |
 | 测试 | [隔离浏览器验收](tools/e2e/README.md)、[r23 本机验收](docs/testing/comprehensive-20261108/FOLLOWUP.md) |
-| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md) |
+| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md)、[A 股多股策略实验室](docs/LAB_MULTI_PORTFOLIO.md) |
+| 学术米筐日线与回测报告 | [RQAlpha 使用与部署](docs/LAB_MULTI_PORTFOLIO.md#rqalpha-学术非商用日线)、[六标签报告](docs/LAB_MULTI_PORTFOLIO.md#米筐式回测报告) |
 | 交易与付费 | [交易环境](docs/TRADING.md)、[BKC与Proof](docs/TRINE_SERVICE_WORKFLOW.md)、[测试账户](docs/TRINE_TEST_ACCOUNTS.md) |
 | 评分与证据 | [QuantJudge](docs/QUANTJUDGE.md)、[执行与隐私](docs/EXECUTION_TRUST.md)、[ZKP协议](docs/ZKP.md)、[本地代码到Proof](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
 | 结构与产品 | [项目结构](docs/PROJECT_STRUCTURE.md)、[架构](docs/ARCHITECTURE.md)、[产品范围](docs/PRD.md) |

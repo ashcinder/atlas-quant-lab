@@ -1,21 +1,25 @@
 """Run the operator-installed industry strategies against their frozen market data."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from hashlib import sha256
 import json
 import logging
 import os
 from pathlib import Path
 import re
+import sqlite3
 import subprocess
 from tempfile import TemporaryDirectory
 from threading import BoundedSemaphore
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 from app.lab_strategies import require_lab_owner
+from app.compute_objects import ComputeObjects
+from app.config import DB_PATH
 
 PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = PROJECT / ".artifacts/user-strategies/atlas-sector-joint-strategies-20261113"
@@ -95,6 +99,8 @@ class ReplayTrade(BaseModel):
 
 
 class ReplayResult(BaseModel):
+    id: str | None = None
+    created_at: datetime | None = None
     industry: Sector
     start: date
     end: date
@@ -191,6 +197,34 @@ def execute_replay(root: Path, sector: Sector) -> ReplayResult:
 router = APIRouter(prefix="/api/v1/lab-sector-backtests")
 
 
+def open_history():
+    db = sqlite3.connect(DB_PATH, timeout=15)
+    db.row_factory = sqlite3.Row
+    db.execute("""CREATE TABLE IF NOT EXISTS lab_sector_history (
+                    id TEXT PRIMARY KEY, owner TEXT NOT NULL, created_at TEXT NOT NULL,
+                    summary TEXT NOT NULL, digest TEXT NOT NULL
+                 )""")
+    return db
+
+
+@router.get("/history")
+def history(request: Request):
+    owner = require_lab_owner(request)
+    with open_history() as db:
+        return [json.loads(row[0]) for row in db.execute(
+            "SELECT summary FROM lab_sector_history WHERE owner=? ORDER BY created_at DESC LIMIT 50", (owner,))]
+
+
+@router.get("/history/{identifier}")
+def historical_result(identifier: str, request: Request):
+    owner = require_lab_owner(request)
+    with open_history() as db:
+        row = db.execute("SELECT digest FROM lab_sector_history WHERE owner=? AND id=?", (owner, identifier)).fetchone()
+    if row is None:
+        raise HTTPException(404, "行业回放不存在")
+    return ComputeObjects().read("private", row[0])
+
+
 @router.get("")
 def catalog(request: Request):
     require_lab_owner(request)
@@ -203,14 +237,22 @@ def catalog(request: Request):
 
 @router.post("", response_model=ReplayResult)
 def replay(body: ReplayRequest, request: Request):
-    require_lab_owner(request)
+    owner = require_lab_owner(request)
     root = runtime_root()
     if missing_runtime(root, body.industry):
         raise HTTPException(503, UNAVAILABLE)
     if not SLOTS.acquire(blocking=False):
         raise HTTPException(429, "已有行业回测正在运行，请稍后重试。", headers={"Retry-After": "3"})
     try:
-        return execute_replay(root, body.industry)
+        result = execute_replay(root, body.industry)
+        result.id, result.created_at = uuid4().hex, datetime.now(UTC)
+        payload = result.model_dump(mode="json", by_alias=True)
+        digest = ComputeObjects().put("private", payload)
+        summary = {key: payload[key] for key in ("id", "created_at", "industry", "start", "end", "metrics")}
+        with open_history() as db:
+            db.execute("INSERT INTO lab_sector_history VALUES (?,?,?,?,?)",
+                       (result.id, owner, result.created_at.isoformat(), json.dumps(summary), digest))
+        return result
     except subprocess.TimeoutExpired:
         raise HTTPException(504, "行业回测超过 90 秒。请稍后重试。") from None
     except (OSError, ValueError, TypeError, KeyError):

@@ -15,6 +15,15 @@ class Bar:
     low: float
     close: float
     volume: float
+    open_time: datetime | None = None
+    limit_up: float | None = None
+    limit_down: float | None = None
+    reference: float | None = None
+    split_ratio: float = 1.0
+    cash_dividend: float = 0.0
+    research_close: float | None = None
+    daily: Mapping[str, float] | None = None
+    touch_evidence: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +35,7 @@ class PortfolioSnapshot:
     weights: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
     daily_pnl: float = 0.0
     drawdown: float = 0.0
+    sellable: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +46,11 @@ class StrategyContext:
     parameters: Mapping[str, int | float | bool | str]
     run_id: str
     random_seed: int
+    symbols: tuple[str, ...] = ()
+    suspended: tuple[str, ...] = ()
+    session_date: str | None = None
+    fills: tuple[Mapping[str, Any], ...] = ()
+    daily: Mapping[str, Mapping[str, float | None]] = field(default_factory=lambda: MappingProxyType({}))
 
     def history(self, symbol: str, count: int) -> Sequence[Bar]:
         """Return bars available at `now`; a runner must never inject future bars."""

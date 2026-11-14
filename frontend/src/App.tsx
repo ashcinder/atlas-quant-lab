@@ -26,7 +26,7 @@ const QuantJudgeWorkspace = lazy(() => import('./components/QuantJudgeWorkspace'
 const EMPTY_TRADES: BacktestResult['trades'] = []
 
 function initialMode(): WorkspaceMode {
-  const route = window.location.hash.slice(1)
+  const route = window.location.hash.slice(1).split('?')[0]
   return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
 }
 
@@ -162,7 +162,7 @@ export default function App({ ownerId = '' }: { ownerId?: string } = {}) {
     const onHash = (event: HashChangeEvent) => {
       if (guardLabHashChange(event)) return
       trackAtlasHistoryEntry()
-      const route = window.location.hash.slice(1)
+      const route = window.location.hash.slice(1).split('?')[0]
       if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge') setMode(route)
     }
     window.addEventListener('hashchange', onHash)
@@ -172,7 +172,7 @@ export default function App({ ownerId = '' }: { ownerId?: string } = {}) {
   useEffect(() => {
     // The shell owns Proof, trading and journal routes even when this workspace mounts hidden.
     if (window.location.hash.startsWith('#/')) return
-    if (window.location.hash !== `#${mode}`) pushAtlasHash(`#${mode}`)
+    if (window.location.hash.split('?')[0] !== `#${mode}`) pushAtlasHash(`#${mode}`)
     else trackAtlasHistoryEntry()
     document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
   }, [mode])

@@ -4,8 +4,7 @@ import type { LabBacktestSettings } from '../lab-strategy-types'
 import { sourceForAssetClass } from '../storage'
 import type { Asset } from '../types'
 
-const intervals = { '15m': '15 分钟', '1h': '1 小时', '4h': '4 小时', '1d': '日线', '1wk': '周线' } as const
-const intervalLabels: Partial<Record<LabBacktestSettings['interval'], string>> = intervals
+const intervals = { '1m': '1 分钟', '5m': '5 分钟', '15m': '15 分钟', '1h': '1 小时', '4h': '4 小时', '1d': '日线', '1wk': '周线' } satisfies Record<LabBacktestSettings['interval'], string>
 const costs = [
   ['commission_rate', '手续费', 10], ['slippage_rate', '滑点', 10], ['spread_rate', '价差', 10],
   ['max_position', '最大仓位', 100], ['max_participation_rate', '最大成交参与率', 100],
@@ -87,7 +86,7 @@ export function LabRunSettings({ settings }: { settings: LabBacktestSettings }) 
   const time = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN') : '按行情覆盖范围'
   return <dl className="lab-run-settings">
     <div><dt>标的</dt><dd>{settings.symbol}</dd></div>
-    <div><dt>周期</dt><dd>{intervalLabels[settings.interval] ?? settings.interval}</dd></div>
+    <div><dt>周期</dt><dd>{intervals[settings.interval]}</dd></div>
     <div><dt>开始</dt><dd>{time(settings.start)}</dd></div>
     <div><dt>结束</dt><dd>{time(settings.end)}</dd></div>
     <div><dt>行情源</dt><dd>{settings.data_source}</dd></div>

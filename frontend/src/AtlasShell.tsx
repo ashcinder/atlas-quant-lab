@@ -136,7 +136,7 @@ export default function AtlasShell() {
     <Suspense fallback={<div className="atlas-connecting" role="status"><LoaderCircle className="spin" size={24} /><p>正在加载工作区…</p></div>}>
       {proofId !== null && <ProofPage key={proofId} proofId={proofId} />}
       {visited.quant ? <div className="quant-workspace" hidden={workspace !== 'quant' || proofId !== null}><QuantWorkspace ownerId={session.userId} /></div> : null}
-      {visited.trading ? <div hidden={workspace !== 'trading'}><TradingWorkspace /></div> : null}
+      {visited.trading ? <div hidden={workspace !== 'trading'}><TradingWorkspace ownerId={session.userId} /></div> : null}
       {visited.journal ? <div className="journal-root" hidden={workspace !== 'journal'}><JournalWorkspace /><div id="journal-portals" /></div> : null}
     </Suspense>
   </div>

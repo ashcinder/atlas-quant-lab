@@ -142,6 +142,7 @@
 .lab-advanced .lab-settings-grid { padding-top: 6px; }
 .lab-history-table :is(th,td) { padding: 6px 8px; }
 .lab-original-settings code { display: block; overflow-wrap: anywhere; color: var(--muted); }
+.lab-original-settings pre { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .lab-run-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 8px 0; gap: 6px 12px; }
 .lab-run-settings div { display: flex; flex-wrap: wrap; gap: 4px 8px; }
 .lab-run-settings dt { color: var(--muted); }
@@ -166,3 +167,12 @@
   .atlas-shell:has(.quant-workspace:not([hidden]) .mode-research) .atlas-header { width: 56px; height: 64px; }
   .quant-workspace .mode-research .workspace-navigation { padding: 0 4px 0 56px; }
 }
+
+.lab-entry-choice { margin-bottom: 14px; padding: 10px 12px; border: 1px solid var(--border-soft); background: var(--panel); }
+.lab-entry-choice > p { margin-bottom: 8px; color: var(--muted); }
+.lab-stock-pool { display: grid; gap: 8px; margin-bottom: 12px; }
+.lab-pool-symbols { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.lab-pool-symbols li { display: flex; align-items: center; gap: 4px; padding: 2px 5px 2px 8px; border: 1px solid var(--border-soft); border-radius: 5px; }
+.lab-pool-symbols button { min-width: 25px; min-height: 25px; padding: 0; border: 0; color: var(--muted); background: transparent; cursor: pointer; }
+.lab-coverage { margin-top: 10px; }
+.lab-settings-grid textarea { min-width: 0; padding: 6px 8px; background: var(--surface-input); color: var(--text); border: 1px solid var(--border); border-radius: 5px; font: inherit; resize: vertical; }

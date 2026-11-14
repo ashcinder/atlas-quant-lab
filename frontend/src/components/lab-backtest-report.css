@@ -1,0 +1,165 @@
+.lab-report, .lab-report-dialog {
+  --report-strategy: #2a78d6;
+  --report-benchmark: #eb6834;
+  --report-excess: #1baf7a;
+  --report-profit: #a83b48;
+  --report-loss: #147764;
+  --report-surface: #fff;
+  min-width: 0;
+  color: var(--text);
+  background: var(--panel);
+  font-size: .8125rem;
+  font-variant-numeric: tabular-nums;
+}
+:is([data-theme=dark], [data-theme=navy], [data-theme=graphite], [data-theme=forest]) :is(.lab-report, .lab-report-dialog) {
+  --report-strategy: #3987e5;
+  --report-benchmark: #d95926;
+  --report-excess: #199e70;
+  --report-profit: #f39ba2;
+  --report-loss: #63cbb4;
+  --report-surface: #121c28;
+}
+.lab-workbench :is(.lab-report, .lab-report-dialog) :is(button, input, select) {
+  min-height: 32px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-input, var(--panel));
+  color: var(--text);
+  font: inherit;
+}
+.lab-workbench :is(.lab-report, .lab-report-dialog) button { padding: 5px 10px; cursor: pointer; }
+.lab-workbench :is(.lab-report, .lab-report-dialog) button:hover:not(:disabled) { background: var(--surface-hover, var(--panel-raised)); }
+.lab-workbench :is(.lab-report, .lab-report-dialog) button:disabled { cursor: not-allowed; opacity: .5; }
+.lab-workbench :is(.lab-report, .lab-report-dialog) :is(button, input, select, summary, svg, [tabindex]):focus-visible { outline: 2px solid var(--report-strategy); outline-offset: 2px; }
+.lab-report-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 10px; padding: 5px 0 9px; }
+.lab-report-heading h3 { margin: 0 0 5px; font-size: 1rem; font-weight: 650; }
+.lab-report-heading p { color: var(--muted); }
+.lab-report-unverified { display: inline-block; padding: 3px 7px; border: 1px solid var(--border); color: var(--muted); border-radius: 3px; white-space: nowrap; font-size: .75rem; }
+.lab-report-run-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; color: var(--muted); font-size: .75rem; }
+.lab-report-toolbar, .lab-report-overview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 9px 0; }
+.lab-report-note { color: var(--muted); font-size: .75rem; line-height: 1.6; margin: 7px 0 !important; }
+.lab-report > progress { width: 100%; height: 6px; margin: 8px 0; accent-color: var(--report-strategy); }
+.lab-report-error { padding: 10px 12px; margin: 8px 0 !important; background: var(--negative-soft); color: var(--negative); border: 1px solid var(--border); overflow-wrap: anywhere; }
+.lab-report-error button { margin-top: 7px; }
+.lab-report-notice { padding: 9px 12px; margin: 8px 0 !important; background: var(--panel-raised); border-left: 2px solid var(--report-strategy); color: var(--muted); line-height: 1.6; }
+.lab-report-tabs { display: flex; min-width: 0; max-width: 100%; overflow-x: auto; border-bottom: 1px solid var(--border); margin-top: 12px; scrollbar-width: thin; }
+.lab-workbench .lab-report-tabs > button { flex: 1 0 96px; min-height: 38px; border: 0; border-radius: 0; border-bottom: 2px solid transparent; background: transparent; white-space: nowrap; padding: 8px 12px; }
+.lab-workbench .lab-report-tabs > button[aria-selected=true] { color: var(--report-strategy); border-bottom-color: var(--report-strategy); font-weight: 650; }
+.lab-report-panel { min-width: 0; padding: 15px 0 5px; }
+.lab-report-empty { display: grid; gap: 9px; min-height: 140px; align-content: center; justify-items: start; padding: 20px 14px; color: var(--muted); line-height: 1.65; }
+.lab-report-empty h3 { margin: 0; color: var(--text); }
+.lab-report-section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.lab-report-section-heading h3 { font-size: .875rem; margin: 0; }
+.lab-report-section-heading :is(small, span) { color: var(--muted); font-size: .75rem; font-weight: 400; }
+.lab-report-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-bottom: 1px solid var(--border-soft); }
+.lab-report-metrics > div { min-width: 0; padding: 12px 10px 13px 0; }
+.lab-report-metrics dt { font-size: .75rem; color: var(--muted); line-height: 1.4; min-height: 2.8em; }
+.lab-report-metrics dd { margin: 4px 0 0; font-size: .9375rem; font-weight: 550; line-height: 1.45; }
+.lab-report-metrics dd small { display: block; color: var(--muted); font-weight: 400; font-size: .6875rem; overflow-wrap: anywhere; }
+.lab-report-conventions { margin: 14px 0 0; }
+.lab-report :is(summary, .lab-report-conventions summary) { width: fit-content; padding: 6px 0; color: var(--accent); cursor: pointer; }
+.lab-report :is(.lab-report-snapshot, .lab-report-conventions) dl { display: grid; gap: 5px; margin: 10px 0; }
+.lab-report :is(.lab-report-snapshot, .lab-report-conventions) dl > div { display: grid; grid-template-columns: minmax(110px, 180px) minmax(0, 1fr); gap: 8px; }
+.lab-report :is(.lab-report-snapshot, .lab-report-conventions) dt { color: var(--muted); }
+.lab-report :is(.lab-report-snapshot, .lab-report-conventions) dd { margin: 0; overflow-wrap: anywhere; }
+.lab-report-snapshot { border-top: 1px solid var(--border-soft); margin-top: 12px; padding-top: 5px; }
+.lab-report :is(pre, code), .lab-report-dialog :is(pre, code) { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .75rem; }
+.lab-report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; margin: 0 0 10px; }
+.lab-report-filters > label, .lab-report-pagination label, .lab-report-range label { display: grid; gap: 4px; color: var(--muted); font-size: .75rem; min-width: 0; }
+.lab-report-filters :is(input, select), .lab-report-pagination select { padding: 4px 7px; min-width: 0; }
+.lab-report-filters input[type=search] { width: 150px; }
+.lab-workbench .lab-report .lab-report-checkbox { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; color: var(--muted); font-size: .75rem; }
+.lab-workbench .lab-report input:is([type=checkbox],[type=radio]) { width: 14px; min-height: 14px; height: 14px; margin: 0; accent-color: var(--report-strategy); }
+.lab-report-levels, .lab-report-scale { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.lab-report-levels { margin-bottom: 10px; }
+.lab-report-levels legend, .lab-report-scale legend { color: var(--muted); font-size: .75rem; padding: 0; margin-bottom: 5px; }
+.lab-report-levels label, .lab-report-scale label { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; }
+.lab-report-column-choice { margin-bottom: 5px; }
+.lab-report-table-scroll { max-width: 100%; min-width: 0; overflow: auto; max-height: 560px; border: 1px solid var(--border-soft); overscroll-behavior: contain; }
+.lab-report-table-scroll.is-loading { opacity: .55; }
+.lab-report table { width: 100%; border-collapse: collapse; font-size: .75rem; text-align: left; }
+.lab-report table caption { text-align: left; padding: 8px 10px; font-size: .75rem; color: var(--muted); }
+.lab-report :is(td, th) { padding: 8px 10px; border-bottom: 1px solid var(--border-soft); white-space: nowrap; }
+.lab-report th { font-weight: 550; }
+.lab-report thead th { position: sticky; top: 0; z-index: 1; color: var(--muted); background: var(--panel-raised); }
+.lab-report tbody tr:last-child :is(td, th) { border-bottom: 0; }
+.lab-report .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.lab-report tbody tr:hover { background: var(--surface-hover, var(--panel-raised)); }
+.lab-report .is-positive { color: var(--report-profit); }
+.lab-report .is-negative { color: var(--report-loss); }
+.lab-report-conventions td { min-width: 150px; white-space: normal; line-height: 1.5; }
+.lab-report-conventions td:nth-child(2) { min-width: 250px; }
+.lab-report-log-table td:last-child { width: 100%; min-width: 260px; white-space: normal; }
+.lab-report-log-table pre { margin: 0; line-height: 1.6; }
+.lab-report-log-level { font-size: .6875rem; letter-spacing: .03em; padding: 2px 4px; border: 1px solid var(--border); }
+.lab-report-log-level.level-error { color: var(--negative); background: var(--negative-soft); }
+.lab-report-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: 8px; padding: 10px 0 0; color: var(--muted); font-size: .75rem; }
+.lab-report-pagination > span { margin-right: auto; }
+.lab-report-pagination label { grid-auto-flow: column; align-items: center; }
+.lab-report-dialog { width: min(780px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 40px); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 6px; overflow: auto; color: var(--text); background: var(--panel); }
+.lab-report-dialog::backdrop { background: rgb(10 18 28 / .48); }
+.lab-report-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 16px; }
+.lab-report-dialog > header h2 { font-size: 1rem; margin: 0; }
+.lab-report-dialog-full { width: min(1480px, calc(100vw - 32px)); }
+.lab-report-dialog-full > .lab-report { padding: 18px 22px; }
+.lab-report-dialog-full .lab-report-metrics { grid-template-columns: repeat(10, minmax(0, 1fr)); }
+.lab-report-modal-body { padding: 16px; display: grid; gap: 12px; }
+.lab-report-source { max-height: 65dvh; overflow: auto; padding: 14px; background: var(--bg); border: 1px solid var(--border-soft); margin: 0; tab-size: 4; }
+.lab-report-charts { padding-top: 10px; }
+.lab-report-charts figure { min-width: 0; margin: 10px 0; }
+.lab-report-charts figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-weight: 550; margin-bottom: 3px; }
+.lab-report-charts figcaption span { color: var(--muted); font-size: .6875rem; font-weight: 400; }
+.lab-report-charts svg { display: block; width: 100%; height: 150px; touch-action: pan-y; background: var(--panel); overflow: visible; }
+.lab-report-charts figure:first-of-type svg { height: 222px; }
+.lab-plot-grid line { stroke: var(--border-soft); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lab-report-charts svg text { fill: var(--muted); font: 11px ui-sans-serif, system-ui, sans-serif; }
+.lab-plot-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.lab-plot-line.strategy { stroke: var(--report-strategy); }
+.lab-plot-line.benchmark { stroke: var(--report-benchmark); }
+.lab-plot-line.excess { stroke: var(--report-excess); }
+.lab-plot-marker { stroke: var(--panel); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.lab-plot-marker.strategy { fill: var(--report-strategy); }
+.lab-plot-marker.benchmark { fill: var(--report-benchmark); }
+.lab-plot-marker.excess { fill: var(--report-excess); }
+.lab-plot-bar.buy, .lab-plot-pattern.buy { fill: var(--report-strategy); }
+.lab-plot-bar.sell, .lab-plot-pattern.sell { fill: var(--report-benchmark); }
+.lab-plot-bar.gain, .lab-plot-pattern.gain { fill: var(--report-profit); }
+.lab-plot-bar.loss, .lab-plot-pattern.loss { fill: var(--report-loss); }
+.lab-plot-pattern-ink { stroke: var(--panel); stroke-width: 1.4; }
+.lab-plot-crosshair { stroke: var(--text); stroke-width: 1; opacity: .55; vector-effect: non-scaling-stroke; pointer-events: none; }
+.lab-plot-zero { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.lab-plot-drawdown { fill: var(--report-benchmark); opacity: .08; pointer-events: none; }
+.lab-report-chart-legend, .lab-report-end-labels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; color: var(--text); font-size: .6875rem; }
+.lab-report-chart-legend > span, .lab-report-end-labels > span { display: inline-flex; align-items: center; gap: 5px; }
+.lab-report :is(.lab-report-chart-legend, .lab-report-end-labels) i { width: 18px; height: 0; border-top: 2px solid; display: inline-block; }
+.lab-report :is(.lab-report-chart-legend, .lab-report-end-labels) i.strategy { border-color: var(--report-strategy); }
+.lab-report :is(.lab-report-chart-legend, .lab-report-end-labels) i.benchmark { border-color: var(--report-benchmark); border-top-style: dashed; }
+.lab-report :is(.lab-report-chart-legend, .lab-report-end-labels) i.excess { border-color: var(--report-excess); border-top-style: dotted; }
+.lab-report-readout { display: flex; flex-wrap: wrap; gap: 5px 14px; padding: 9px 10px; min-height: 35px; border: 1px solid var(--border-soft); color: var(--muted); background: var(--panel-raised); font-size: .6875rem; }
+.lab-report-readout strong { color: var(--text); }
+.lab-report-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
+.lab-report-range input { width: 100%; accent-color: var(--report-strategy); }
+.lab-report-chart-table { margin-top: 12px; }
+@media (max-width: 1000px) {
+  .lab-report-dialog-full .lab-report-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .lab-report-metrics, .lab-report-dialog-full .lab-report-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lab-report-metrics dt { font-size: .6875rem; }
+  .lab-report-metrics dd { font-size: .8125rem; }
+  .lab-report-dialog-full > .lab-report { padding: 12px; }
+  .lab-report-dialog { max-width: calc(100vw - 12px); width: calc(100vw - 12px); max-height: calc(100dvh - 12px); }
+  .lab-report-filters > label:not(.lab-report-checkbox) { flex: 1 1 130px; }
+  .lab-report-filters input { width: 100%; }
+  .lab-report :is(.lab-report-snapshot, .lab-report-conventions) dl > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .lab-report-charts svg { height: 132px; }
+  .lab-report-charts figure:first-of-type svg { height: 185px; }
+}
+@media (prefers-reduced-motion: reduce) { .lab-report * { scroll-behavior: auto; transition: none; } }
+@media (forced-colors: active) {
+  .lab-plot-line, .lab-plot-crosshair, .lab-plot-zero { stroke: CanvasText; }
+  .lab-plot-marker, .lab-plot-bar { fill: CanvasText; }
+  .lab-plot-line.benchmark { stroke-dasharray: 7 4; }
+  .lab-plot-line.excess { stroke-dasharray: 2 4; }
+}

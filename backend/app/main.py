@@ -55,6 +55,7 @@ from app.research import ResearchService
 from app.bkc_payments import bkc_router
 from app.storage import RunStore
 from app.lab_strategies import LAB_OWNER_HEADER, LabStrategyStore, lab_strategy_router
+from app.lab_portfolio import LabPortfolioStore, portfolio_router
 from app.sector_backtests import router as sector_backtest_router
 from app.strategies import list_strategies
 from app.strategy_projects import (
@@ -116,6 +117,7 @@ strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
 manual_trade_sync_scheduler = ManualTradeSyncScheduler()
 cloud_proof_service = CloudProofService(strategy_runtime_store, run_store, zk_proof_store)
 market_publications = MarketPublication()
+lab_portfolio_store = LabPortfolioStore(lab_strategy_store, strategy_runtime_store, market_publications)
 strategy_runtime_store.publications = market_publications
 private_compute = PrivateCompute(strategy_runtime_store, market_publications)
 strategy_runtime_store.private_compute = private_compute
@@ -124,6 +126,7 @@ public_artifacts = PublicArtifacts(quantjudge_store, zk_proof_store, market_publ
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    lab_portfolio_store.start()
     cloud_proof_service.start()
     if not browser_compute_enabled():
         alert_monitor.start()
@@ -132,6 +135,7 @@ async def lifespan(_: FastAPI):
         strategy_runtime_scheduler.start()
     manual_trade_sync_scheduler.start()
     yield
+    lab_portfolio_store.stop()
     cloud_proof_service.stop()
     manual_trade_sync_scheduler.stop()
     strategy_runtime_scheduler.stop()
@@ -160,6 +164,7 @@ app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
 app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store, lab_strategy_store))
 app.include_router(lab_strategy_router(lab_strategy_store, run_store))
+app.include_router(portfolio_router(lab_portfolio_store))
 app.include_router(sector_backtest_router)
 app.include_router(public_artifact_router(public_artifacts))
 app.add_middleware(

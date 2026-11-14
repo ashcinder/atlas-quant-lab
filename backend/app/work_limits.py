@@ -35,6 +35,8 @@ def expensive_request(method: str, path: str) -> bool:
         "/api/v1/backtests", "/api/v1/portfolio/backtests",
         "/api/v1/strategy-code/assist", "/api/v1/ai-settings/test",
         "/api/v1/lab-sector-backtests",
+        "/api/v1/lab-multi/inspect", "/api/v1/lab-multi/check", "/api/v1/lab-multi/preflight",
+        "/api/v1/lab-multi/jobs", "/api/v1/lab-multi/runs",
     }:
         return True
     patterns = (

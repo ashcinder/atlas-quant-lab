@@ -11,20 +11,24 @@ export function PublishedStrategyRows({query='',hideUnverified=false,selectedId,
  const visible=hideUnverified?[]:items.filter(r=>!r.proof_id&&r.name.toLowerCase().includes(query.toLowerCase()))
  useEffect(()=>onCount?.(visible.length),[visible.length,onCount])
  return <>{error&&<p role="alert">策略版本读取失败：{error}</p>}{visible.map(r=><div role="button" tabIndex={0} key={r.id} className={`qj-agent-row ${selectedId===r.id?'is-selected':''}`} onClick={()=>onSelect(r)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(r)}}}>
- <span className="qj-agent-name"><b>—</b><span><strong>{r.name}</strong><small>v{r.version} · {r.owned?'我开发的策略':'公开策略'}</small></span><span className="qj-agent-evidence"><em>{r.proof_status==='proving'||r.proof_status==='queued'?'Proof 生成中':r.published?'无 ZKP 验证':'私有草稿'}</em></span></span>
+ <span className="qj-agent-name"><b>—</b><span><strong>{r.name}</strong><small>v{r.version} · {r.owned?'我的运行版本':'公开策略'}</small></span><span className="qj-agent-evidence"><em>{r.proof_status==='proving'||r.proof_status==='queued'?'Proof 生成中':r.published?'无 ZKP 验证':'私有运行版本'}</em></span></span>
  <span className="trine-no-report">等待收益报告</span><strong>—</strong><strong>—</strong><strong>—</strong><span className="qj-score"><span><b>—</b><small>未排名</small></span><ChevronRight size={15}/></span></div>)}</>
 }
 export function ReleaseMarketDetail({release,compact=false}:{release:StrategyRelease;compact?:boolean}) {
  const [subscriptions,setSubscriptions]=useState<StrategySubscription[]>([])
  const [error,setError]=useState('')
+ const multi=release.source_kind==='multi_python'
+ const entitlement=release.owned||subscriptions.some(item=>item.release_id===release.id&&item.status==='active')
  const [published,setPublished]=useState(release.published)
  const refresh=()=>{void request<StrategySubscription[]>('/strategy-subscriptions').then(setSubscriptions).catch(e=>setError(e.message));window.dispatchEvent(new Event(RUNTIME_CHANGED_EVENT))}
  useEffect(()=>{void request<StrategySubscription[]>('/strategy-subscriptions').then(setSubscriptions).catch(e=>setError(e.message))},[release.id])
  return <section className="trine-release-detail">{!compact&&<header><small>策略版本 · v{release.version}</small><h3>{release.name}</h3><span className="trine-evidence-label">{release.proof_id?'ZKP 报告':release.proof_status==='proving'||release.proof_status==='queued'?'Proof 生成中':'无 ZKP 验证'}</span></header>}
  {!compact&&<p>{release.description||'此版本尚无公开收益报告。收益与评分将在报告提交后显示。'}</p>}
- <dl><div><dt>适用市场</dt><dd>{release.markets.join(' / ')}</dd></div><div><dt>版本指纹</dt><dd><code>{release.content_hash}</code></dd></div></dl>
+ <dl><div><dt>适用市场</dt><dd>{multi?'A 股 · 多标的模拟':release.markets.join(' / ')}</dd></div><div><dt>版本指纹</dt><dd><code>{release.content_hash}</code></dd></div>{release.owned&&<div><dt>来源</dt><dd>{release.lab_strategy_id?`草稿修订 ${release.lab_revision ?? '—'}`:'来源未关联'}</dd></div>}</dl>
+ {release.owned&&release.lab_strategy_id&&<div className="lab-command-actions"><a href={`#research?strategy=${encodeURIComponent(release.lab_strategy_id)}`}>查看原草稿</a><a href={`#research?copy=${encodeURIComponent(release.id)}`}>从此版本创建草稿</a></div>}
+ {multi&&entitlement&&<a href={`#/trading?release=${encodeURIComponent(release.id)}`}>配置平台模拟</a>}
  {published?<BkcSubscription releaseId={release.id} owned={release.owned} subscribed={subscriptions.some(s=>s.release_id===release.id&&s.status==='active')} onChanged={refresh}/>:release.owned&&<button onClick={()=>void request(`/strategy-releases/${release.id}/publish`,{method:'POST'}).then(()=>{setPublished(true);refresh()}).catch(e=>setError(e.message))}>公开此版本</button>}
- {release.proof_id?<a className="qj-proof-link" href={`#/proof/${release.proof_id}`}>验证 Proof ↗</a>:release.owned&&<CloudProofControl releaseId={release.id} sourceKind={release.source_kind}/>}
+ {release.proof_id?<a className="qj-proof-link" href={`#/proof/${release.proof_id}`}>验证 Proof ↗</a>:release.owned&&!multi&&<CloudProofControl releaseId={release.id} sourceKind={release.source_kind}/>}
  <StrategyAnchorPanel releaseId={release.id} owned={release.owned} hasProof={!!release.proof_id}/>{error&&<p role="alert">{error}</p>}</section>
 }
 export function ProofReleaseDetail({proofId}:{proofId?:string|null}) {

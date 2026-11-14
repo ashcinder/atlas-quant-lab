@@ -221,10 +221,13 @@ export type RuntimeEnvironment = 'platform_sim' | 'exchange_test' | 'live'
 export interface StrategyRelease {
   proof_status?: string; proof_id?: string
   runner_public_key?: string; code_commitment?: string
-  execution_mode?: "candles" | "quote_probe" | "private_runner"
-  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner' | 'python'
+  execution_mode?: "candles" | "quote_probe" | "private_runner" | "portfolio_sim"
+  published?: boolean; id: string; name: string; version: number; source_kind: 'builtin' | 'custom' | 'private_runner' | 'python' | 'multi_python'
   strategy_id: string; markets: RuntimeMarket[]; description: string; content_hash: string
   params?: Record<string, unknown>; custom_strategy?: CustomStrategySpec | null; owned: boolean; created_at: string
+  lab_strategy_id?: string | null; lab_revision?: number | null; lab_run_id?: string | null
+  symbols?: string[]; interval?: '1d' | '15m'; universe?: string | null
+  initial_capital?: number; commission_rate?: number; slippage_rate?: number
 }
 export interface StrategySubscription {
   id: string; release_id: string; name: string; version: number; markets: RuntimeMarket[]
@@ -254,7 +257,7 @@ export interface StrategyRun {
   compute?: ComputeProvenance
   demand_until?: number
   browser_connected?: boolean
-  execution_mode?: "candles" | "quote_probe" | "private_runner"
+  execution_mode?: "candles" | "quote_probe" | "private_runner" | "portfolio_sim"
   valuation_at?: number | null; valuation_status?: 'missing' | 'incomplete' | 'update_failed' | 'recorded'; behavior_check?: BehaviorCheck
   commission_rate?: string; slippage_rate?: string; behavior_position_limit_bps?: number | null
   demo_auto?: string;
@@ -278,7 +281,7 @@ export interface TradingLedgerSnapshot {
   manual_accounts?: Array<{ id: string; name: string; currency: string }>
   accounts: RuntimeAccount[]; runs: StrategyRun[]
   totals: Record<string, { environment: RuntimeEnvironment; currency: string; equity: string; cash: string; profit: string; valuation_complete?: boolean }>
-  positions: Array<{ run_id: string; account_id: string; strategy_name: string; strategy_version: number; market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; quantity: string; average_cost: string; mark_price: string | null; market_value: string; unrealized_pnl: string | null }>
+  positions: Array<{ run_id: string; account_id: string; strategy_name: string; strategy_version: number; market: RuntimeMarket; environment: RuntimeEnvironment; symbol: string; quantity: string; average_cost: string | null; mark_price: string | null; market_value: string | null; unrealized_pnl: string | null }>
   fills: RuntimeFill[]; limit: number; offset: number
 }
 

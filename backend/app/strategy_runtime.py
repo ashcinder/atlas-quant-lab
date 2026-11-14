@@ -73,9 +73,15 @@ class ReleaseCreate(BaseModel):
     execution_mode: Literal["candles", "quote_probe", "private_runner"] = "candles"
     runner_public_key: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     code_commitment: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    lab_strategy_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    lab_revision: int | None = Field(default=None, ge=1)
+    lab_run_id: str | None = Field(default=None, max_length=64)
 
     @model_validator(mode="after")
     def valid_source(self):
+        if any(value is not None for value in (self.lab_strategy_id, self.lab_revision, self.lab_run_id)):
+            if self.source_kind != "python" or not self.lab_strategy_id or self.lab_revision is None:
+                raise ValueError("运行版本的草稿关联必须指定 Python 草稿和修订")
         if self.source_kind == "python":
             if (
                 not self.python_source or self.params or self.execution_mode != "candles"
@@ -351,11 +357,55 @@ class StrategyRuntimeStore:
             }
         if request.source_visibility == "public":
             snapshot["source_visibility"] = "public"
-        canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        digest = hashlib.sha256(canonical.encode()).hexdigest()
         key = f"{request.source_kind}:{request.strategy_id}"
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if request.lab_strategy_id:
+                draft = connection.execute("SELECT * FROM lab_strategies WHERE id=? AND owner_id=?",
+                                           (request.lab_strategy_id, owner)).fetchone()
+                if (draft is None or draft["kind"] != "single_bounded" or draft["language"] != "python"
+                        or draft["revision"] != request.lab_revision or draft["source"] != request.python_source):
+                    raise HTTPException(409, "运行版本必须使用当前已保存的单标的 Python 草稿")
+                settings = json.loads(draft["settings"])
+                if request.lab_run_id:
+                    run = connection.execute("""SELECT request_json FROM backtest_runs
+                                               WHERE id=? AND owner_id=? AND lab_strategy_id=?""",
+                                             (request.lab_run_id, owner, draft["id"])).fetchone()
+                    saved = json.loads(run[0]).get("lab_snapshot", {}) if run else {}
+                    if (saved.get("settings") != settings
+                            or saved.get("source_sha256") != hashlib.sha256(request.python_source.encode()).hexdigest()):
+                        raise HTTPException(409, "回测快照与当前草稿不一致")
+                key = f"python:{draft['id']}"
+                snapshot.update(lab_strategy_id=draft["id"], lab_revision=draft["revision"],
+                                lab_settings=settings, lab_run_id=request.lab_run_id)
+            return self._insert_release(connection, owner, key, request.name, request.source_kind,
+                                        request.strategy_id, request.markets, request.description,
+                                        request.published, snapshot)
+
+    def create_lab_portfolio_release(self, owner, job, snapshot):
+        if snapshot.get("settings", {}).get("engine_id", "atlas_portfolio") != "atlas_portfolio":
+            raise HTTPException(422, "此回测引擎暂不支持发布为平台持续模拟版本")
+        key = f"multi_python:{job['strategy_id']}"
+        snapshot = {**snapshot, "execution_mode": "portfolio_sim", "lab_strategy_id": job["strategy_id"],
+                    "lab_revision": job["revision"], "lab_run_id": job["id"]}
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current = connection.execute("SELECT revision FROM lab_strategies WHERE id=? AND owner_id=?",
+                                         (job["strategy_id"], owner)).fetchone()
+            if current is None or current[0] != job["revision"]:
+                raise HTTPException(409, "草稿已更新，请重新回测后创建版本")
+            return self._insert_release(connection, owner, key, snapshot["name"], "multi_python",
+                                        "lab_portfolio", ["CN"], "A 股多股 Python · 平台模拟", False, snapshot)
+
+    def _insert_release(self, connection, owner, key, name, source_kind, strategy_id, markets,
+                        description, published, snapshot):
+        canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(canonical.encode()).hexdigest()
+        row = connection.execute(
+            "SELECT * FROM strategy_releases WHERE owner_id=? AND strategy_key=? AND content_hash=? ORDER BY version DESC LIMIT 1",
+            (owner, key, digest),
+        ).fetchone() if snapshot.get("lab_strategy_id") else None
+        if row is None:
             version = connection.execute(
                 "SELECT COALESCE(MAX(version),0)+1 FROM strategy_releases "
                 "WHERE owner_id=? AND strategy_key=?",
@@ -370,26 +420,38 @@ class StrategyRuntimeStore:
                     identifier,
                     owner,
                     key,
-                    request.name,
+                    name,
                     version,
-                    request.source_kind,
-                    request.strategy_id,
+                    source_kind,
+                    strategy_id,
                     canonical,
-                    json.dumps(request.markets),
-                    request.description,
+                    json.dumps(markets),
+                    description,
                     digest,
                     _iso(),
-                    int(request.published),
+                    int(published),
                 ),
             )
             row = connection.execute(
                 "SELECT * FROM strategy_releases WHERE id=?", (identifier,)
             ).fetchone()
         result = self._release(row)
+        self._lab_release_fields(result, snapshot)
         result["owned"] = True
         result.pop("owner_id", None)
         result.pop("strategy_key", None)
         return result
+
+    @staticmethod
+    def _lab_release_fields(result, snapshot):
+        for field in ("lab_strategy_id", "lab_revision", "lab_run_id"):
+            if snapshot.get(field) is not None:
+                result[field] = snapshot[field]
+        if result["source_kind"] == "multi_python":
+            settings = snapshot["settings"]
+            result.update(symbols=settings["symbols"], interval=settings["interval"],
+                          initial_capital=settings["initial_capital"], commission_rate=settings["commission_rate"],
+                          slippage_rate=settings["slippage_rate"])
 
     def publish_release(self, owner: str, identifier: str):
         with self._connect() as connection:
@@ -417,6 +479,11 @@ class StrategyRuntimeStore:
         for row in rows:
             item = self._release(row)
             item["owned"] = row["owner_id"] == owner
+            if item["owned"] or item["source_kind"] == "multi_python":
+                snapshot = json.loads(row["snapshot"])
+                self._lab_release_fields(item, snapshot if item["owned"] else {
+                    "settings": snapshot["settings"],
+                })
             if not item["owned"]:
                 item.pop("params", None)
                 item.pop("custom_strategy", None)
@@ -435,7 +502,8 @@ class StrategyRuntimeStore:
             release=self._release_for(conn,identifier)
             subscribed=conn.execute("SELECT 1 FROM strategy_subscriptions WHERE owner_id=? AND release_id=? AND status='active'",(owner,identifier)).fetchone()
             if release['owner_id']!=owner and not subscribed: raise HTTPException(403,'只能回测自己开发或已订阅的策略')
-            if release['source_kind']=='private_runner': raise HTTPException(422,'私有执行策略无法在平台回测')
+            if release['source_kind'] in ('private_runner', 'multi_python'):
+                raise HTTPException(422, '此版本不支持单标的回测入口')
             return release['strategy_id'],json.loads(release['snapshot'])
 
     def _release_for(self, connection, identifier: str):
@@ -804,6 +872,8 @@ class StrategyRuntimeStore:
         self._ensure_accounts(owner)
         with self._connect() as connection:
             release = self._release_for(connection, request.release_id)
+            if release["source_kind"] == "multi_python":
+                raise HTTPException(422, "多股版本请使用 A 股多股模拟入口")
             execution_mode = json.loads(release["snapshot"]).get("execution_mode", "candles")
             if request.behavior_position_limit_bps is not None and (
                 request.environment != "platform_sim" or execution_mode != "candles"
@@ -1774,7 +1844,25 @@ class StrategyRuntimeStore:
                         f.external_trade_id,f.symbol,'CRYPTO',f.account_id,NULL,
                         '人工订单',NULL,f.order_id
                  FROM platform_manual_fills f
-                 ) AS records WHERE owner_id=?"""
+                 """
+        with self._connect() as connection:
+            multi_available = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='lab_multi_runs'"
+            ).fetchone() is not None
+        if multi_available:
+            sql += """
+                 UNION ALL
+                 SELECT 'multi_'||r.id||'_'||f.event_time||'_'||f.sequence,r.owner,r.id,NULL,
+                        json_extract(f.payload,'$.side'),CAST(json_extract(f.payload,'$.quantity') AS TEXT),
+                        CAST(json_extract(f.payload,'$.price') AS TEXT),CAST(json_extract(f.payload,'$.fee') AS TEXT),
+                        'CNY',CAST(json_extract(f.payload,'$.realized_pnl') AS TEXT),'platform_sim',
+                        strftime('%Y-%m-%dT%H:%M:%S',json_extract(f.payload,'$.time'),'unixepoch')||'+00:00',
+                        NULL,json_extract(f.payload,'$.symbol'),'CN',r.id,r.release_id,s.name,s.version,
+                        'multi_order_'||r.id||'_'||f.event_time||'_'||f.sequence
+                 FROM lab_multi_trades f JOIN lab_multi_runs r ON r.id=f.run_id
+                 JOIN strategy_releases s ON s.id=r.release_id
+            """
+        sql += ") AS records WHERE owner_id=?"
         args: list[Any] = [owner]
         for clause, value in (
             ("market", market),
@@ -1798,6 +1886,11 @@ class StrategyRuntimeStore:
             fills = [dict(row) for row in connection.execute(sql, args)]
             accounts = self.list_accounts(owner)
             runs = self.list_runs(owner, market, environment)
+            multi_positions = []
+            if multi_available and market in (None, "CN") and environment in (None, "platform_sim"):
+                multi_accounts, multi_runs, multi_positions = self._portfolio_ledger(connection, owner)
+                accounts.extend(multi_accounts)
+                runs.extend(multi_runs)
         for fill in fills:
             fill["pnl_currency"] = (
                 fill["symbol"].rsplit("-", 1)[-1]
@@ -1872,11 +1965,41 @@ class StrategyRuntimeStore:
                     else None,
                 }
                 for run in runs
-                if _decimal(run["quantity"]) > 0
-            ],
+                if run.get("execution_mode") != "portfolio_sim" and _decimal(run["quantity"]) > 0
+            ] + [p for p in multi_positions if any(run["id"] == p["run_id"] for run in runs)],
             "limit": limit,
             "offset": offset,
         }
+
+    def _portfolio_ledger(self, connection, owner):
+        accounts, runs, positions = [], [], []
+        rows = connection.execute(
+            """SELECT r.*,s.name,s.version FROM lab_multi_runs r
+               JOIN strategy_releases s ON s.id=r.release_id WHERE r.owner=?""", (owner,))
+        for row in rows:
+            settings = json.loads(row["settings"])
+            latest = json.loads(row["latest"]) if row["latest"] else {}
+            initial = settings["initial_capital"]
+            account = {"id": row["id"], "name": row["name"], "market": "CN",
+                       "environment": "platform_sim", "currency": "CNY", "venue": "platform",
+                       "status": "connected", "created_at": row["updated_at"]}
+            accounts.append(account)
+            common = {"id": row["id"], "account_id": row["id"], "release_id": row["release_id"],
+                      "strategy_name": row["name"], "strategy_version": row["version"],
+                      "market": "CN", "environment": "platform_sim", "currency": "CNY"}
+            runs.append({**common, "status": row["status"], "execution_mode": "portfolio_sim",
+                         "symbol": "多股组合", "symbols": settings["symbols"], "interval": settings["interval"],
+                         "initial_cash": str(initial), "cash": str(latest.get("cash", initial)),
+                         "equity": str(latest.get("equity", initial)), "latest_error": row["error"],
+                         "return_rate": _text(_decimal(latest.get("equity", initial)) / _decimal(initial) - 1),
+                         "valuation_complete": row["status"] == "active" and bool(latest),
+                         "updated_at": row["updated_at"], "last_bar_time": latest.get("time")})
+            for position in latest.get("positions", []):
+                positions.append({**common, "run_id": row["id"], "symbol": position["symbol"],
+                                  **{key: str(position[key]) if position.get(key) is not None else None
+                                     for key in ("quantity", "average_cost", "mark_price",
+                                                 "market_value", "unrealized_pnl")}})
+        return accounts, runs, positions
 
 
 def runtime_router(store: StrategyRuntimeStore):

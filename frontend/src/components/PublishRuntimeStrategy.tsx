@@ -13,6 +13,9 @@ interface Draft {
   params?: Record<string, unknown>
   custom_strategy?: CustomStrategySpec
   python_source?: string
+  lab_strategy_id?: string
+  lab_revision?: number
+  lab_run_id?: string
 }
 
 /** Publish the exact editor snapshot, then subscribe without losing partial success. */

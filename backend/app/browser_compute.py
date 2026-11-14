@@ -35,6 +35,10 @@ def capability(runtime, owner: str, release_id: str | None, purpose: str = "back
             raise HTTPException(403, "只能使用自己开发或已订阅的策略")
     snapshot = json.loads(release["snapshot"])
     strategy_id = release["strategy_id"]
+    if release["source_kind"] == "multi_python":
+        return {"execution_location": "server_private", "available": False,
+                "strategy_version": release["content_hash"],
+                "unavailable_reason": "多股版本请从策略实验室回测或从交易账户启动多股模拟"}
     if snapshot.get("execution_mode", "candles") != "candles":
         return {"execution_location": "server_private", "available": purpose == "runtime", "strategy_version": release["content_hash"],
                 "release_id": release_id, "unavailable_reason": "实时报价联调与作者签名信号仅用于按需运行，不提供历史回测"}

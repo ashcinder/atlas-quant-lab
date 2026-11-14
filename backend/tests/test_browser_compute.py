@@ -102,7 +102,8 @@ def test_code_lab_keeps_private_drafts_and_separate_run_snapshots(architecture, 
     assert client.get(url).json()["source"] == initial
     summary = client.get(root)
     assert summary.headers["cache-control"] == "no-store"
-    assert set(summary.json()[0]) == {"id", "name", "language", "revision", "updated_at"}
+    assert set(summary.json()[0]) == {"id", "name", "language", "kind", "revision", "updated_at"}
+    assert summary.json()[0]["kind"] == "single_bounded"
     assert other.get(root).json() == []
     assert other.get(url).status_code == 404
     assert other.get(f"{url}/runs").status_code == 404

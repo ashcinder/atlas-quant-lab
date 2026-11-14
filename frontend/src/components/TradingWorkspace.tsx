@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUpRight, ArrowRight, Layers3, ListOrdered, Plus, ShieldCheck, X, Activity, BookOpen, CheckCircle2, CircleHelp, Link2, LoaderCircle, ChevronDown, ChevronUp, Pause, Play, RefreshCw, Square, Wallet } from 'lucide-react'
-import { request, RUNTIME_CHANGED_EVENT } from '../request'
+import { ApiError, request, RUNTIME_CHANGED_EVENT } from '../request'
 import { advanceRuntimeRun } from '../compute/client'
 import type { Interval, RuntimeAccount, RuntimeEnvironment, RuntimeMarket, StrategyRelease, StrategyRun, StrategySubscription } from '../types'
 import { Dialog } from '@base-ui/react/dialog'
@@ -12,6 +12,9 @@ import BehaviorMonitor from './BehaviorMonitor'
 import SummaryExport from './SummaryExport'
 import { runSummary } from './report-summary'
 import AtlasWorkspaceBrand from './AtlasWorkspaceBrand'
+import { labMultiRequest } from '../lab-multi-api'
+import type { LabMultiSimulation } from '../lab-strategy-types'
+import { LabMultiSimulationCard, MultiSimulationFields } from './LabMultiSimulation'
 
 type Venue = 'binance' | 'okx'
 type Capabilities = { authorized: boolean; user_id: string; venues: { venue: Venue; mode: string; configured: boolean; can_trade: boolean }[] }
@@ -137,12 +140,13 @@ function AccountConnection({ caps, venue, accounts, locked, onRefresh, onConnect
   </>
 }
 
-export default function TradingWorkspace() {
+export default function TradingWorkspace({ ownerId = '' }: { ownerId?: string } = {}) {
   const query = new URLSearchParams(window.location.hash.split('?')[1] ?? '')
   const appliedDeepLink = useRef(window.location.hash)
   const loadSequence = useRef(0)
   const detailSequences = useRef<Record<string, number>>({})
   const actionPending = useRef(false)
+  const multiSubmission = useRef<{ snapshot: string; id: string } | null>(null)
   const [caps, setCaps] = useState<Capabilities | null>(null)
   const [venue, setVenue] = useState<Venue>('binance')
   const [connectionRevision, setConnectionRevision] = useState(0)
@@ -158,6 +162,11 @@ export default function TradingWorkspace() {
   const [orders, setOrders] = useState<Trade[]>([])
   const [accounts, setAccounts] = useState<RuntimeAccount[]>([])
   const [runs, setRuns] = useState<StrategyRun[]>([])
+  const [multiRuns, setMultiRuns] = useState<LabMultiSimulation[]>([])
+  const [multiLoadError, setMultiLoadError] = useState('')
+  const [multiCash, setMultiCash] = useState('1000000')
+  const [multiCommission, setMultiCommission] = useState('0.001')
+  const [multiSlippage, setMultiSlippage] = useState('0.0005')
   const [releases, setReleases] = useState<StrategyRelease[]>([])
   const [subscriptions, setSubscriptions] = useState<StrategySubscription[]>([])
   const [runRelease, setRunRelease] = useState(query.get('release') ?? '')
@@ -216,7 +225,7 @@ export default function TradingWorkspace() {
       request<StrategyRun[]>(`/trading/runs?market=${marketFilter}&environment=${environmentFilter}`),
       request<RuntimeAccount[]>('/trading/accounts'), request<StrategyRelease[]>('/strategy-releases'),
       request<StrategySubscription[]>('/strategy-subscriptions'),
-      linkedRunId ? request<StrategyRun>(`/trading/runs/${linkedRunId}`).catch(() => null) : Promise.resolve(null),
+      linkedRunId && !linkedRunId.startsWith('multi_') ? request<StrategyRun>(`/trading/runs/${linkedRunId}`).catch(() => null) : Promise.resolve(null),
     ])
     if (sequence !== loadSequence.current || currentHash !== window.location.hash) return
     setCaps(next)
@@ -242,7 +251,18 @@ export default function TradingWorkspace() {
       setOrders(nextOrders)
     } else setOrders([])
     setLoaded(true)
-  }, [marketFilter, environmentFilter, setAccounts, setCaps, setFocusedRun, setLoaded, setOrders, setReleases, setRunRelease, setRuns, setSubscriptions])
+    if (ownerId && currentHash.startsWith('#/trading')) {
+      try {
+        const multiRows = await labMultiRequest<LabMultiSimulation[]>(ownerId, 'runs')
+        if (sequence !== loadSequence.current || currentHash !== window.location.hash) return
+        if (!Array.isArray(multiRows)) throw new Error('多股模拟实例列表格式无效')
+        setMultiRuns(multiRows); setMultiLoadError('')
+      } catch (reason) {
+        if (sequence !== loadSequence.current || currentHash !== window.location.hash) return
+        setMultiLoadError(reason instanceof Error ? reason.message : '无法读取多股模拟实例')
+      }
+    }
+  }, [ownerId, marketFilter, environmentFilter, setAccounts, setCaps, setFocusedRun, setLoaded, setOrders, setReleases, setRunRelease, setRuns, setSubscriptions])
   useEffect(() => {
     const timer = window.setTimeout(() => void load().catch((cause: Error) => setError(cause.message)), 0)
     const refresh = () => { if (document.visibilityState === 'visible') void load().catch(() => undefined) }
@@ -346,23 +366,77 @@ export default function TradingWorkspace() {
 
   }
   const allowedReleases = releases.filter((item) => item.owned || subscriptions.some((sub) => sub.release_id === item.id && sub.status === 'active'))
-  const selectedExecutionMode = allowedReleases.find(item => item.id === runRelease)?.execution_mode
+  const selectedRelease = allowedReleases.find(item => item.id === runRelease)
+  const selectedExecutionMode = selectedRelease?.execution_mode
+  const isMultiRun = selectedRelease?.source_kind === 'multi_python'
+  const selectedMultiId = isMultiRun ? selectedRelease?.id : undefined
+  const defaultMultiCash = selectedRelease?.initial_capital
+  const defaultMultiCommission = selectedRelease?.commission_rate
+  const defaultMultiSlippage = selectedRelease?.slippage_rate
+  useEffect(() => {
+    if (!selectedMultiId) return
+    const timer = window.setTimeout(() => {
+      setMultiCash(String(defaultMultiCash ?? 1_000_000))
+      setMultiCommission(String(defaultMultiCommission ?? 0.001))
+      setMultiSlippage(String(defaultMultiSlippage ?? 0.0005))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [selectedMultiId, defaultMultiCash, defaultMultiCommission, defaultMultiSlippage])
   const isPrivateRunner = selectedExecutionMode === 'private_runner'
   const isQuoteProbe = selectedExecutionMode === 'quote_probe' || isPrivateRunner
   const selectedRunCurrency = runMarket === 'CN' ? 'CNY' : runMarket === 'US' || runSymbol.endsWith('-USD') ? 'USD' : 'USDT'
   const availableRunAccounts = accounts.filter((item) => item.market === runMarket && item.environment === runEnvironment && item.currency === selectedRunCurrency)
   const linkedStrategy = strategyLink ? runs.find((run) => run.id === strategyLink.runId) : undefined
-  const totals = useMemo(() => runs.reduce((result, run) => {
+  const multiInScope = (!marketFilter || marketFilter === 'CN') && (!environmentFilter || environmentFilter === 'platform_sim')
+  const displayedMultiRuns = multiInScope ? multiRuns : multiRuns.filter(run => run.id === focusedRun)
+  const totals = useMemo(() => {
+    const totals = runs.reduce((result, run) => {
     const currency = runCurrency(run)
     const key = `${run.environment}:${currency}`
     const item = result[key] ?? { equity: 0, profit: 0, currency, environment: run.environment, valuationComplete: true }
     item.equity += Number(run.equity); item.profit += Number(run.equity) - Number(run.initial_cash)
     item.valuationComplete = item.valuationComplete && run.valuation_complete !== false; result[key] = item
     return result
-  }, {} as Record<string, { equity: number; profit: number; currency: string; environment: RuntimeEnvironment; valuationComplete: boolean }>), [runs])
+    }, {} as Record<string, { equity: number; profit: number; currency: string; environment: RuntimeEnvironment; valuationComplete: boolean }>)
+    if (multiInScope && multiRuns.length) {
+      const key = 'platform_sim:CNY'
+      const item = totals[key] ?? { equity: 0, profit: 0, currency: 'CNY', environment: 'platform_sim' as const, valuationComplete: true }
+      for (const run of multiRuns) {
+        item.equity += run.latest?.equity ?? run.settings.initial_capital
+        item.profit += (run.latest?.equity ?? run.settings.initial_capital) - run.settings.initial_capital
+        item.valuationComplete = item.valuationComplete && !!run.latest && run.valuation_complete !== false
+      }
+      totals[key] = item
+    }
+    return totals
+  }, [runs, multiInScope, multiRuns])
 
-  const activeRuns = runs.filter((run) => run.status === 'active').length
-  const troubledRuns = runs.filter((run) => run.status === 'error').length
+  async function startMulti(release: StrategyRelease, subscriptionId?: string) {
+    const body = { release_id: release.id, subscription_id: subscriptionId, initial_capital: Number(multiCash), commission_rate: Number(multiCommission), slippage_rate: Number(multiSlippage) }
+    const snapshot = JSON.stringify(body)
+    const submission = multiSubmission.current?.snapshot === snapshot ? multiSubmission.current : { snapshot, id: crypto.randomUUID() }
+    multiSubmission.current = submission
+    try {
+      const run = await labMultiRequest<LabMultiSimulation>(ownerId, 'runs', { method: 'POST', body: JSON.stringify({ ...body, request_id: submission.id }) })
+      multiSubmission.current = null
+      setMultiRuns(current => [run, ...current.filter(item => item.id !== run.id)])
+      setComposer(null); setView('strategies')
+      setMarketFilter('CN'); setEnvironmentFilter('platform_sim')
+      setNotice('多股模拟已创建，服务端将等待可用行情。')
+      window.location.hash = `#/trading?run=${encodeURIComponent(run.id)}`
+    } catch (reason) {
+      if (reason instanceof ApiError && reason.kind === 'http' && (reason.status ?? 500) < 500) multiSubmission.current = null
+      throw reason
+    }
+  }
+
+  async function changeMultiRun(run: LabMultiSimulation, nextAction: 'pause' | 'resume' | 'stop') {
+    const next = await labMultiRequest<LabMultiSimulation>(ownerId, `runs/${encodeURIComponent(run.id)}/${nextAction}`, { method: 'POST' })
+    setMultiRuns(current => current.map(item => item.id === next.id ? next : item))
+  }
+
+  const activeRuns = runs.filter((run) => run.status === 'active').length + (multiInScope ? multiRuns : []).filter(run => run.status === 'active').length
+  const troubledRuns = runs.filter((run) => run.status === 'error').length + (multiInScope ? multiRuns : []).filter(run => run.status === 'waiting').length
   const uncertainOrders = orders.filter((order) => ['unknown', 'submitting', 'cancel_unknown', 'cancel_submitting'].includes(order.state))
   const selectedName = venue === 'binance' ? '币安' : '欧易'
   return <main className="trading-workspace trading-console">
@@ -388,14 +462,18 @@ export default function TradingWorkspace() {
           <div className="trade-overview-heading"><div><span className="trade-context-label">{selectedName} · 现货账户</span><h2>{!caps ? '正在读取账户' : !caps.authorized || !selected?.configured ? '从连接账户开始' : '账户与资金'}</h2><p>账户资产与策略收益分开记录，测试环境与实盘始终清晰。</p></div><span className={`trade-overview-symbol is-${venue}`} aria-hidden="true"><Wallet size={48} strokeWidth={1.15} /></span></div>
           <div className="trade-overview-grid">
             <section className="trade-account" aria-label="账户与连接"><AccountConnection key={`${connectionRevision}:${venue}:${caps?.authorized}:${selected?.configured}:${selected?.mode}`} caps={caps} venue={venue} accounts={accounts} locked={busy || !!preview} onRefresh={load} onConnect={() => setComposer('connect')} /></section>
-            <aside className="trade-activity-summary"><h3>运行概况</h3><p className="trade-summary-scope">{marketFilter ? marketNames[marketFilter] : '全部市场'} · {environmentFilter ? environmentNames[environmentFilter] : '全部环境'}</p>{(marketFilter || environmentFilter) && <button className="trade-filter-reset" onClick={() => { setMarketFilter(''); setEnvironmentFilter('') }}>重置为全部范围</button>}<div className="trade-activity-number"><strong>{activeRuns}</strong><span>个策略正在运行</span></div><div className="trade-activity-line"><span>需要关注</span><strong className={troubledRuns ? 'negative' : ''}>{troubledRuns} 个</strong></div><div className="trade-activity-line"><span>待核实委托（全部）</span><strong className={uncertainOrders.length ? 'negative' : ''}>{uncertainOrders.length} 笔</strong></div><button onClick={() => setView('strategies')}>查看运行策略<ArrowRight size={16} /></button><div className="trade-summary-footnote"><Activity size={16} /><p>页面在线时推进模拟<small>关闭页面后停止计算，不补造离线期间的成交。</small></p></div></aside>
+            <aside className="trade-activity-summary"><h3>运行概况</h3><p className="trade-summary-scope">{marketFilter ? marketNames[marketFilter] : '全部市场'} · {environmentFilter ? environmentNames[environmentFilter] : '全部环境'}</p>{(marketFilter || environmentFilter) && <button className="trade-filter-reset" onClick={() => { setMarketFilter(''); setEnvironmentFilter('') }}>重置为全部范围</button>}<div className="trade-activity-number"><strong>{activeRuns}</strong><span>个策略正在运行</span></div><div className="trade-activity-line"><span>需要关注</span><strong className={troubledRuns ? 'negative' : ''}>{troubledRuns} 个</strong></div><div className="trade-activity-line"><span>待核实委托（全部）</span><strong className={uncertainOrders.length ? 'negative' : ''}>{uncertainOrders.length} 笔</strong></div><button onClick={() => setView('strategies')}>查看运行策略<ArrowRight size={16} /></button><div className="trade-summary-footnote"><Activity size={16} /><p>单标的模拟随页面在线推进<small>多股模拟由服务端持续运行。</small></p></div></aside>
           </div>
-          <section className="trade-assets"><header className="trade-section-heading"><div><h2>策略资产</h2><p>{marketFilter ? marketNames[marketFilter] : '全部市场'} · {environmentFilter ? environmentNames[environmentFilter] : '全部环境'} · 仅计策略实例，按原币展示。</p></div><button className="trade-text-action" onClick={() => setView('strategies')}>管理策略<ArrowRight size={16} /></button></header>{Object.entries(totals).length ? <div className="trade-asset-lines">{Object.entries(totals).map(([key, item]) => <div key={key}><span className="trade-currency">{item.currency}</span><span>{environmentNames[item.environment]}<small>策略实例净值</small></span><strong>{money(item.equity, item.currency)}<small className={item.profit >= 0 ? 'positive' : 'negative'}>{item.valuationComplete ? `${item.profit >= 0 ? '+' : ''}${money(item.profit, item.currency)} 净收益` : '费用覆盖不完整 · 收益不可完整计算'}</small></strong></div>)}</div> : <div className="trade-assets-empty"><Activity size={24} strokeWidth={1.4} /><div><strong>还没有策略资产</strong><p>启动一个模拟策略，让资金、持仓与成交在这里形成记录。</p></div><button onClick={() => setComposer('run')}>新建运行<ArrowRight size={16} /></button></div>}</section>
+          <section className="trade-assets"><header className="trade-section-heading"><div><h2>策略资产</h2><p>{marketFilter ? marketNames[marketFilter] : '全部市场'} · {environmentFilter ? environmentNames[environmentFilter] : '全部环境'} · 仅计策略实例，按原币展示。</p></div><button className="trade-text-action" onClick={() => setView('strategies')}>管理策略<ArrowRight size={16} /></button></header>{Object.entries(totals).length ? <div className="trade-asset-lines">{Object.entries(totals).map(([key, item]) => <div key={key}><span className="trade-currency">{item.currency}</span><span>{environmentNames[item.environment]}<small>策略实例净值</small></span><strong>{money(item.equity, item.currency)}<small className={item.profit >= 0 ? 'positive' : 'negative'}>{item.valuationComplete ? `${item.profit >= 0 ? '+' : ''}${money(item.profit, item.currency)} 净收益` : '估值覆盖不完整 · 收益不可完整计算'}</small></strong></div>)}</div> : <div className="trade-assets-empty"><Activity size={24} strokeWidth={1.4} /><div><strong>还没有策略资产</strong><p>启动一个模拟策略，让资金、持仓与成交在这里形成记录。</p></div><button onClick={() => setComposer('run')}>新建运行<ArrowRight size={16} /></button></div>}</section>
         </section>
         <section hidden={view !== 'strategies'} className="trade-strategies" aria-label="策略运行">
           <header className="trade-section-heading"><div><h2>策略运行</h2><p>观察运行中的策略，展开查看净值、持仓和每笔成交。</p></div><a href="#quantjudge"><BookOpen size={16} />发现策略</a></header>
           <div className="trade-controlbar"><div aria-label="市场筛选">{(['', 'CRYPTO', 'US', 'CN'] as const).map((item) => <button key={item || 'all'} aria-pressed={marketFilter === item} className={marketFilter === item ? 'is-active' : ''} onClick={() => setMarketFilter(item)}>{item ? marketNames[item] : '全部市场'}</button>)}</div><label>环境<select value={environmentFilter} onChange={(event) => setEnvironmentFilter(event.target.value as '' | RuntimeEnvironment)}><option value="">全部环境</option><option value="platform_sim">平台模拟</option><option value="exchange_test">交易所测试</option><option value="live">实盘</option></select></label></div>
-          <div className="trade-run-grid">{runs.map((run) => {
+          {multiLoadError && multiInScope && <p className="trade-run-alert" role="alert">{multiLoadError}</p>}
+          <div className="trade-run-grid">{displayedMultiRuns.map(run => <LabMultiSimulationCard
+            key={run.id} ownerId={ownerId} run={run} focused={run.id === focusedRun} busy={busy}
+            onAction={(item, nextAction) => void action(() => changeMultiRun(item, nextAction))} />)}
+          {runs.map((run) => {
             const expanded = !!expandedRuns[run.id]; const detail = runDetails[run.id]
             return <article key={run.id} id={run.id} className={expanded ? 'is-expanded' : ''}>
               <ValuationStatus run={run} /><div className="trade-run-line"><span className="trade-run-symbol" aria-hidden="true">{run.symbol.slice(0, 2)}</span><div className="trade-run-identity"><h3>{run.strategy_name}{run.demo_auto === '1' && <small>模拟自动执行</small>}<small>v{run.strategy_version}</small></h3><p>{run.symbol} <span>·</span> {run.execution_mode === 'private_runner' ? '开发者本地执行' : run.execution_mode === 'quote_probe' ? '10秒报价联调' : intervalNames[run.interval]} <span>·</span> {environmentNames[run.environment]}</p></div><span className={`trade-run-status is-${run.status}`}>{run.status === 'active' ? '运行中' : run.status === 'paused' ? '已暂停' : run.status === 'stopped' ? '已停止' : run.status === 'error' ? '待处理' : '待启动'}</span><div className="trade-run-valuation"><small>{run.valuation_at == null ? '初始分配资金 · 未估值' : '策略净值'}</small><strong>{money(run.valuation_at == null ? run.initial_cash : run.equity, runCurrency(run))}</strong></div><div className="trade-run-return"><small>收益率</small><strong className={run.valuation_complete === false ? '' : Number(run.return_rate) >= 0 ? 'positive' : 'negative'}>{run.valuation_at == null ? '未估值' : run.valuation_complete === false ? '不可完整计算' : pct(run.return_rate)}</strong></div><button className="trade-detail-toggle" aria-expanded={expanded} aria-controls={`detail-${run.id}`} onClick={() => { setExpandedRuns((current) => ({ ...current, [run.id]: !expanded })); if (!expanded) void loadRunDetail(run.id) }}>{expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}<span>{expanded ? '收起详情' : '运行详情'}</span></button></div>
@@ -403,7 +481,7 @@ export default function TradingWorkspace() {
               {run.latest_error && <p className="trade-run-alert">{run.latest_error}</p>}
               {expanded && <><div className="trade-run-toolbar"><span>关闭网页后暂停计算；暂停或停止不会自动清仓</span>{run.status === 'active' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/pause`, { method: 'POST' }); await finishRunAction(run.id, 'paused', '策略实例已暂停。') })}><Pause size={14} />暂停</button>}{['paused', 'error'].includes(run.status) && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/resume`, { method: 'POST' }); await finishRunAction(run.id, 'active', '策略实例已恢复运行。') })}><Play size={14} />恢复</button>}{run.status !== 'stopped' && <button disabled={busy} onClick={() => void action(async () => { await request(`/trading/runs/${run.id}/stop`, { method: 'POST' }); await finishRunAction(run.id, 'stopped', '策略实例已停止。') })}><Square size={14} />停止</button>}<button disabled={busy || run.status !== 'active'} onClick={() => void action(async () => { if (run.compute) await advanceRuntimeRun(run.id, run.release_id, run.symbol, run.market === 'CRYPTO' ? 'crypto' : 'equity', run.interval); else await request(`/trading/runs/${run.id}/tick`, { method: 'POST' }); await finishRunAction(run.id, null, '策略实例检查已完成。') })}><RefreshCw size={14} />立即检查</button><a href={`#/journal/trading?run=${run.id}`}>成交与账本<ArrowUpRight size={14} /></a></div>{detailLoading[run.id] ? <p className="trade-detail-state" role="status">正在读取净值、持仓和交易记录…</p> : detailErrors[run.id] ? <div className="trade-detail-state trade-run-alert" role="alert"><p>{detailErrors[run.id]}</p><button onClick={() => void loadRunDetail(run.id)}>重新读取</button></div> : detail ? <RunDetail run={detail} /> : null}</>}
             </article>
-          })}{loaded && !runs.length && <div className="trade-empty-state"><Layers3 size={36} strokeWidth={1.25} /><h3>让策略开始积累记录</h3><p>选择一个已发布或订阅的版本，分配模拟资金，即可开始追踪表现。</p><button className="trade-primary" onClick={() => setComposer('run')}><Plus size={16} />创建运行实例</button><a href="#quantjudge">先去发现策略<ArrowUpRight size={15} /></a></div>}</div>
+          })}{loaded && !runs.length && !displayedMultiRuns.length && <div className="trade-empty-state"><Layers3 size={36} strokeWidth={1.25} /><h3>让策略开始积累记录</h3><p>选择一个已发布或订阅的版本，分配模拟资金，即可开始追踪表现。</p><button className="trade-primary" onClick={() => setComposer('run')}><Plus size={16} />创建运行实例</button><a href="#quantjudge">先去发现策略<ArrowUpRight size={15} /></a></div>}</div>
         </section>
         <div hidden={view !== 'orders'}>    <section className="trade-orders"><header className="trade-section-heading"><div><h2>委托记录</h2><p>平台发出的最近 100 笔订单，受理状态与成交回执分别追踪。</p></div><span className="trade-count">{orders.length} 笔</span></header>{orders.length > 0 && <div className="trade-table"><table><thead><tr><th>交易对／环境</th><th>委托</th><th>状态／成交数量</th><th>操作</th></tr></thead><tbody>{orders.map((row) => <tr key={row.id} id={`order-${row.id}`}><td>{row.order.symbol}<small>{names[row.order.venue]} · {row.mode === 'live' ? '实盘' : '模拟'}</small>{row.order.strategy_run_id && <small className="trade-order-attribution">策略 · {runs.find((run) => run.id === row.order.strategy_run_id)?.strategy_name ?? row.order.strategy_run_id}</small>}</td><td><span className={row.order.side === 'buy' ? 'trade-side-buy' : 'trade-side-sell'}>{row.order.side === 'buy' ? '买入' : '卖出'}</span> {row.order.quantity}<small>@ {row.order.price} USDT</small></td><td><span className="trade-order-state">{states[row.state] ?? row.state}</span><small>{row.result.exchange_status ?? row.result.message ?? '尚未发送'}{row.result.filled_quantity && ` · 已成交 ${row.result.filled_quantity}`}</small>{row.accounting_status === 'cost_incomplete' && <small>成交成本待补全 · 收益不可计算</small>}{row.accounting_status === 'pending_sync' && <small>成交明细待同步</small>}</td><td>{!['preview', 'preview_expired', 'rejected'].includes(row.state) && <div className="trade-actions"><button disabled={busy} onClick={() => void action(async () => { await post(`/orders/${row.id}/refresh`); await load() })}>查询状态</button><button disabled={busy || row.state === 'submitting' || ['FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'REJECTED'].includes(row.result.exchange_status ?? '')} onClick={() => { if (window.confirm(`确认撤销 ${row.order.symbol} 的订单？`)) void action(async () => { await post(`/orders/${row.id}/cancel`, { confirmation: '确认撤单' }); await load() }) }}>撤单</button></div>}</td></tr>)}</tbody></table></div>}{loaded && !orders.length && <div className="trade-empty-state"><ListOrdered size={32} strokeWidth={1.3} /><h3>每一笔委托，都有迹可循</h3><p>还没有交易所订单。提交后可在这里查询状态、成交数量与账本记录。</p><button onClick={() => setComposer('order')}>创建第一笔订单<ArrowRight size={16} /></button></div>}</section></div>
       </div>
@@ -412,18 +490,20 @@ export default function TradingWorkspace() {
     <Dialog.Root open={composer !== null} onOpenChange={(open) => { if (!open && !busy) { setComposer(null) } }}>
       <Dialog.Portal><Dialog.Backdrop className="trade-dialog-backdrop" /><Dialog.Popup className="trading-workspace trade-modal" aria-describedby="trade-composer-description">
         <header className="trade-modal-heading"><div><Dialog.Title>{composer === 'connect' ? '接入模拟账户' : composer === 'run' ? '新建策略运行' : '人工下单'}</Dialog.Title><Dialog.Description id="trade-composer-description">{composer === 'connect' ? '连接测试资金账户，验证过程不会下单。' : composer === 'run' ? '选定策略与资金，开始持续记录。' : '核对账户与参数，再逐笔确认提交。'}</Dialog.Description></div><Dialog.Close disabled={busy} aria-label="关闭操作面板"><X size={20} /></Dialog.Close></header>
-        {composer === 'connect' ? <DemoAccountSetup initialVenue={venue} defaultOpen onBusyChange={setBusy} onConnected={async () => { setConnectionRevision((value) => value + 1); await load() }} /> : composer === 'run' ? <><div className="trade-run-form-note"><Layers3 size={18} /><p>每个实例只负责一个标的；平台模拟不使用真实资金。</p></div>      {!allowedReleases.length && <p className="trade-composer-empty">还没有可运行策略。<a href="#quantjudge" onClick={() => setComposer(null)}>前往策略库发布或订阅</a>一个版本，再回来创建运行。</p>}
+        {composer === 'connect' ? <DemoAccountSetup initialVenue={venue} defaultOpen onBusyChange={setBusy} onConnected={async () => { setConnectionRevision((value) => value + 1); await load() }} /> : composer === 'run' ? <><div className="trade-run-form-note"><Layers3 size={18} /><p>选择运行版本和资金。A 股多股版本使用共享模拟账户。</p></div>      {!allowedReleases.length && <p className="trade-composer-empty">还没有可运行策略。<a href="#quantjudge" onClick={() => setComposer(null)}>前往策略库发布或订阅</a>一个版本，再回来创建运行。</p>}
       <form className="trade-run-form" onSubmit={(event) => { event.preventDefault(); void action(async () => {
         const release = allowedReleases.find((item) => item.id === runRelease); if (!release) return
         const subscription = subscriptions.find((item) => item.release_id === release.id && item.status === 'active')
+        if (release.source_kind === 'multi_python') { await startMulti(release, subscription?.id); return }
         const account = availableRunAccounts.find((item) => item.id === runAccount) ?? availableRunAccounts[0]
         const created = await request<StrategyRun>('/trading/runs', { method: 'POST', body: JSON.stringify({ release_id: release.id, subscription_id: subscription?.id, account_id: isQuoteProbe ? undefined : account?.id, market: isQuoteProbe ? 'CRYPTO' : runMarket, environment: isQuoteProbe ? 'platform_sim' : runEnvironment, symbol: isQuoteProbe ? 'BTC-USDT' : runSymbol, interval: runInterval, initial_cash: isQuoteProbe ? '200' : runCash, behavior_position_limit_bps: !isQuoteProbe && runEnvironment === 'platform_sim' && behaviorLimit ? Math.round(Number(behaviorLimit) * 100) : null, demo_auto: !isQuoteProbe && runEnvironment === 'exchange_test' && demoAuto, commission_rate: commissionRate, slippage_rate: slippageRate, max_position: maxPosition, max_participation: maxParticipation, stop_loss: stopLoss, take_profit: takeProfit }) })
         await request(`/trading/runs/${created.id}/start`, { method: 'POST' }); setComposer(null); setView('strategies'); await finishRunAction(created.id, null, isPrivateRunner ? '策略实例已启动，等待开发者本地签名信号。' : '策略实例已启动，首次运行将建立行情基线。')
       }) }}>
         {isPrivateRunner && <p className="trade-probe-note">私有策略在开发者本地执行。此实例使用BTC-USDT、200 USDT平台模拟资金；启动后等待签名信号，不会自行读取或执行源码。</p>}
         {isQuoteProbe && !isPrivateRunner && <p className="trade-probe-note">联调固定使用 BTC-USDT、200 USDT 平台模拟资金，每10秒交替买卖。12次执行后自动暂停。价格来自币安现货买卖报价，成交由平台模拟，包含手续费、滑点和盘口数量限制。</p>}
-        <label>策略版本<select value={runRelease} onChange={(event) => setRunRelease(event.target.value)}>{!allowedReleases.length && <option value="">暂无可运行版本</option>}{allowedReleases.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}</select></label>
-        {!isQuoteProbe && <><label>市场<select value={runMarket} onChange={(event) => { const market = event.target.value as RuntimeMarket; setRunMarket(market); setRunAccount(''); if (market !== 'CRYPTO') setRunEnvironment('platform_sim'); if (market === 'CN' && !['1d', '1wk'].includes(runInterval)) setRunInterval('1d'); setRunSymbol(market === 'CRYPTO' ? 'BTC-USD' : market === 'US' ? 'AAPL' : '600519.SS') }}>{(['CRYPTO', 'US', 'CN'] as RuntimeMarket[]).map((item) => <option key={item} value={item}>{marketNames[item]}</option>)}</select></label>
+        <label>策略版本<select value={runRelease} onChange={(event) => setRunRelease(event.target.value)}>{!allowedReleases.length && <option value="">暂无可运行版本</option>}{allowedReleases.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}{item.source_kind === 'multi_python' ? ' · A 股多标的' : ''}</option>)}</select></label>
+        {isMultiRun && selectedRelease && <MultiSimulationFields release={selectedRelease} cash={multiCash} commission={multiCommission} slippage={multiSlippage} onCash={setMultiCash} onCommission={setMultiCommission} onSlippage={setMultiSlippage} />}
+        {!isQuoteProbe && !isMultiRun && <><label>市场<select value={runMarket} onChange={(event) => { const market = event.target.value as RuntimeMarket; setRunMarket(market); setRunAccount(''); if (market !== 'CRYPTO') setRunEnvironment('platform_sim'); if (market === 'CN' && !['1d', '1wk'].includes(runInterval)) setRunInterval('1d'); setRunSymbol(market === 'CRYPTO' ? 'BTC-USD' : market === 'US' ? 'AAPL' : '600519.SS') }}>{(['CRYPTO', 'US', 'CN'] as RuntimeMarket[]).map((item) => <option key={item} value={item}>{marketNames[item]}</option>)}</select></label>
         <label>运行环境<select value={runEnvironment} onChange={(event) => { const environment = event.target.value as RuntimeEnvironment; setRunEnvironment(environment); setRunAccount(''); if (runMarket === 'CRYPTO') setRunSymbol(environment === 'platform_sim' ? 'BTC-USD' : 'BTC-USDT') }}><option value="platform_sim">平台模拟</option>{Array.from(new Set(accounts.filter((item) => item.market === runMarket && item.environment !== 'platform_sim').map((item) => item.environment))).map((item) => <option key={item} value={item}>{environmentNames[item]}</option>)}</select></label>
         <label>交易账户<select value={runAccount} onChange={(event) => setRunAccount(event.target.value)}>{!availableRunAccounts.length && <option value="">当前市场与环境暂无账户</option>}{availableRunAccounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label>标的<input required value={runSymbol} onChange={(event) => { setRunSymbol(event.target.value.toUpperCase()); setRunAccount('') }} /></label>
@@ -432,8 +512,8 @@ export default function TradingWorkspace() {
         {runEnvironment === 'platform_sim' && <label>监测仓位上限（可选，%）<input type="number" min="1" max="100" step="0.01" value={behaviorLimit} onChange={event => setBehaviorLimit(event.target.value)} placeholder="不填则不启用" /><small>创建后固定，仅提示，不改变交易风控。</small></label>}
         <label>分配资金<input required type="number" min="1" value={runCash} onChange={(event) => setRunCash(event.target.value)} /></label>
         </>}
-        <button className="trade-primary" disabled={busy || !runRelease || (!isQuoteProbe && !availableRunAccounts.length)}><Play size={15} />{isPrivateRunner ? '启动并等待本地信号' : isQuoteProbe ? '启动10秒联调' : runEnvironment === 'platform_sim' ? '启动模拟' : runEnvironment === 'exchange_test' && demoAuto ? '启动测试交易' : '启动信号监控'}</button>
-        <details className="trade-run-risk"><summary>风控与成交假设</summary><div><label>手续费率<input type="number" min="0" max="0.1" step="0.0001" value={commissionRate} onChange={(event) => setCommissionRate(event.target.value)} /></label><label>滑点率<input type="number" min="0" max="0.1" step="0.0001" value={slippageRate} onChange={(event) => setSlippageRate(event.target.value)} /></label><label>最大仓位<input type="number" min="0.01" max="1" step="0.01" value={maxPosition} onChange={(event) => setMaxPosition(event.target.value)} /></label><label>成交参与率<input type="number" min="0.0001" max="1" step="0.0001" value={maxParticipation} onChange={(event) => setMaxParticipation(event.target.value)} /></label><label>止损比例<input type="number" min="0" max="0.99" step="0.01" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label><label>止盈比例<input type="number" min="0" max="10" step="0.01" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label></div></details>
+        <button className="trade-primary" disabled={busy || !selectedRelease || (isMultiRun ? !ownerId : !isQuoteProbe && !availableRunAccounts.length)}><Play size={15} />{isMultiRun ? '启动多股模拟' : isPrivateRunner ? '启动并等待本地信号' : isQuoteProbe ? '启动10秒联调' : runEnvironment === 'platform_sim' ? '启动模拟' : runEnvironment === 'exchange_test' && demoAuto ? '启动测试交易' : '启动信号监控'}</button>
+        {!isMultiRun && <details className="trade-run-risk"><summary>风控与成交假设</summary><div><label>手续费率<input type="number" min="0" max="0.1" step="0.0001" value={commissionRate} onChange={(event) => setCommissionRate(event.target.value)} /></label><label>滑点率<input type="number" min="0" max="0.1" step="0.0001" value={slippageRate} onChange={(event) => setSlippageRate(event.target.value)} /></label><label>最大仓位<input type="number" min="0.01" max="1" step="0.01" value={maxPosition} onChange={(event) => setMaxPosition(event.target.value)} /></label><label>成交参与率<input type="number" min="0.0001" max="1" step="0.0001" value={maxParticipation} onChange={(event) => setMaxParticipation(event.target.value)} /></label><label>止损比例<input type="number" min="0" max="0.99" step="0.01" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} /></label><label>止盈比例<input type="number" min="0" max="10" step="0.01" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} /></label></div></details>}
       </form></> : <><div className="trade-order-venue" role="group" aria-label="下单交易所">{(['binance', 'okx'] as Venue[]).map((item) => <button key={item} disabled={busy || !!preview} aria-pressed={venue === item} onClick={() => { if (venue !== item) { setVenue(item); editOrder() } }}>{names[item]}</button>)}</div>      <section className="trade-ticket"><p className="trade-ticket-description">现货限价单 · 每笔订单由你确认</p><div className="trade-ticket-account"><strong>{names[venue]}</strong><span className={selected?.mode === 'live' ? 'trade-live' : 'trade-environment'}>{!selected ? '环境待读取' : selected.mode === 'live' ? '实盘 · 使用真实资金' : '测试环境 · 不使用真实资金'}</span></div><form onSubmit={(event) => { event.preventDefault(); void action(async () => { const next = await post<Trade>('/orders/preview', { venue, symbol, side, quantity, price, strategy_run_id: strategyLink?.runId, strategy_signal_id: strategyLink?.signalId }); setPreview(next); setConfirmation(''); await load() }) }}><fieldset disabled={busy || !!preview}>{strategyLink && <div className="trade-strategy-attribution" role="status"><span><Activity size={15} /><strong>策略建议</strong> · {linkedStrategy ? `${linkedStrategy.strategy_name} v${linkedStrategy.strategy_version}` : '已关联运行实例'}<small>{strategyLink.runId}</small></span><button type="button" onClick={() => setStrategyLink(null)}>解除关联</button></div>}<label>交易对<input required value={symbol} placeholder="例如 BTC-USDT" pattern="[A-Z0-9]{2,15}-USDT" onChange={(event) => { setSymbol(event.target.value.toUpperCase()); editOrder() }} /></label><label>方向<select value={side} onChange={(event) => { setSide(event.target.value); editOrder() }}><option value="buy">买入</option><option value="sell">卖出</option></select></label><div className="trade-fields"><label>数量（基础币）<input required inputMode="decimal" value={quantity} onChange={(event) => { setQuantity(event.target.value); invalidate() }} /></label><label>限价（USDT）<input required inputMode="decimal" value={price} onChange={(event) => { setPrice(event.target.value); invalidate() }} /></label></div><button className="trade-primary" disabled={!selected?.can_trade}>预览订单</button></fieldset></form>
       {preview && <section className="trade-review" aria-label="确认订单"><h3>{preview.mode === 'live' ? '核对实盘订单' : '核对模拟订单'}</h3>{preview.order.strategy_run_id && <p className="trade-review-attribution"><Activity size={15} />策略订单 · {runs.find((run) => run.id === preview.order.strategy_run_id)?.strategy_name ?? preview.order.strategy_run_id}</p>}<p>{names[preview.order.venue]} · {preview.order.symbol} · {preview.order.side === 'buy' ? '买入' : '卖出'}</p><p>数量 {preview.order.quantity} · 限价 {preview.order.price} USDT</p>{preview.result.checked_market_price && <p>交易所最新价 {preview.result.checked_market_price} USDT，限价和数量已通过交易所规则校验。</p>}<p>预览两分钟内有效。请输入“{phrase}”后提交。</p><label>确认文字<input value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} /></label><div className="trade-actions"><button disabled={busy} onClick={invalidate}>返回修改</button><button className="trade-primary" disabled={busy || confirmation !== phrase} onClick={() => void action(async () => { const result = await post<Trade>(`/orders/${preview.id}/confirm`, { confirmation }); setNotice(['unknown', 'submitting'].includes(result.state) ? `订单 ${result.id} 结果未确认。请查询状态，不要重复下单。` : '订单已提交，成交后请刷新核实。'); invalidate(); setStrategyLink(null); await load(); setComposer(null); setView('orders') })}>确认提交订单</button></div></section>}
       {!selected?.can_trade && <p className="trade-ticket-hint">{!caps ? '正在读取交易权限…' : !caps.authorized || !selected?.configured ? '请先在账户概览完成配置，再检查交易权限。' : '交易提交未启用；验证连接仍可查询余额。'}实盘策略信号始终需要人工确认。</p>}</section></>}
