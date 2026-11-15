@@ -409,13 +409,11 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
     if (!project?.libraryId || !onArchiveImported || !dirty) return
     const { libraryId } = project
     void perform('save', async signal => {
-      const { exportPythonProject, inspectPythonProject } = await import('../compute/pythonProject')
-      const archive = await exportPythonProject(project.file, edits, signal)
-      const file = new File([archive], project.file.name, { type: 'application/zip' })
-      const inspected = await inspectPythonProject(file, signal)
+      const { savePythonProject } = await import('../compute/pythonProject')
+      const saved = await savePythonProject(project.file, edits, signal)
       signal.throwIfAborted()
-      await onArchiveImported(file, libraryId)
-      setProject({ ...inspected, file, libraryId })
+      await onArchiveImported(saved.file, libraryId)
+      setProject({ ...saved, libraryId })
       setNewFiles([])
       setEdits({})
       setMessage('项目已保存')
@@ -544,7 +542,7 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
           </div>
           <div className="project-document-actions">
             {typeControl}
-            {phase === 'run' || phase === 'export' || phase === 'check'
+            {phase === 'run' || phase === 'export' || phase === 'check' || phase === 'save'
               ? <button className="project-stop" type="button" onClick={() => operation.current?.abort()}><Square size={13} />停止</button>
               : <button className="project-run" type="button" disabled={!entry || !!phase} onClick={runPrimary}
                 aria-keyshortcuts="Control+Enter Meta+Enter"><Play size={14} />{comparisonContext ? '运行三框架回测' : '运行项目脚本'}</button>}

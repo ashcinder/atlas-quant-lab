@@ -19,10 +19,11 @@ const worker = `
   }
   py.globals.set('_edits_json',JSON.stringify(data.edits));
   py.runPython('_edits = json.loads(_edits_json)');
-  if (data.action === 'export') {
+  if (data.action === 'export' || data.action === 'save') {
     py.runPython('export_project(_edits)');
+    const project=data.action === 'save' ? JSON.parse(py.runPython('inspect_project("/atlas-edited.zip")')) : undefined;
     const archive=py.FS.readFile('/atlas-edited.zip').buffer;
-    self.postMessage({kind:'done',archive},[archive]);
+    self.postMessage({kind:'done',archive,project},[archive]);
     return;
   }
   py.globals.set('_entry',data.entry);
@@ -107,6 +108,17 @@ export async function exportPythonProject(file: File, edits: Record<string, stri
   }, signal, worker)
 }
 
+
+export async function savePythonProject(file: File, edits: Record<string, string>, signal: AbortSignal): Promise<ImportedPythonProject> {
+  const archive = await readArchive(file, signal)
+  return runIsolatedPython({ archive, edits, action: 'save' }, result => {
+    if (!(result.archive instanceof ArrayBuffer) || !result.project) throw new Error('项目 ZIP 格式无效')
+    return {
+      ...(result.project as PythonProject),
+      file: new File([result.archive], file.name, { type: 'application/zip' }),
+    }
+  }, signal, worker)
+}
 
 export async function previewPythonProjectFile(file: File, path: string, signal: AbortSignal) {
   const archive = await readArchive(file, signal)

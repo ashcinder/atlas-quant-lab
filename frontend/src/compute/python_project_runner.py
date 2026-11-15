@@ -54,8 +54,8 @@ def project_files(archive):
     return files, scripts, root
 
 
-def inspect_project():
-    with zipfile.ZipFile("/atlas-project.zip") as archive:
+def inspect_project(path="/atlas-project.zip"):
+    with zipfile.ZipFile(path) as archive:
         files, scripts, root = project_files(archive)
         sources = {}
         for name, info in files.items():
