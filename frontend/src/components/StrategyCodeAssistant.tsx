@@ -77,11 +77,14 @@ function StrategyCodeConversation({ code, language, ownerId, fileName, disabled 
   const [aiSettingsOpen, setAISettingsOpen] = useState(false)
   const generation = useRef(0)
   const controller = useRef<AbortController | null>(null)
-  const messagesEnd = useRef<HTMLDivElement>(null)
+  const conversation = useRef<HTMLDivElement>(null)
   const oversized = sourceBytes(code) > MAX_STRATEGY_SOURCE
 
   useEffect(() => () => { controller.current?.abort(); generation.current += 1 }, [])
-  useEffect(() => { if (messages.length || busy) messagesEnd.current?.scrollIntoView?.({ block: 'nearest' }) }, [messages, busy])
+  useEffect(() => {
+    if (aiSettingsOpen || !conversation.current || (!messages.length && !busy)) return
+    conversation.current.scrollTop = conversation.current.scrollHeight
+  }, [messages, busy, aiSettingsOpen])
 
   const send = async () => {
     if (disabled || oversized || !prompt.trim() || busy || !capabilities?.configured) return
@@ -117,8 +120,12 @@ function StrategyCodeConversation({ code, language, ownerId, fileName, disabled 
       <button onClick={loadCapabilities} aria-label="刷新 AI 连接状态">刷新</button>
       <button onClick={() => setAISettingsOpen(value => !value)}>AI 服务配置</button>
     </div>
-    <div className="code-conversation" aria-live="polite">
-      {!messages.length ? <div className="code-assistant-intro">
+    <div className="code-conversation" aria-live="polite" ref={conversation}>
+      {aiSettingsOpen ? <AISettings /> : null}
+      {error ? <p className="code-ai-feedback" role="alert">{error}</p> : null}
+      {notice ? <p className="code-ai-feedback" role="status">{notice}</p> : null}
+      {oversized ? <p className="code-ai-feedback" role="status">AI 助手最多接收 60,000 字节的单个文件。</p> : null}
+      {!messages.length && !aiSettingsOpen ? <div className="code-assistant-intro">
         <div className="code-assistant-mark"><Bot size={30} /></div>
         <h2>{fileName ? '检查或修改当前文件' : '把想法写成策略'}</h2>
         <p>{fileName ? '助手会收到当前文件的源码与提问。' : '描述你的交易逻辑，或让我帮你检查当前代码。'}</p>
@@ -141,12 +148,7 @@ function StrategyCodeConversation({ code, language, ownerId, fileName, disabled 
         </div> : null}
       </article>)}
       {busy ? <div className="code-ai-thinking"><LoaderCircle size={16} className="spin" />正在根据当前代码生成建议…</div> : null}
-      <div ref={messagesEnd} />
     </div>
-    {aiSettingsOpen && <AISettings />}
-    {error ? <p className="code-ai-feedback" role="alert">{error}</p> : null}
-    {notice ? <p className="code-ai-feedback" role="status">{notice}</p> : null}
-    {oversized ? <p className="code-ai-feedback" role="status">AI 助手最多接收 60,000 字节的单个文件。</p> : null}
     <form className="code-ai-composer" onSubmit={event => { event.preventDefault(); void send() }}>
       <label htmlFor={promptId}>告诉 AI 你想实现什么</label>
       <textarea id={promptId} value={prompt} maxLength={4000} onChange={event => setPrompt(event.target.value)}
@@ -157,14 +159,10 @@ function StrategyCodeConversation({ code, language, ownerId, fileName, disabled 
           }
         }} />
       <div>
-        <small>{fileName ? '发送当前文件' : '发送当前代码'} · Shift + Enter 换行</small>
+        <small>{capabilities?.configured ? `${fileName ? '发送当前文件' : '发送当前代码'} · Shift + Enter 换行` : '配置 AI 服务后可发送'}</small>
         {busy ? <button type="button" onClick={cancel}><Square size={14} />停止</button>
           : <button type="submit" disabled={disabled || oversized || !prompt.trim() || !capabilities?.configured}><Send size={15} />发送</button>}
       </div>
-      {!capabilities?.configured ? <details className="code-connect-help">
-        <summary>如何连接 AI？</summary>
-        <p>打开「AI 服务配置」，选择服务商，填写模型与 Key 并授权，也可连接服务端配置的本地模型。</p>
-      </details> : null}
     </form>
   </aside>
 }

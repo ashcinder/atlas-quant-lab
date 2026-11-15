@@ -1,6 +1,6 @@
 import { highlightStrategyCode } from './highlightStrategyCode'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, CheckCheck, Download, FileCode2, History, LoaderCircle, Play, Save, SlidersHorizontal, Upload, X } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { BarChart3, Bot, CheckCheck, Download, FileCode2, History, Link2, LoaderCircle, Play, Save, ShieldCheck, SlidersHorizontal, Upload, X } from 'lucide-react'
 import { request } from '../request'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import { labOwnerHeaders, type LabDraft, type LabMultiEngine } from '../lab-strategy-types'
@@ -10,6 +10,7 @@ import { LabConfirmDialog } from './LabConfirmDialog'
 import './code-strategy.css'
 import { STRATEGY_LANGUAGES, MAX_STRATEGY_SOURCE, MAX_BOUNDED_SOURCE, sourceBytes, STRATEGY_FILE_ACCEPT, readStrategyFile, type StrategyLanguage } from './strategy-languages'
 type SourceDraft = Pick<LabDraft, 'source' | 'name' | 'language'> & { kind?: LabDraft['kind'] }
+export type LabInspectorView = 'settings' | 'results' | 'history' | 'assistant' | 'proof' | 'anchor'
 
 interface Props {
   draft: SourceDraft
@@ -17,10 +18,16 @@ interface Props {
   onEdit: (patch: Partial<SourceDraft>) => void
   onSave: () => void
   onRun: () => void
-  onHistory: () => void
+  inspectorView: LabInspectorView
+  onInspectorView: (view: LabInspectorView) => void
   navigation?: ReactNode
+  sourceActions?: ReactNode
+  proof?: ReactNode
+  anchor?: ReactNode
   runFeedback?: ReactNode
   runtimeActions?: ReactNode
+  results?: ReactNode
+  history?: ReactNode
   runDisabledReason?: string
   packageB64?: string | null
   engineId?: LabMultiEngine
@@ -32,7 +39,7 @@ interface Props {
   children: ReactNode
 }
 
-export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, onHistory, navigation, runFeedback, runtimeActions, runDisabledReason, packageB64, engineId = 'atlas_portfolio', readOnly = false, dirty, saved, saving, running, children }: Props) {
+export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, inspectorView, onInspectorView, navigation, sourceActions, proof, anchor, runFeedback, runtimeActions, results, history, runDisabledReason, packageB64, engineId = 'atlas_portfolio', readOnly = false, dirty, saved, saving, running, children }: Props) {
   const { source: code, language, name } = draft
   const multi = draft.kind === 'multi_python'
   const rqalpha = multi && engineId === 'rqalpha'
@@ -42,7 +49,6 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const [error, setError] = useState('')
   const [validation, setValidation] = useState<Validation | null>(null)
   const [pane, setPane] = useState<'code' | 'guide'>('code')
-  const [assistantOpen, setAssistantOpen] = useState(false)
   const [assistantVisited, setAssistantVisited] = useState(false)
   const [pending, setPending] = useState<{ code: string; name?: string; language?: StrategyLanguage; reason: string } | null>(null)
   const [undoCode, setUndoCode] = useState<string | null>(null)
@@ -52,6 +58,9 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const gutter = useRef<HTMLDivElement>(null)
   const highlight = useRef<HTMLPreElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const inspector = useRef<HTMLElement>(null)
+  const inspectorBody = useRef<HTMLDivElement>(null)
+  const inspectorId = useId()
   const revision = useRef(0)
   const codeRef = useRef(code)
   const importSequence = useRef(0)
@@ -59,6 +68,19 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const highlightedCode = useMemo(() => highlightStrategyCode(code, language), [code, language])
 
   useEffect(() => () => { checkController.current?.abort(); importSequence.current += 1 }, [])
+  useEffect(() => {
+    if (inspectorBody.current) inspectorBody.current.scrollTop = 0
+  }, [inspectorView])
+  useEffect(() => {
+    const panel = inspector.current
+    const viewport = panel?.closest('.lab-workbench')
+    if (!panel || !viewport || typeof ResizeObserver === 'undefined') return
+    const fit = () => panel.style.setProperty('--lab-inspector-space', `${viewport.clientHeight}px`)
+    fit()
+    const observer = new ResizeObserver(fit)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
 
   const edit = (next: string) => {
     if (readOnly) return
@@ -148,29 +170,52 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const sourceLimit = multi || portable ? MAX_STRATEGY_SOURCE : MAX_BOUNDED_SOURCE
   const oversize = sourceSize > sourceLimit
   const canCheck = !readOnly && language === 'python' && !!code.trim() && !oversize
+  const blocked = runDisabledReason || (language !== 'python' ? '切换到 Python 后可运行回测。'
+    : oversize ? '缩短源码后可运行回测。' : !code.trim() ? '请先编写或导入策略代码。' : undefined)
+  const revealInspector = () => requestAnimationFrame(() => {
+    const panel = inspector.current
+    if (panel && window.innerWidth <= 1020 && panel.getBoundingClientRect().top > window.innerHeight / 3) {
+      panel.scrollIntoView?.({ block: 'start' })
+    }
+  })
+  const run = () => {
+    if (running || saving || !canCheck || blocked) return
+    onInspectorView('results')
+    onRun()
+    revealInspector()
+  }
+  const tabs = [
+    { id: 'settings', label: '回测设置', Icon: SlidersHorizontal },
+    { id: 'results', label: '回测结果', Icon: BarChart3 },
+    ...(saved ? [{ id: 'history', label: '历史回测', Icon: History } as const] : []),
+    ...(!readOnly ? [{ id: 'assistant', label: 'AI 助手', Icon: Bot } as const] : []),
+  ] as const
+  const selectView = (view: LabInspectorView) => {
+    if (view === 'assistant') setAssistantVisited(true)
+    onInspectorView(view)
+    revealInspector()
+  }
+  const tabId = (view: LabInspectorView) => `${inspectorId}-${view}-tab`
+  const panelId = (view: LabInspectorView) => `${inspectorId}-${view}`
   return <section className="lab-code-workbench" aria-label="代码策略工作区">
     {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
-    {navigation}
     <header className="lab-code-command">
       <div className="lab-code-title">
-        <label>策略名称<input aria-label="代码策略名称" readOnly={readOnly} value={name} maxLength={80} onChange={(event) => { if (!readOnly) onEdit({ name: event.target.value }) }} /></label>
-        {rqalpha || readOnly ? <span className="lab-language-label">{languageInfo.label}{readOnly ? ' · 历史只读' : ''}</span> : <label>语言<select aria-label="策略编程语言" value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
-        <span className="lab-save-state">{saving ? '正在保存…' : dirty || !saved ? '未保存' : '已保存'}</span>
+        {navigation}
+        <input aria-label="代码策略名称" title="策略名称" placeholder="策略名称" readOnly={readOnly} value={name} maxLength={80} onChange={(event) => { if (!readOnly) onEdit({ name: event.target.value }) }} />
+        {rqalpha || readOnly ? <span className="lab-language-label">{languageInfo.label}{readOnly ? ' · 历史只读' : ''}</span> : <select aria-label="策略编程语言" title="策略编程语言" value={language} onChange={(event) => switchLanguage(event.target.value as StrategyLanguage)}>{STRATEGY_LANGUAGES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select>}
+        <span className="lab-save-state" data-saved={saved && !dirty && !saving} role="status">{saving ? '正在保存…' : dirty || !saved ? '未保存' : '已保存'}</span>
       </div>
       <div className="lab-command-actions">
-        {!readOnly ? <>
-          <button type="button" aria-pressed={assistantOpen} onClick={() => {
-            setAssistantVisited(true)
-            setAssistantOpen(open => !open)
-          }}><Bot size={15} />AI 助手</button>
-          <button type="button" aria-pressed={!assistantOpen} onClick={() => setAssistantOpen(false)}><SlidersHorizontal size={15} />回测设置</button>
-        </> : null}
-        <button onClick={() => { setAssistantOpen(false); onHistory() }} disabled={!saved}><History size={15} />历史回测</button>
-        <button onClick={onSave} disabled={readOnly || saving || !name.trim()}><Save size={15} />保存策略</button>
-        <button disabled={checking || !canCheck} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
-        <button className="lab-primary" disabled={running || saving || !saved || !canCheck || !!runDisabledReason} title={!saved ? '先保存策略，再运行回测' : runDisabledReason} onClick={() => { setAssistantOpen(false); onRun() }}><Play size={15} />{running ? '回测中…' : multi ? '运行回测' : '运行三框架回测'}</button>
+        <button className="lab-compact-action" aria-label="保存策略" title="保存策略" onClick={onSave} disabled={readOnly || saving || !name.trim()}><Save size={15} /><span>保存策略</span></button>
+        <button className="lab-compact-action" aria-label="检查代码" title="检查代码" disabled={checking || !canCheck} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}<span>检查代码</span></button>
+        <button className="lab-primary" disabled={running || saving || !canCheck || !!blocked} aria-label={running ? '回测中…' : multi ? '运行回测' : '运行三框架回测'} aria-describedby={blocked ? `${inspectorId}-blocked` : undefined} onClick={run}>{running ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}{running ? '回测中…' : <span>运行{!multi ? <span className="lab-run-engine-label">三框架</span> : null}回测</span>}</button>
+        {proof || anchor ? <div className="lab-trust-actions" role="group" aria-label="证明与存证">
+          {proof ? <button type="button" aria-controls={panelId('proof')} aria-pressed={inspectorView === 'proof'} onClick={() => selectView('proof')}><ShieldCheck size={15} />生成 ZKP</button> : null}
+          {anchor ? <button type="button" aria-controls={panelId('anchor')} aria-pressed={inspectorView === 'anchor'} onClick={() => selectView('anchor')}><Link2 size={15} />上链存证</button> : null}
+        </div> : null}
       </div>
-      {runFeedback}
+      {blocked && !readOnly ? <p className="lab-run-blocked" id={`${inspectorId}-blocked`} role="status">{blocked}</p> : null}
     </header>
     <div className="lab-code-columns">
       <div className="lab-source-column">
@@ -178,12 +223,15 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
           <button disabled={readOnly} onClick={() => fileInput.current?.click()}><Upload size={15} />导入代码</button>
           <input ref={fileInput} type="file" accept={multi ? ".py" : STRATEGY_FILE_ACCEPT} hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void importFile(file) }} />
           <button onClick={download}><Download size={15} />下载源码</button>
+          {sourceActions}
           {runtimeActions !== undefined ? runtimeActions : !readOnly && !multi && language === 'python' && !/\bdef\s+target\s*\(/.test(code) ? <PublishRuntimeStrategy ownerId={ownerId} draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={running || !canCheck} /> : null}
         </div>
       <div className="code-editor-panel">
         <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}</div></div>
         {pane === 'code' ? <div className="code-editor-surface"><div ref={gutter} className="code-line-numbers" aria-hidden="true">{code.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><div className="code-text-layer"><pre ref={highlight} aria-hidden="true" className="code-highlight">{highlightedCode}{'\n'}</pre><textarea ref={editor} readOnly={readOnly} aria-label={`${languageInfo.label} 策略代码`} value={code} spellCheck={false} autoCapitalize="off" autoComplete="off" wrap="off" onChange={(event) => edit(event.target.value)} onSelect={position} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; if (highlight.current) { highlight.current.scrollTop = event.currentTarget.scrollTop; highlight.current.scrollLeft = event.currentTarget.scrollLeft } }} onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
           if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (!readOnly && !saving && name.trim()) onSave() }
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); if (event.shiftKey) void check(); else run() }
         }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{rqalpha ? 'RQAlpha 公开版 · 原生 Python' : multi ? 'A 股多标的 · Trine Python SDK' : languageInfo.environment}</p><p>{rqalpha ? '使用 init(context) 和 handle_bar(context, bar_dict)，通过 order_target_percent 等原生 API 提交订单。context.symbols 为所选股票池的米筐代码（如 600519.XSHG），context.parameters 为已保存的参数字典。检查代码仅做静态语法与入口检查，不运行策略，也不证明回测兼容或计算正确。' : multi ? '策略通过 SDK 读取已收盘行情与共享账户，返回目标仓位或订单意图。请按策略包声明的执行方式编写。' : /\bdef\s+target\s*\(/.test(code) ? '通用入口 target(context) 返回 0–1 的目标仓位，可使用 context.close、context.sma(period)、context.params 与 context.state。initialize(context) 可选。一次生成信号后分别回放三个框架。' : language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '此语言支持编辑和下载。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
         <footer className="code-editor-status"><span>UTF-8</span><span>{languageInfo.label}</span><span>{code.split('\n').length} 行</span><span>行 {cursor.line}，列 {cursor.column}</span><span>{sourceSize.toLocaleString()} 字节</span></footer>
         {validation ? <ValidationDetails value={validation} staticOnly={rqalpha} /> : null}
@@ -195,16 +243,35 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
           {language === 'python' && oversize ? <p role="status">源码超过 {sourceLimit.toLocaleString() + ' 字节'}，请缩短后再检查或运行。</p> : null}
         </div>
       </div>
-      <div className="lab-backtest-column">
-        <div hidden={assistantOpen}>{children}</div>
-        {assistantVisited ? <div hidden={!assistantOpen}>
-          <StrategyCodeAssistant code={code} language={language} ownerId={ownerId} bounded={!multi}
-        disabled={readOnly} onClose={() => setAssistantOpen(false)} onApply={(next, baseline) => {
-          if (codeRef.current !== baseline) setPending({ code: next, reason: '生成建议后代码已有修改。应用建议会替换当前版本，你可以取消以保留编辑。' })
-          else replace(next)
-        }} />
-        </div> : null}
-      </div>
+      <aside className="lab-backtest-column" aria-label="策略工具" ref={inspector}>
+        <div className="lab-inspector-tabs" role="tablist" aria-label="工作台视图">
+          {tabs.map(({ id, label, Icon }, index) => <button key={id} type="button" role="tab" id={tabId(id)} aria-controls={panelId(id)}
+            aria-selected={inspectorView === id} tabIndex={inspectorView === id || (index === 0 && (inspectorView === 'proof' || inspectorView === 'anchor')) ? 0 : -1} onClick={() => selectView(id)}
+            onKeyDown={event => {
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                : event.key === 'ArrowRight' ? (index + 1) % tabs.length
+                : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : -1
+              if (next === -1) return
+              event.preventDefault()
+              selectView(tabs[next].id)
+              document.getElementById(tabId(tabs[next].id))?.focus()
+            }}><Icon size={15} aria-hidden="true" /><span>{label}</span></button>)}
+        </div>
+        <div className={`lab-inspector-body${inspectorView === 'assistant' ? ' is-assistant' : ''}`} ref={inspectorBody}>
+          <div role="tabpanel" id={panelId('settings')} aria-labelledby={tabId('settings')} hidden={inspectorView !== 'settings'}>{children}</div>
+          <div role="tabpanel" id={panelId('results')} aria-labelledby={tabId('results')} hidden={inspectorView !== 'results'}>{runFeedback}{results}</div>
+          {saved ? <div role="tabpanel" id={panelId('history')} aria-labelledby={tabId('history')} hidden={inspectorView !== 'history'}>{history}</div> : null}
+          {proof ? <div id={panelId('proof')} hidden={inspectorView !== 'proof'}>{proof}</div> : null}
+          {anchor ? <div id={panelId('anchor')} hidden={inspectorView !== 'anchor'}>{anchor}</div> : null}
+          {!readOnly ? <div className="lab-assistant-view" role="tabpanel" id={panelId('assistant')} aria-labelledby={tabId('assistant')} hidden={inspectorView !== 'assistant'}>
+            {assistantVisited ? <StrategyCodeAssistant code={code} language={language} ownerId={ownerId} bounded={!multi}
+              onClose={() => { selectView('settings'); document.getElementById(tabId('settings'))?.focus() }} onApply={(next, baseline) => {
+                if (codeRef.current !== baseline) setPending({ code: next, reason: '生成建议后代码已有修改。应用建议会替换当前编辑内容。' })
+                else replace(next)
+              }} /> : null}
+          </div> : null}
+        </div>
+      </aside>
     </div>
   </section>
 }

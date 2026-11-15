@@ -284,3 +284,21 @@ export async function comparisonMarket(payload: Record<string, unknown>, signal:
   await assertComputeIdentity(captured)
   return { bars: market.bars, datasetId: manifest.dataset_id }
 }
+
+const proofIntervalSeconds: Record<Interval, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }
+
+export async function browserProofCandles(input: MarketQuery | { datasetId: string; end: number }, count: number, signal: AbortSignal) {
+  const captured = await getComputeIdentity()
+  const storage = await computeStore(captured)
+  const manifest = 'datasetId' in input
+    ? await fetchDatasetManifest(input.datasetId, storage, signal)
+    : await fetchManifest(input, storage, signal)
+  if (manifest.source === 'demo') throw new Error('请在回测设置中选择真实行情来源。')
+  const lastClosed = Math.floor(Date.now() / 1000) - proofIntervalSeconds[manifest.interval]
+  const end = 'datasetId' in input ? input.end : Math.min(manifest.end, lastClosed)
+  if (!Number.isSafeInteger(end) || end > lastClosed) throw new Error('证明使用了尚未收盘的 K 线。')
+  const { bars } = await loadChartPage(manifest, storage, signal, { end }, count)
+  if ('datasetId' in input && bars.at(-1)?.time !== input.end) throw new Error('市场快照中找不到证明的最后一根 K 线。')
+  await assertComputeIdentity(captured)
+  return { bars, manifest }
+}

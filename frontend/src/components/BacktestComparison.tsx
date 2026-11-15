@@ -6,10 +6,11 @@ import { formatDate, formatNumber, formatPercent } from '../format'
 
 const statuses = { pending: '等待运行', running: '回测中', completed: '已完成', error: '失败', cancelled: '已取消', skipped: '已跳过' }
 
-export function BacktestComparison({ rows, compact = false, context }: {
+export function BacktestComparison({ rows, compact = false, context, allowPublish = true }: {
   rows: ComparisonRow[]
   compact?: boolean
   context?: Omit<PreparedComparison, 'request'>
+  allowPublish?: boolean
 }) {
   const id = useId()
   const [preferred, setPreferred] = useState<ComparisonEngine>()
@@ -84,7 +85,7 @@ export function BacktestComparison({ rows, compact = false, context }: {
           <header className="engine-report-heading"><h4>{comparisonLabels[selected.engine]} 回测报告</h4>
             {selected.result.engine_version ? <small>{selected.result.engine_version}</small> : null}
           </header>
-          <ResultsPanel result={selected.result} loading={false} panelMode="normal" onPanelMode={() => undefined} controls={false} />
+          <ResultsPanel result={selected.result} loading={false} panelMode="normal" onPanelMode={() => undefined} controls={false} allowPublish={allowPublish} />
         </> : <p className="engine-report-status" role="status">{(commonIssue ? undefined : selected.error) ?? `${comparisonLabels[selected.engine]} · ${statuses[selected.status]}`}</p>}
       </div>
     </div>

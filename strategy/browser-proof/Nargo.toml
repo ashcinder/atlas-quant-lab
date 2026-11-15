@@ -1,0 +1,4 @@
+[package]
+name = "atlas_browser_sma"
+type = "bin"
+authors = []

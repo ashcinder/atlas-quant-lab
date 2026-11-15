@@ -28,8 +28,10 @@ export function LabBacktestForm({ value, assets, onChange, compact = false, lock
   lockedAdjustment?: 'auto' | 'raw'
 }) {
   const headingId = useId()
+  const searchResultsId = useId()
   const [query, setQuery] = useState('')
   const [matches, setMatches] = useState<Asset[]>([])
+  const [pickedAsset, setPickedAsset] = useState<Asset | null>(null)
   const [searchStatus, setSearchStatus] = useState('')
   useEffect(() => {
     const text = query.trim()
@@ -46,7 +48,8 @@ export function LabBacktestForm({ value, assets, onChange, compact = false, lock
   }, [query])
 
   const selected = assetKey(value.symbol, value.asset_class)
-  const choices = new Map([...assets, ...matches].map(asset => [assetKey(asset.symbol, asset.asset_class), asset]))
+  const extra = pickedAsset && assetKey(pickedAsset.symbol, pickedAsset.asset_class) === selected ? [pickedAsset] : []
+  const choices = new Map([...assets, ...extra, ...matches].map(asset => [assetKey(asset.symbol, asset.asset_class), asset]))
   const selectAsset = (key: string) => {
     const asset = choices.get(key)
     if (asset) onChange({ symbol: asset.symbol, asset_class: asset.asset_class, data_source: sourceForAssetClass(value.data_source, asset.asset_class) })
@@ -55,14 +58,24 @@ export function LabBacktestForm({ value, assets, onChange, compact = false, lock
   return <section className="lab-settings" aria-label={compact ? "行情与撮合参数" : undefined} aria-labelledby={compact ? undefined : headingId}>
     {compact ? null : <h2 id={headingId}>回测设置</h2>}
     <div className="lab-settings-grid">
-      {compact ? null : <p className="lab-form-note">运行后并列显示 Trine、vn.py 和 RQAlpha 的回测结果。</p>}
       <label>回测标的<select value={selected} onChange={event => selectAsset(event.target.value)}>
         <option value="">请选择标的</option>
         {selected && !choices.has(selected) ? <option value={selected}>{value.symbol}</option> : null}
         {[...choices].map(([key, asset]) => <option key={key} value={key}>{asset.symbol} · {asset.name}</option>)}
       </select></label>
-      <label>搜索标的<input type="search" value={query} placeholder="代码或名称" onChange={event => { setQuery(event.target.value); setMatches([]); setSearchStatus('') }} /></label>
+      <label>搜索标的<input type="search" value={query} placeholder="代码或名称" aria-controls={matches.length ? searchResultsId : undefined}
+        onChange={event => { setQuery(event.target.value); setMatches([]); setSearchStatus(event.target.value.trim() ? '正在搜索…' : '') }} /></label>
       {searchStatus ? <p className="lab-form-note" role="status">{searchStatus}</p> : null}
+      {matches.length ? <ul className="lab-asset-matches" id={searchResultsId} aria-label="标的搜索结果">
+        {matches.map(asset => {
+          const key = assetKey(asset.symbol, asset.asset_class)
+          return <li key={key}><button type="button" onClick={() => {
+            selectAsset(key)
+            setPickedAsset(asset)
+            setQuery(''); setMatches([]); setSearchStatus('')
+          }}><strong>{asset.symbol}</strong>{' '}<span>{asset.name}</span></button></li>
+        })}
+      </ul> : null}
       <label>开始时间<input type="datetime-local" value={localDate(value.start)} onChange={event => onChange({ start: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label>
       <label>结束时间<input type="datetime-local" value={localDate(value.end)} onChange={event => onChange({ end: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label>
       <label>行情周期<select value={value.interval} onChange={event => onChange({ interval: event.target.value as LabBacktestSettings['interval'] })}>

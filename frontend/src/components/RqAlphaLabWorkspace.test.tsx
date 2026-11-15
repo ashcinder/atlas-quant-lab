@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../api'
+import { comparisonMarket } from '../compute/client'
 import { inspectPythonProject, type PythonProject } from '../compute/pythonProject'
 import { listLabProjects, readLabProject, saveLabProject } from '../lab-project-library'
 import { requestLabNavigation } from '../lab-navigation'
@@ -13,6 +14,7 @@ import { LabMultiBacktestResult } from './LabMultiBacktest'
 import { RqAlphaLabWorkspace } from './RqAlphaLabWorkspace'
 
 vi.mock('../compute/pythonProject', () => ({ inspectPythonProject: vi.fn() }))
+vi.mock('../compute/client', async original => ({ ...await original<typeof import('../compute/client')>(), comparisonMarket: vi.fn() }))
 vi.mock('../lab-project-library', () => ({ listLabProjects: vi.fn(), readLabProject: vi.fn(), saveLabProject: vi.fn() }))
 
 vi.mock('../api', () => ({ api: {
@@ -123,6 +125,7 @@ beforeEach(() => {
   vi.mocked(api.searchAssets).mockReset().mockResolvedValue([])
   vi.mocked(api.runBacktest).mockReset()
   vi.mocked(api.getRun).mockReset()
+  vi.mocked(comparisonMarket).mockReset()
   window.history.replaceState(null, '', '/#research')
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -161,10 +164,10 @@ it.each([
   expect(screen.queryByRole('region', { name: '导入策略类型' })).toBeNull()
   expect(screen.getByText('已保存')).toBeVisible()
   expect(editor().readOnly).toBe(false)
-  const assistant = screen.getByRole('button', { name: 'AI 助手' })
+  const assistant = screen.getByRole('tab', { name: 'AI 助手' })
   fireEvent.click(assistant)
   expect(screen.getByRole('complementary', { name: 'AI 代码助手' })).toBeVisible()
-  fireEvent.click(assistant)
+  fireEvent.click(screen.getByRole('tab', { name: '回测设置' }))
   const expected = kind === 'multi_python' ? { source: code, kind } : { source: code, settings: singleSettings }
   expect(api.createLabStrategy).toHaveBeenCalledWith(props.ownerId, expect.any(String), expect.objectContaining(expected))
   fireEvent.click(screen.getByRole('button', { name: '我的策略' }))
@@ -251,7 +254,7 @@ it.each([legacyMulti])('keeps $name source and settings read-only without invoki
   expect(screen.getByRole('button', { name: '运行回测' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '导入代码' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '下载源码' })).toBeEnabled()
-  expect(screen.getByRole('button', { name: '历史回测' })).toBeEnabled()
+  expect(screen.getByRole('tab', { name: '历史回测' })).toBeEnabled()
   fireEvent.change(editor(), { target: { value: '# attempted legacy replacement' } })
   fireEvent.keyDown(editor(), { key: 's', ctrlKey: true })
   expect(editor()).toHaveValue(record.source)
@@ -282,7 +285,7 @@ it('opens a legacy result without replacing source or rerunning it', async () =>
   vi.mocked(api.listLabRuns).mockResolvedValue([historical])
   vi.mocked(api.getRun).mockResolvedValue({ run_id: historical.id } as BacktestResult)
   await open(legacy)
-  fireEvent.click(screen.getByRole('button', { name: '历史回测' }))
+  fireEvent.click(screen.getByRole('tab', { name: '历史回测' }))
   fireEvent.click(await screen.findByRole('button', { name: /查看 .* 的回测/ }))
   expect(await screen.findByText('historical-run')).toBeVisible()
   expect(editor()).toHaveValue(legacy.source)
@@ -341,10 +344,11 @@ it('reopens native history without executing and retains its saved identity', as
   vi.mocked(labMultiApi.jobs).mockResolvedValue([nativeJob])
   vi.mocked(labMultiApi.job).mockResolvedValue(nativeJob)
   await open()
+  fireEvent.click(screen.getByRole('tab', { name: '回测结果' }))
   expect(await screen.findByText(/草稿修订 1 · 已完成 · RQAlpha 公开版 6.5.0/)).toBeVisible()
   fireEvent.click(screen.getByText('本次运行参数和源码摘要'))
   expect(screen.getByText(`行情 SHA-256 ${nativeJob.dataset_sha256}`)).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: '历史回测' }))
+  fireEvent.click(screen.getByRole('tab', { name: '历史回测' }))
   const history = screen.getByRole('region', { name: '历史回测' })
   fireEvent.click(within(history).getByRole('button', { name: /的回测/ }))
   await waitFor(() => expect(labMultiApi.job).toHaveBeenCalledTimes(2))
@@ -362,9 +366,10 @@ it('keeps historical minute provenance and daily-settlement sampling after editi
   vi.mocked(labMultiApi.jobs).mockResolvedValue([historical])
   vi.mocked(labMultiApi.job).mockResolvedValue(historical)
   await open()
-  expect(await screen.findByText('30 分钟 · current_bar 收盘价撮合')).toBeVisible()
   expect(screen.getByRole('combobox', { name: /^行情周期/ })).toHaveValue('1d')
   fireEvent.change(screen.getByLabelText('共享初始资金（元）'), { target: { value: '7777' } })
+  fireEvent.click(screen.getByRole('tab', { name: '回测结果' }))
+  expect(await screen.findByText('30 分钟 · current_bar 收盘价撮合')).toBeVisible()
   expect(screen.getByText('执行行情：30 分钟；净值、持仓、账户与风险指标按原生日结采样，不按分钟根数年化。')).toBeVisible()
   fireEvent.click(screen.getByText('本次运行参数和源码摘要'))
   expect(screen.getByText('4'.repeat(40))).toBeVisible()
@@ -656,6 +661,48 @@ it('creates a common Python strategy without a framework selector', async () => 
   expect(screen.queryByRole('combobox', { name: '新策略框架' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '新建策略' }))
   expect((await screen.findByLabelText('Python 策略代码') as HTMLTextAreaElement).value).toContain('def target(context)')
-  expect(screen.getByRole('button', { name: '运行三框架回测' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '运行三框架回测' })).toBeEnabled()
   expect(screen.queryByRole('combobox', { name: '回测引擎' })).toBeNull()
+})
+
+it('runs the unsaved source in the results tab without creating history and skips unsupported engines', async () => {
+  const bars = Array.from({ length: 45 }, (_, i) => ({ time: 1700000000 + i * 86400, open: 100, high: 101, low: 99, close: 100, volume: 1000 }))
+  vi.mocked(comparisonMarket).mockResolvedValue({ bars, datasetId: 'published-fixture' })
+  vi.mocked(api.runBacktest).mockImplementation(async payload => ({
+    run_id: String(payload.backtest_engine), metrics: { total_return: .1, max_drawdown: -.01 }, trades: [],
+  }) as unknown as BacktestResult)
+  render(<RqAlphaLabWorkspace {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: '新建策略' }))
+  fireEvent.change(await screen.findByLabelText('Python 策略代码'), { target: { value: 'def target_bps(index, close, sma):\n    return 2500' } })
+  fireEvent.click(screen.getByRole('tab', { name: '回测结果' }))
+  expect(screen.getByRole('heading', { name: '还没有回测结果' })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '前往回测设置' }))
+  expect(screen.getByRole('tab', { name: '回测设置', selected: true })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: '运行三框架回测' }))
+  expect(screen.getByRole('tab', { name: '回测结果', selected: true })).toBeVisible()
+  expect(await screen.findByText('2 / 3 完成')).toBeVisible()
+  expect(screen.getByText(/草稿试跑/)).toBeVisible()
+  expect(screen.getByRole('tab', { name: /RQAlpha.*已跳过/ })).toBeVisible()
+  expect(api.runBacktest).toHaveBeenCalledTimes(2)
+  for (const [payload] of vi.mocked(api.runBacktest).mock.calls) {
+    expect(payload).toMatchObject({ persist: false, python_source: 'def target_bps(index, close, sma):\n    return 2500' })
+    expect(payload.lab_strategy_id).toBeUndefined()
+  }
+  expect(api.createLabStrategy).not.toHaveBeenCalled()
+  expect(api.listLabRuns).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '上链存证' }))
+  expect(screen.getByRole('heading', { name: '回测报告上链存证' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: '公开回测收益并上链' })).toBeNull()
+})
+
+it('lists matching assets as selectable search results and explains invalid parameters', async () => {
+  vi.mocked(api.searchAssets).mockResolvedValue([{ symbol: '002747.SZ', name: '埃斯顿', asset_class: 'equity', currency: 'CNY' } as Asset])
+  render(<RqAlphaLabWorkspace {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: '新建策略' }))
+  fireEvent.change(screen.getByRole('searchbox', { name: '搜索标的' }), { target: { value: '002747' } })
+  fireEvent.click(await screen.findByRole('button', { name: '002747.SZ 埃斯顿' }))
+  expect(screen.getByRole('combobox', { name: '回测标的' })).toHaveValue(JSON.stringify(['002747.SZ', 'equity']))
+  fireEvent.change(screen.getByRole('spinbutton', { name: '初始资金' }), { target: { value: '0' } })
+  expect(screen.getByRole('button', { name: '运行三框架回测' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '运行三框架回测' })).toHaveAccessibleDescription('初始资金必须大于零。')
 })

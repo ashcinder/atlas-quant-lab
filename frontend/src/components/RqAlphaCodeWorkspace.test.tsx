@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request } from '../request'
 import { STRATEGY_LANGUAGES, languageForFile } from './strategy-languages'
-import { RqAlphaCodeWorkspace } from './RqAlphaCodeWorkspace'
+import { RqAlphaCodeWorkspace, type LabInspectorView } from './RqAlphaCodeWorkspace'
 import type { StrategyLanguage } from './strategy-languages'
 
 const RUNNABLE_PYTHON_TEMPLATE = `def target_bps(index, close, sma):
@@ -14,8 +14,9 @@ const RUNNABLE_PYTHON_TEMPLATE = `def target_bps(index, close, sma):
 
 function Editor() {
   const [draft, setDraft] = useState({ name: '我的均线策略', language: 'python' as StrategyLanguage, source: RUNNABLE_PYTHON_TEMPLATE })
+  const [view, setView] = useState<LabInspectorView>('settings')
   return <RqAlphaCodeWorkspace ownerId="test-owner" draft={draft} onEdit={patch => setDraft(current => ({ ...current, ...patch }))}
-    onSave={() => undefined} onRun={() => undefined} onHistory={() => undefined}
+    onSave={() => undefined} onRun={() => undefined} inspectorView={view} onInspectorView={setView}
     dirty={false} saved={false} saving={false} running={false}>{null}</RqAlphaCodeWorkspace>
 }
 
@@ -24,13 +25,13 @@ vi.mock('../request', () => ({ request: vi.fn() }))
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done }); return { promise, resolve } }
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(request).mockImplementation(async (path) => path.endsWith('/capabilities') ? { configured: true, model: 'local-test' } : { valid: true, error: null }) })
 afterEach(cleanup)
-async function open() { const result = render(<Editor />); fireEvent.click(screen.getByRole('button', { name: 'AI 助手' })); await screen.findByText('local-test 已配置'); return result }
+async function open() { const result = render(<Editor />); fireEvent.click(screen.getByRole('tab', { name: 'AI 助手' })); await screen.findByText('local-test 已配置'); return result }
 
 describe('code strategy editor', () => {
   it('shows an honest disconnected state and disables generation', async () => {
     vi.mocked(request).mockResolvedValue({ configured: false })
     render(<Editor />)
-    fireEvent.click(screen.getByRole('button', { name: 'AI 助手' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'AI 助手' }))
     await screen.findByText('尚未配置模型')
     fireEvent.change(screen.getByLabelText('告诉 AI 你想实现什么'), { target: { value: '写策略' } })
     expect((screen.getByRole('button', { name: '发送' }) as HTMLButtonElement).disabled).toBe(true)

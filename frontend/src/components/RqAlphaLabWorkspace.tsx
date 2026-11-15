@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, Code2, FolderArchive, LockKeyhole, Plus, Upload } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, ArrowRight, BarChart3, Code2, FolderArchive, LockKeyhole, Plus, Upload } from 'lucide-react'
 import { api } from '../api'
 import type { ImportedPythonProject } from '../compute/pythonProject'
 import { listLabProjects, readLabProject, saveLabProject, type LabProjectEntry } from '../lab-project-library'
@@ -10,7 +10,7 @@ import type { LabBacktestSettings, LabDraft, LabSingleDraft, LabMultiCoverage, L
 import { labMultiApi, type LabIndustryCoverage, type LabMultiCapabilities } from '../lab-multi-api'
 import { ApiError, request, RUNTIME_CHANGED_EVENT } from '../request'
 import type { Asset, BacktestResult, StrategyRelease } from '../types'
-import { RqAlphaCodeWorkspace } from './RqAlphaCodeWorkspace'
+import { RqAlphaCodeWorkspace, type LabInspectorView } from './RqAlphaCodeWorkspace'
 import { LabBacktestForm, LabRunSettings } from './LabBacktestForm'
 import { LabConfirmDialog } from './LabConfirmDialog'
 import { LabMultiBacktestForm, LabMultiBacktestResult } from './LabMultiBacktest'
@@ -18,9 +18,12 @@ import { ResultsPanel } from './ResultsPanel'
 import { readStrategyFile, STRATEGY_LANGUAGES } from './strategy-languages'
 import './lab-workbench.css'
 import { BacktestComparison } from './BacktestComparison'
-import { compareBacktests, type ComparisonRow } from '../compute/compareBacktests'
+import { checkComparisonEngines, compareBacktests, comparisonLabels, type ComparisonRow } from '../compute/compareBacktests'
 import PythonProjectWorkspace from './PythonProjectWorkspace'
 import { PORTABLE_PYTHON_TEMPLATE } from './CodeStrategyWorkspace'
+import { LabReportAnchor } from './LabReportAnchor'
+
+const BrowserProofPanel = lazy(() => import('./BrowserProofPanel').then(module => ({ default: module.BrowserProofPanel })))
 
 interface Props {
   typeControl?: ReactNode
@@ -55,7 +58,7 @@ def handle_bar(context, bar_dict):
     context.placed = True
 `
 
-type SingleRunSnapshot = { settings: LabBacktestSettings; source_sha256?: string; source?: string; historical?: boolean }
+type SingleRunSnapshot = { settings: LabBacktestSettings; source_sha256?: string; source?: string; historical?: boolean; preview?: boolean }
 
 function snapshotSettings(settings: LabBacktestSettings) {
   return JSON.stringify(Object.entries(settings).sort(([left], [right]) => left.localeCompare(right)))
@@ -99,6 +102,8 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState('')
   const [result, setResult] = useState<BacktestResult | null>(null)
+  const [inspectorView, setInspectorView] = useState<LabInspectorView>('settings')
+  const [proofVisited, setProofVisited] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [history, setHistory] = useState<LabRunSummary[] | null>(null)
   const [historyError, setHistoryError] = useState('')
@@ -120,8 +125,6 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
   const [releases, setReleases] = useState<StrategyRelease[]>([])
   const [loadingRun, setLoadingRun] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
-  const resultHeading = useRef<HTMLHeadingElement>(null)
-  const historyHeading = useRef<HTMLHeadingElement>(null)
   const operation = useRef(0)
   const resultRequest = useRef(0)
   const runRequest = useRef<AbortController | null>(null)
@@ -170,8 +173,22 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
       : !selectedIndustry?.start || !selectedIndustry.end || !capability?.minute_intervals?.includes(multi.settings.interval) || !selectedIndustry.minute_intervals.includes(multi.settings.interval)
         ? selectedIndustry?.reason || capability?.minute_reason || '尚未准备与当前行业配套的冻结分钟行情。' : ''
     : ''
-  const runDisabledReason = readOnly ? '旧版策略只读保留，请新建 RQAlpha 策略。' : !multi ? dirty || !record ? '请先保存策略，再运行回测。' : draft?.language !== 'python' ? '当前语言支持编辑与下载，回测需要 Python。' : undefined
-    : dirty ? '请先保存当前修改，再运行回测。'
+  const single = draft && draft.kind !== 'multi_python' ? draft : null
+  const proofSettings = single?.settings ?? defaults
+  const proofQuery = proofSettings.symbol && proofSettings.asset_class ? {
+    symbol: proofSettings.symbol, asset_class: proofSettings.asset_class, interval: proofSettings.interval,
+    data_source: proofSettings.data_source, adjustment: proofSettings.data_source === 'huggingface' ? 'raw' as const : 'auto' as const,
+  } : null
+  const reportChoices = !single || selectedRun?.preview ? [] : comparisons.length
+    ? comparisons.flatMap(row => row.result && row.result.compute?.storage_status !== 'local'
+      ? [{ id: row.result.run_id, engine: comparisonLabels[row.engine] }] : [])
+    : result && result.compute?.storage_status !== 'local' ? [{ id: result.run_id, engine: result.backtest_engine ? comparisonLabels[result.backtest_engine] : '历史报告' }] : []
+  const singleAdjustment = single?.settings.data_source === 'huggingface' ? 'raw' : 'auto'
+  const unavailable = single?.settings.symbol ? checkComparisonEngines({ ...single.settings }).filter(engine => engine.state === 'unavailable') : []
+  const runDisabledReason = readOnly ? '旧版策略只读保留，请新建 RQAlpha 策略。' : !multi ? (single &&
+    (single.language !== 'python' ? '当前语言支持编辑与下载，回测需要 Python。'
+      : settingsError(single.settings) || (!single.settings.symbol ? '请选择回测标的。' : undefined))) || undefined
+    : dirty || !record ? '请先保存当前修改，再运行回测。'
     : capability?.available === false ? capability.reason || '执行环境未就绪。'
     : !capability?.available ? capabilityError || '正在读取执行环境。'
     : settingsError(multi.settings) ? settingsError(multi.settings)
@@ -329,6 +346,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     setOpenedProject(null); setIncomingArchive(null); setArchiveBusy(false)
     setDraft(next); setRecord(saved); setBaseline(initial ? JSON.stringify(initial) : '')
     setError(''); setConflict(false); setRunError(''); setResult(null); setComparisons([])
+    setInspectorView('settings')
     setHistoryOpen(false); setHistory(null); setHistoryError(''); setSelectedRun(null)
     setJob(null); setPreviousSuccess(null); setJobs(null); setJobsError(''); setPollError(''); setCancelling(false)
     setCoverageCheck(null); setCoverageBusy(false); setReleases([])
@@ -570,31 +588,34 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
   }
 
   const runSingle = async () => {
-    if (!draft || draft.kind === 'multi_python' || !record || runDisabledReason || runRequest.current) return
+    if (!draft || draft.kind === 'multi_python' || runDisabledReason || runRequest.current) return
     const snapshot = draft
+    const savedId = dirty ? undefined : record?.id
     const started = operation.current
     const invalid = settingsError(snapshot.settings)
     if (invalid || !snapshot.settings.symbol) { setRunError(invalid || '请选择回测标的。'); return }
     const controller = new AbortController()
     runRequest.current = controller
     resultRequest.current += 1
-    setRunning(true); setLoadingRun(false); setRunError(''); setComparisons([])
+    setRunning(true); setLoadingRun(false); setRunError(''); setComparisons([]); setResult(null)
+    setSelectedRun({ settings: snapshot.settings, source: snapshot.source, preview: !savedId })
     const portable = /\bdef\s+target\s*\(/.test(snapshot.source)
     try {
       const rows = await compareBacktests({
         ...snapshot.settings, strategy_name: snapshot.name,
-        adjustment: snapshot.settings.data_source === 'huggingface' ? 'raw' : 'auto',
+        adjustment: singleAdjustment,
         strategy_id: portable ? 'python_portable' : 'python_bounded',
         python_source: portable ? undefined : snapshot.source,
         portable_python: portable ? snapshot.source : undefined,
-        lab_strategy_id: record.id, params: {},
-      }, controller.signal, rows => { if (operation.current === started) setComparisons(rows) }, ownerId)
+        lab_strategy_id: savedId, persist: !!savedId, params: {},
+      }, controller.signal, rows => { if (operation.current === started) setComparisons(rows) }, ownerId, undefined, unavailable)
       if (controller.signal.aborted) return
       const next = rows.find(row => row.result)?.result
       if (next) setResult(next)
-      setSelectedRun({ settings: snapshot.settings, source: snapshot.source })
-      setHistoryAttempt(value => value + 1)
-      onRunSaved()
+      if (next && savedId) {
+        setHistoryAttempt(value => value + 1)
+        onRunSaved()
+      }
     } catch (reason) {
       if (!controller.signal.aborted) setRunError(message(reason, '回测失败'))
     } finally {
@@ -657,6 +678,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
 
   const openJob = async (row: LabMultiJob) => {
     const sequence = ++resultRequest.current
+    setInspectorView('results')
     setLoadingRun(true); setRunError('')
     try {
       const next = await labMultiApi.job(ownerId, row.id)
@@ -670,6 +692,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
 
   const openRun = async (row: LabRunSummary) => {
     const sequence = ++resultRequest.current
+    setInspectorView('results')
     setLoadingRun(true); setRunError('')
     try {
       const next = await api.getRun<BacktestResult>(row.id)
@@ -685,8 +708,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     }
   }
 
-  const singleResultNotice = singleResultStale ? '结果对应旧版本，当前修改尚未回测。'
-    : runError && result ? '下方为上次成功的回测结果。'
+  const singleResultNotice = singleResultStale ? '结果对应运行时的代码和参数，当前修改尚未回测。'
     : selectedRun?.historical ? '正在查看历史回测快照。' : ''
 
   const backToLibrary = () => requestExit(() => {
@@ -763,10 +785,10 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
       <RqAlphaCodeWorkspace key={`${editorKey}:${multiEngine}`} draft={draft} ownerId={ownerId} readOnly={readOnly}
         navigation={<div className="lab-editor-navigation">
           {typeControl}
-          <button disabled={saving} onClick={backToLibrary}><ArrowLeft size={16} />我的策略</button>
-          <button type="button" disabled={running || saving} onClick={() => archiveInput.current?.click()}>打开项目 ZIP</button>
-          <h1 className="lab-editor-heading">{readOnly ? '查看历史策略' : '编辑策略'}</h1>
+          <button type="button" aria-label="我的策略" title="返回我的策略" disabled={saving} onClick={backToLibrary}><ArrowLeft size={17} /></button>
+          <h1 className="lab-editor-heading">{readOnly ? '查看历史策略' : record ? '编辑策略' : '新建策略'}</h1>
         </div>}
+        sourceActions={<button type="button" disabled={running || saving} onClick={() => archiveInput.current?.click()}><FolderArchive size={15} />打开项目 ZIP</button>}
         onEdit={patch => setDraft(current => {
           if (!current || readOnly) return current
           if (current.kind === 'multi_python') {
@@ -780,44 +802,36 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
         engineId={isMulti ? multiEngine : undefined}
         runDisabledReason={runDisabledReason}
         onSave={() => void save()} onRun={() => void (multi ? runMulti() : runSingle())}
-        onHistory={() => {
-          if (!historyOpen) requestAnimationFrame(() => historyHeading.current?.focus())
-          setHistoryOpen(!historyOpen)
-          setHistoryError('')
+        inspectorView={inspectorView}
+        onInspectorView={view => {
+          setInspectorView(view)
+          if (view === 'history') setHistoryOpen(true)
+          if (view === 'proof') setProofVisited(true)
         }}
+        proof={proofVisited ? <Suspense fallback={<p className="lab-proof-loading" role="status">正在加载本地证明工具…</p>}>
+          <BrowserProofPanel key={JSON.stringify(proofQuery)} query={proofQuery} onSettings={() => setInspectorView('settings')} />
+        </Suspense> : <p className="lab-proof-loading" />}
+        anchor={<LabReportAnchor choices={reportChoices} multi={!!multi} preview={!!selectedRun?.preview}
+          saved={!!record} dirty={dirty} busy={running || loadingRun}
+          onHistory={() => { setInspectorView('history'); setHistoryOpen(true) }} />}
         runtimeActions={rqalpha ? <p className="lab-form-note">RQAlpha 历史回测不支持创建旧版运行版本、发布订阅、持续模拟或 Proof。</p> : null}
         runFeedback={<div className="lab-run-feedback">
           <span role="status">{multi
-            ? running ? '正在提交回测…' : runError ? '回测未完成' : inFlightJob ? `回测${multiJobStatus[inFlightJob.status]}` : job ? multiJobStatus[job.status] : runDisabledReason || ''
-            : running ? '正在运行回测…' : runError ? '回测未完成' : singleResultNotice || (result ? '回测结果已就绪' : '')}</span>
-          {!multi && running && <button type="button" onClick={() => { runRequest.current?.abort(); setRunning(false); setRunError('本次回测已取消，可重新运行。') }}>取消回测</button>}
+            ? running ? '正在提交回测…' : runError ? '回测未完成' : inFlightJob ? `回测${multiJobStatus[inFlightJob.status]}` : job ? multiJobStatus[job.status] : ''
+            : running ? '正在运行回测…' : ''}</span>
+          {!multi && running && <button type="button" onClick={() => { runRequest.current?.abort(); setRunError('本次回测已取消，可重新运行。') }}>取消回测</button>}
           {inFlightJob && <button type="button" disabled={cancelling} onClick={() => void cancelJob()}>{cancelling ? '取消中…' : '取消任务'}</button>}
-          {!running && (runError || result || job) ? <button onClick={() => resultHeading.current?.focus()}>{runError ? '查看原因' : '查看回测结果'}</button> : null}
-          {multi && (capabilityError || capability?.available === false) && <button type="button" onClick={() => { setCapabilityCheck(null); setCapabilityAttempt(value => value + 1) }}>重试环境检查</button>}
         </div>}
-        dirty={dirty} saved={!!record} saving={saving} running={multi ? runningMulti : running}>
-        <fieldset className="lab-readonly-settings" disabled={readOnly}>
-          {draft.kind === 'multi_python'
-            ? <LabMultiBacktestForm value={draft.settings} assets={assets} coverage={coverage?.data ?? null} coverageError={coverage?.error ?? ''}
-                coverageBusy={coverageBusy} onCoverage={() => void checkCoverage()} readOnly={readOnly}
-                industries={industries} industryError={industryError} capabilities={capability}
-                onReloadIndustries={() => { setIndustryCheck(null); setIndustryAttempt(value => value + 1) }}
-                onChange={patch => {
-                  if (readOnly) return
-                  coverageRequest.current?.abort(); setCoverageBusy(false); setCoverageCheck(null)
-                  setDraft(current => current?.kind === 'multi_python' ? { ...current, settings: { ...current.settings, ...patch } } : current)
-                }} />
-            : <LabBacktestForm value={draft.settings} assets={assets} onChange={patch => setDraft(current => current && current.kind !== 'multi_python' ? { ...current, settings: { ...current.settings, ...patch } } : current)} />}
-        </fieldset>
-        {readOnly && releases.length > 0 && <section className="lab-history" aria-label="关联运行版本">
+        history={<>
+        {readOnly && releases.length > 0 ? <section className="lab-history" aria-label="关联运行版本">
           <h2>关联运行版本</h2>
           <ul>{releases.map(release => <li key={release.id}>
             <strong>v{release.version}</strong> · 草稿修订 {release.lab_revision ?? '未关联'} · {release.published ? '已公开' : '私有版本'}
             <p className="lab-form-note">已有运行版本保留，不从历史策略页面创建、发布或启动新实例。</p>
           </li>)}</ul>
-        </section>}
+        </section> : null}
         {historyOpen && multi ? <section className="lab-history" aria-labelledby="lab-history-heading">
-          <header><h2 id="lab-history-heading" ref={historyHeading} tabIndex={-1}>历史回测</h2><button onClick={() => setHistoryOpen(false)}>收起</button></header>
+          <h2 id="lab-history-heading">历史回测</h2>
           {jobsError ? <div className="lab-error" role="alert">{jobsError}<button onClick={() => { setJobsError(''); setJobsAttempt(value => value + 1) }}>重试</button></div>
             : jobs === null ? <p role="status">正在读取回测任务…</p>
             : jobs.length ? <div className="lab-table-scroll"><table className="lab-table lab-history-table">
@@ -830,7 +844,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
               </tr>)}</tbody>
             </table></div> : <p>创建的任务会出现在这里。</p>}
         </section> : historyOpen ? <section className="lab-history" aria-labelledby="lab-history-heading">
-          <header><h2 id="lab-history-heading" ref={historyHeading} tabIndex={-1}>历史回测</h2><button onClick={() => setHistoryOpen(false)}>收起</button></header>
+          <h2 id="lab-history-heading">历史回测</h2>
           {historyError ? <div role="alert" className="lab-error">{historyError}<button onClick={() => { setHistoryError(''); setHistoryAttempt(value => value + 1) }}>重试</button></div>
             : history === null ? <p role="status">正在读取历史回测…</p>
             : history.length ? <div className="lab-table-scroll"><table className="lab-table lab-history-table">
@@ -842,8 +856,8 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
               </tr>)}</tbody>
             </table></div> : <p>成功完成的回测会出现在这里。</p>}
         </section> : null}
-        <section className="lab-results">
-          <h2 ref={resultHeading} tabIndex={-1}>回测结果</h2>
+        </>}
+        results={<section className="lab-results">
           {runError ? <p className="lab-error" role="alert">{runError}</p> : null}
           {multi ? <>
             {pollError && <p className="lab-error" role="alert">{pollError}</p>}
@@ -854,16 +868,46 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
             </details>}
           </> : <>
             {singleResultNotice && <p className="lab-form-note">{singleResultNotice}</p>}
+            {selectedRun?.preview && <p className="lab-preview-note">草稿试跑 · 这次结果只在当前页面显示。保存策略后重新运行，结果才会加入历史回测。</p>}
             {selectedRun && <details className="lab-original-settings">
               <summary>本次运行参数和源码摘要</summary>
               {selectedRun.source_sha256 && <code>{selectedRun.source_sha256}</code>}
               {result?.compute?.dataset_ids?.length ? <p>行情版本 {result.compute.dataset_ids.join('、')}</p> : null}
-              <LabRunSettings settings={selectedRun.settings} />
+              <LabRunSettings settings={selectedRun.historical ? selectedRun.settings : {
+                ...selectedRun.settings, adjustment: selectedRun.settings.data_source === 'huggingface' ? 'raw' : 'auto',
+              }} />
             </details>}
-            {comparisons.length ? <BacktestComparison rows={comparisons} />
-              : <ResultsPanel result={result} loading={running || loadingRun} panelMode="normal" onPanelMode={() => undefined} controls={false} />}
+            {loadingRun ? <p role="status">正在读取回测快照…</p>
+              : comparisons.length ? <BacktestComparison rows={comparisons} allowPublish={false} />
+              : result ? <ResultsPanel result={result} loading={false} panelMode="normal" onPanelMode={() => undefined} controls={false} allowPublish={false} />
+              : !running && !runError ? <div className="lab-result-empty">
+                <BarChart3 size={22} aria-hidden="true" /><h2>还没有回测结果</h2>
+                <p>运行后可按框架查看收益、回撤、净值曲线和交易记录。</p>
+                <button type="button" onClick={() => setInspectorView('settings')}>前往回测设置</button>
+              </div> : null}
           </>}
-        </section>
+        </section>}
+        dirty={dirty} saved={!!record} saving={saving} running={multi ? runningMulti : running}>
+        <fieldset className="lab-readonly-settings" disabled={readOnly}>
+          {draft.kind === 'multi_python'
+            ? <LabMultiBacktestForm value={draft.settings} assets={assets} coverage={coverage?.data ?? null} coverageError={coverage?.error ?? ''}
+                coverageBusy={coverageBusy} onCoverage={() => void checkCoverage()} readOnly={readOnly}
+                industries={industries} industryError={industryError} capabilities={capability}
+                onReloadIndustries={() => { setIndustryCheck(null); setIndustryAttempt(value => value + 1) }}
+                onChange={patch => {
+                  if (readOnly) return
+                  coverageRequest.current?.abort(); setCoverageBusy(false); setCoverageCheck(null)
+                  setDraft(current => current?.kind === 'multi_python' ? { ...current, settings: { ...current.settings, ...patch } } : current)
+                }} />
+            : <LabBacktestForm value={draft.settings} assets={assets} lockedAdjustment={singleAdjustment} onChange={patch => setDraft(current => current && current.kind !== 'multi_python' ? { ...current, settings: { ...current.settings, ...patch } } : current)} />}
+        </fieldset>
+        {multi && (capabilityError || capability?.available === false) ? <div className="lab-settings-coverage lab-source-tools">
+          <button type="button" onClick={() => { setCapabilityCheck(null); setCapabilityAttempt(value => value + 1) }}>重试环境检查</button>
+        </div> : null}
+        {!multi ? <div className="lab-settings-coverage">
+          {unavailable.length ? <p><strong>当前标的与行情配置不支持：</strong>{unavailable.map(engine => comparisonLabels[engine.engine]).join('、')}。要尝试全部三个框架，可选沪深 A 股与历史快照。</p> : null}
+          {dirty || !record ? <p>当前修改可直接试跑。保存策略后重新运行，结果会加入历史回测。</p> : null}
+        </div> : null}
       </RqAlphaCodeWorkspace>
       </PythonProjectWorkspace>
     </> : null}

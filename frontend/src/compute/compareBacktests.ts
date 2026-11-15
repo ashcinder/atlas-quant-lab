@@ -109,17 +109,19 @@ export async function runPreparedComparison(
 
 export async function compareBacktests(
   payload: Record<string, unknown>, signal: AbortSignal,
-  update: (rows: ComparisonRow[]) => void, owner?: string, projectPlan?: PlanFactory,
+  update: (rows: ComparisonRow[]) => void, owner?: string, projectPlan?: PlanFactory, checks?: ComparisonEngineCheck[],
 ): Promise<ComparisonRow[]> {
-  update(comparisonEngines.map(engine => ({ engine, status: 'pending' })))
+  const unavailable = new Map(checks?.filter(check => check.state === 'unavailable').map(check => [check.engine, check.reason]))
+  update(comparisonEngines.map(engine => unavailable.has(engine) ? { engine, status: 'skipped', error: unavailable.get(engine) } : { engine, status: 'pending' }))
   let prepared
   try {
     prepared = await prepareComparison(payload, signal, projectPlan)
   } catch (error) {
-    const rows: ComparisonRow[] = comparisonEngines.map(engine => ({ engine, status: signal.aborted ? 'cancelled' : 'error',
-      error: signal.aborted ? undefined : comparisonError(error, '策略准备失败。') }))
+    const rows: ComparisonRow[] = comparisonEngines.map(engine => unavailable.has(engine)
+      ? { engine, status: 'skipped', error: unavailable.get(engine) }
+      : { engine, status: signal.aborted ? 'cancelled' : 'error', error: signal.aborted ? undefined : comparisonError(error, '策略准备失败。') })
     update(rows)
     return rows
   }
-  return runPreparedComparison(prepared, signal, update, owner)
+  return runPreparedComparison(prepared, signal, update, owner, checks)
 }
