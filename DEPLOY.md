@@ -1,4 +1,4 @@
-# Atlas Quant Lab 部署与源码分享
+# Trine 部署与源码分享
 
 更新于 2026-11-09。公开分支包含 r23 源码。既有离线镜像包使用各自的手册。r23 本机验收见[当前版本](docs/CURRENT_STATUS.md)。
 

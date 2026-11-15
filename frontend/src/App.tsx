@@ -1,6 +1,10 @@
 import { chartHistorySource, supportsHuggingFaceHistory, supportsMinuteBars } from './marketSupport'
-import type { CodeBacktestSettings } from './components/ResearchWorkspace'
-import type { ExecutionPipeline } from './components/executionPipeline'
+import { ArchiveRunSettings, SavedLabStrategyPicker, SavedProjectRunResult, type SavedLabSelection } from './components/SavedLabBacktest'
+import type { ProjectReport } from './compute/pythonProject'
+import { runSavedMulti } from './lab-multi-api'
+import type { LabMultiJob, LabStrategy } from './lab-strategy-types'
+import './components/lab-workbench.css'
+import { guardLabHashChange, pushAtlasHash, requestLabNavigation, trackAtlasHistoryEntry } from './lab-navigation'
 import { SubscribedStrategyPicker } from './components/SubscribedStrategyPicker'
 import { retainChartHistory } from './backtestChart'
 import type { LoadChartHistory } from './useChartHistory'
@@ -24,17 +28,23 @@ import { loadPreferences, savePreferences, sourceForAssetClass } from './storage
 import type { Adjustment, Asset, BacktestResult, DataSource, FundamentalsResponse, Interval, MarketData, PortfolioResult, RunSummary, Strategy } from './types'
 
 const TradingChart = lazy(() => import('./components/TradingChart').then((module) => ({ default: module.TradingChart })))
-const StrategyLabWorkspace = lazy(() => import('./components/StrategyLabWorkspace').then((module) => ({ default: module.StrategyLabWorkspace })))
+const RqAlphaLabWorkspace = lazy(() => import('./components/RqAlphaLabWorkspace').then(module => ({ default: module.RqAlphaLabWorkspace })))
 const QuantJudgeWorkspace = lazy(() => import('./components/QuantJudgeWorkspace').then((module) => ({ default: module.QuantJudgeWorkspace })))
+const SavedStrategyProof = lazy(() => import('./components/SavedStrategyProof').then(module => ({ default: module.SavedStrategyProof })))
 const EMPTY_TRADES: BacktestResult['trades'] = []
 
 function initialMode(): WorkspaceMode {
-  const route = window.location.hash.slice(1)
+  const route = window.location.hash.slice(1).split('?')[0]
   return route === 'portfolio' || route === 'research' || route === 'quantjudge' ? route : 'single'
 }
 
 function defaultsFor(strategy: Strategy | undefined): Record<string, number | string | boolean> {
   return Object.fromEntries(strategy?.parameters.map((parameter) => [parameter.key, parameter.default]) ?? [])
+}
+
+function chartFeedLabel(source: string) {
+  const provider = source.split(':')[0]
+  return provider === 'sina' ? '新浪财经' : provider === 'eastmoney' ? '东方财富' : provider
 }
 
 function marketFromResult(result: BacktestResult): MarketData {
@@ -53,7 +63,7 @@ function marketFromResult(result: BacktestResult): MarketData {
   }
 }
 
-export default function App() {
+export default function App({ ownerId = '' }: { ownerId?: string } = {}) {
   const shellRef = useRef<HTMLDivElement>(null)
   const marketAbortRef = useRef<AbortController | null>(null)
   const marketRequestRef = useRef(0)
@@ -85,7 +95,17 @@ export default function App() {
   const [fundamentalsLoading, setFundamentalsLoading] = useState(false)
   const [fundamentalsError, setFundamentalsError] = useState<string | null>(null)
   const [releaseId,setReleaseId] = useState('')
-  const [codeBacktest,setCodeBacktest] = useState<{name:string;source:string;hash:string;strategyKind?:'python_bounded'|'python_portable';start?:string;end?:string;executionPipeline?:ExecutionPipeline;backtestSettings?:CodeBacktestSettings}|null>(null)
+  const [savedSelection, setSavedSelection] = useState<SavedLabSelection | null>(null)
+  const [projectReport, setProjectReport] = useState<ProjectReport | null>(null)
+  const [savedMultiJob, setSavedMultiJob] = useState<LabMultiJob | null>(null)
+  const [proofSnapshot, setProofSnapshot] = useState<{ runId: string; record: LabStrategy } | null>(null)
+  const savedRunRequest = useRef<AbortController | null>(null)
+  const savedArchive = savedSelection?.kind === 'zip' ? savedSelection : null
+  const savedStrategy = savedSelection?.kind === 'strategy' ? savedSelection.record : null
+  const savedMulti = savedStrategy?.kind === 'multi_python' ? savedStrategy : null
+  const savedPython = savedStrategy?.kind !== 'multi_python' ? savedStrategy : null
+  const portable = !!savedPython && /\bdef\s+target\s*\(/.test(savedPython.source)
+  const standaloneRun = !!savedMulti || savedArchive?.mode === 'script'
   const [singleResult, setSingleResult] = useState<BacktestResult | null>(null)
   const [portfolioResult, setPortfolioResult] = useState<PortfolioResult | null>(null)
   const [mode, setModeState] = useState<WorkspaceMode>(initialMode)
@@ -99,12 +119,12 @@ export default function App() {
   const [marketLoading, setMarketLoading] = useState(true)
   const [singleRunning, setSingleRunning] = useState(false)
   const [portfolioRunning, setPortfolioRunning] = useState(false)
-  const [researchRunning, setResearchRunning] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
-  const loading = historyLoading || (mode === 'single' ? marketLoading || singleRunning : mode === 'portfolio' ? portfolioRunning : mode === 'research' ? researchRunning : false)
+  const loading = historyLoading || (mode === 'single' ? marketLoading || singleRunning : mode === 'portfolio' ? portfolioRunning : false)
   const [bootAttempt, setBootAttempt] = useState(0)
   const [bootIssues, setBootIssues] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [marketError, setMarketError] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [portfolioRunSignal, setPortfolioRunSignal] = useState(0)
@@ -153,8 +173,8 @@ export default function App() {
       setMarket(marketData)
       setAsset(marketData.asset)
     }).catch((reason: Error) => {
-      if (active && reason.name !== 'AbortError') setError(reason.message)
-    }).finally(() => { if (active && marketRequestRef.current === requestId) setMarketLoading(false) })
+      if (active && marketRequestRef.current === requestId && reason.name !== 'AbortError') setMarketError(reason.message)
+    }).finally(() => { if (active && marketRequestRef.current === requestId) { marketAbortRef.current = null; setMarketLoading(false) } })
     return () => {
       active = false
       controller.abort()
@@ -164,10 +184,13 @@ export default function App() {
   }, [bootAttempt])
 
   useEffect(() => { savePreferences(preferences) }, [preferences])
+  useEffect(() => () => savedRunRequest.current?.abort(), [ownerId])
 
   useEffect(() => {
-    const onHash = () => {
-      const route = window.location.hash.slice(1)
+    const onHash = (event: HashChangeEvent) => {
+      if (guardLabHashChange(event)) return
+      trackAtlasHistoryEntry()
+      const route = window.location.hash.slice(1).split('?')[0]
       if (route === 'single' || route === 'portfolio' || route === 'research' || route === 'quantjudge') setMode(route)
     }
     window.addEventListener('hashchange', onHash)
@@ -177,8 +200,9 @@ export default function App() {
   useEffect(() => {
     // The shell owns Proof, trading and journal routes even when this workspace mounts hidden.
     if (window.location.hash.startsWith('#/')) return
-    if (window.location.hash !== `#${mode}`) window.history.pushState(null, '', `#${mode}`)
-    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Atlas`
+    if (window.location.hash.split('?')[0] !== `#${mode}`) pushAtlasHash(`#${mode}`)
+    else trackAtlasHistoryEntry()
+    document.title = `${{ single: '行情与回测', portfolio: '投资组合', research: '策略实验室', quantjudge: '策略市场' }[mode]} · Trine`
   }, [mode])
 
   const loadMarket = useCallback((
@@ -188,6 +212,7 @@ export default function App() {
     adjustment = preferences.adjustment,
     options: { silent?: boolean; refresh?: boolean } = {},
   ) => {
+    if (options.silent && marketAbortRef.current) return
     marketAbortRef.current?.abort()
     const controller = new AbortController()
     marketAbortRef.current = controller
@@ -196,18 +221,23 @@ export default function App() {
     if (!options.silent) {
       setMarketLoading(true)
       setError(null)
+      setMarketError(null)
     }
     api.getMarket(nextAsset.symbol, nextAsset.asset_class, interval, source, adjustment, {
       signal: controller.signal,
       refresh: options.refresh,
     }).then((data) => {
       if (marketRequestRef.current !== requestId) return
-      setMarket(current => options.silent ? retainChartHistory(current, data) : data)
+      setMarketError(null)
+      setMarket(current => options.silent ? retainChartHistory(current, data, true) : data)
       setAsset((current) => current?.symbol === data.asset.symbol && current.asset_class === data.asset.asset_class ? current : data.asset)
     }).catch((reason: Error) => {
-      if (reason.name !== 'AbortError' && !options.silent && marketRequestRef.current === requestId) setError(reason.message)
+      if (reason.name !== 'AbortError' && !options.silent && marketRequestRef.current === requestId) setMarketError(reason.message)
     }).finally(() => {
-      if (!options.silent && marketRequestRef.current === requestId) setMarketLoading(false)
+      if (marketRequestRef.current === requestId) {
+        marketAbortRef.current = null
+        if (!options.silent) setMarketLoading(false)
+      }
     })
   }, [preferences.adjustment])
 
@@ -291,7 +321,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo' || preferences.source === 'huggingface') return
+    if (mode !== 'single' || singleRunning || !asset || preferences.source === 'demo' || preferences.source === 'baostock') return
     const refreshMs = ['1m', '5m'].includes(preferences.interval) ? 10_000 : preferences.interval === '15m' ? 20_000 : preferences.interval === '1h' ? 30_000 : 60_000
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -310,8 +340,53 @@ export default function App() {
     setStrategyId(id)
     setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === id)))
   }
+  const chooseSavedStrategy = (next: SavedLabSelection | null) => {
+    backtestRequestRef.current += 1
+    setSavedSelection(next)
+    setSingleResult(null)
+    setProofSnapshot(null)
+    setProjectReport(null)
+    setSavedMultiJob(null)
+    if (next) setReleaseId('')
+    if (next?.kind === 'strategy' && next.record.kind !== 'multi_python') {
+      const saved = next.record.settings
+      setCapital(saved.initial_capital); setCommission(saved.commission_rate); setSlippage(saved.slippage_rate)
+      setSpread(saved.spread_rate); setMaxPosition(saved.max_position); setMaxParticipation(saved.max_participation_rate)
+      setStart(saved.start ?? ''); setEnd(saved.end ?? '')
+    }
+  }
+  const runStandalone = async () => {
+    const controller = new AbortController()
+    savedRunRequest.current = controller
+    backtestBusyRef.current = true
+    setSingleRunning(true)
+    setError(null)
+    setProjectReport(null)
+    setSavedMultiJob(null)
+    try {
+      if (savedArchive) {
+        const { runPythonProject } = await import('./compute/pythonProject')
+        const report = await runPythonProject(savedArchive.project.file, savedArchive.entry, {}, controller.signal)
+        if (!controller.signal.aborted) setProjectReport(report)
+      } else if (savedMulti) {
+        await runSavedMulti(ownerId, savedMulti, controller.signal, job => {
+          if (!controller.signal.aborted) setSavedMultiJob(job)
+        })
+      }
+    } catch (reason) {
+      if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : '已保存策略运行失败。')
+    } finally {
+      if (savedRunRequest.current === controller) {
+        savedRunRequest.current = null
+        backtestBusyRef.current = false
+        setSingleRunning(false)
+      }
+    }
+  }
   const runSingle = () => {
-    if (!asset || backtestBusyRef.current) return
+    if (backtestBusyRef.current) return
+    if (standaloneRun) { void runStandalone(); return }
+    if (!asset) return
     if (preferences.source === 'baostock') { setError('长历史行情与日线核验存在差异，仅供查看，不能用于回测。'); return }
     if ((start && !Number.isFinite(Date.parse(start))) || (end && !Number.isFinite(Date.parse(end))) || (start && end && Date.parse(start) >= Date.parse(end))) {
       setError('回测开始时间必须早于结束时间'); return
@@ -332,7 +407,9 @@ export default function App() {
     setMarketLoading(false)
     setSingleRunning(true)
     setError(null)
-    api.runBacktest({
+    const controller = new AbortController()
+    savedRunRequest.current = controller
+    const payload = {
       backtest_engine: backtestEngine,
       execution_model: preferences.source === 'huggingface' && !releaseId ? executionModel : 'native',
       release_id: releaseId || null,
@@ -342,12 +419,12 @@ export default function App() {
       end: end ? new Date(end).toISOString() : null,
       interval: preferences.interval,
       data_source: preferences.source,
-      strategy_id: codeBacktest ? codeBacktest.strategyKind??'python_bounded' : strategyId,
-      python_source: codeBacktest?.strategyKind==='python_portable'?undefined:codeBacktest?.source,
-      portable_python: codeBacktest?.strategyKind==='python_portable'?codeBacktest.source:undefined,
-      strategy_name: codeBacktest?.name,
-      execution_pipeline: codeBacktest?.executionPipeline,
-      params:codeBacktest?{}:params,
+      strategy_id: savedPython || savedArchive ? portable || savedArchive ? 'python_portable' : 'python_bounded' : strategyId,
+      python_source: savedPython && !portable ? savedPython.source : undefined,
+      portable_python: savedPython && portable ? savedPython.source : undefined,
+      strategy_name: savedPython?.name ?? savedArchive?.project.file.name.replace(/\.zip$/i, '').slice(0, 80),
+      lab_strategy_id: savedPython?.id,
+      params: savedPython || savedArchive ? {} : params,
       initial_capital: capital,
       commission_rate: commission,
       slippage_rate: slippage,
@@ -359,24 +436,38 @@ export default function App() {
       adjustment: preferences.adjustment,
       base_currency: preferences.baseCurrency,
       persist: true,
-    }).then((result) => {
+    }
+    const execute = async () => {
+      if (!savedArchive) return savedPython ? api.runBacktest(payload, controller.signal, ownerId) : api.runBacktest(payload)
+      const [{ comparisonMarket }, { prepareProjectPlan }] = await Promise.all([import('./compute/client'), import('./compute/pythonProject')])
+      const market = await comparisonMarket(payload, controller.signal)
+      if (market.bars.length < 40) throw new Error('回测至少需要 40 根已发布 K 线。')
+      const prepared = await prepareProjectPlan(savedArchive.project.file, savedArchive.entry, {}, market.bars, market.datasetId, controller.signal)
+      return api.runBacktest({ ...payload, portable_python: prepared.source, portable_plan: prepared.plan,
+        start: new Date(prepared.plan.start * 1000).toISOString(), end: new Date(prepared.plan.end * 1000).toISOString() },
+      controller.signal, ownerId)
+    }
+    void execute().then((result) => {
       if (backtestRequestRef.current === requestId) {
         const resolved = { ...result, adjustment: result.adjustment ?? preferences.adjustment }
         setSingleResult(resolved)
+        setProofSnapshot(savedPython && !portable ? { runId: result.run_id, record: savedPython } : null)
         setMarket(current => retainChartHistory(current, marketFromResult(resolved)))
       }
       return api.listRuns()
-    }).then(setRuns).catch((reason: Error) => { if (backtestRequestRef.current === requestId) setError(reason.message) }).finally(() => { backtestBusyRef.current = false; setSingleRunning(false) })
+    }).then(setRuns).catch((reason: Error) => { if (backtestRequestRef.current === requestId) setError(reason.message) }).finally(() => {
+      if (savedRunRequest.current === controller) { savedRunRequest.current = null; backtestBusyRef.current = false; setSingleRunning(false) }
+    })
   }
   const run = () => mode === 'single' ? runSingle() : mode === 'portfolio' ? setPortfolioRunSignal((value) => value + 1) : undefined
   const changeMode = (nextMode: typeof mode) => {
-    if (nextMode !== 'single' && nextMode !== 'research' && (preferences.source === 'baostock' || preferences.source === 'huggingface')) {
-      setPreferences((current) => ({ ...current, source: 'auto' }))
-      setMarket(null)
-    }
-    setMode(nextMode)
-    if (nextMode === 'single' && mode !== 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
+    if (mode === nextMode) return
+    requestLabNavigation(() => {
+      setMode(nextMode)
+      if (nextMode === 'single' && !market && asset) loadMarket(asset, preferences.interval, preferences.source)
+    })
   }
+  const refreshRunHistory = () => { void api.listRuns().then(setRuns).catch(() => undefined) }
   const acceptPortfolioResult = useCallback((result: PortfolioResult | null) => {
     setPortfolioResult(result)
     if (result) api.listRuns().then(setRuns).catch(() => undefined)
@@ -394,9 +485,9 @@ export default function App() {
     const provider = chartSource?.split(':')[0]
     const data = await api.getMarket(asset.symbol, asset.asset_class, preferences.interval,
       chartHistorySource(preferences.source, provider), historyAdjustment, {
-        end: new Date((before - 1) * 1000).toISOString(), signal,
+        end: new Date((before - 1) * 1000).toISOString(), signal, provider,
       })
-    if (data.asset.symbol !== asset.symbol || data.interval !== preferences.interval || data.adjustment !== historyAdjustment || data.source.split(':')[0] !== provider || data.is_stale) {
+    if (data.asset.symbol !== asset.symbol || data.interval !== preferences.interval || data.adjustment !== historyAdjustment || data.source.split(':')[0] !== provider) {
       throw new Error('更早行情的来源或时效与当前图表不一致，未拼接数据。')
     }
     return data.bars
@@ -417,7 +508,7 @@ export default function App() {
   }, [])
 
   const integrity = useMemo(() => ({
-    source: mode === 'single' || mode === 'research' ? (singleResult?.data_source ?? market?.source) : portfolioResult?.data_source,
+    source: mode === 'single' ? (singleResult?.data_source ?? market?.source) : portfolioResult?.data_source,
     trades: activeResult?.trades.length ?? 0,
     warnings: activeResult?.warnings.length ?? 0,
   }), [activeResult, market?.source, mode, portfolioResult?.data_source, singleResult?.data_source])
@@ -458,37 +549,69 @@ export default function App() {
     catch (reason) { setError(reason instanceof Error ? reason.message : '删除失败，请重试') }
   }
 
+
   return (
     <div className={`app-shell mode-${mode} ${navigationCollapsed ? 'navigation-is-collapsed' : ''}`} ref={shellRef} style={layoutStyle}>
       <a className="skip-link" href="#workspace-content" onClick={(event) => { event.preventDefault(); document.getElementById('workspace-content')?.focus() }}>跳到工作区</a>
       <WorkspaceNavigation mode={mode} onMode={changeMode} collapsed={navigationCollapsed} onCollapse={() => setNavigationCollapsed((current) => !current)} />
       <TopBar asset={asset} interval={preferences.interval} source={preferences.source} chartType={chartType} mode={mode} loading={loading} baseCurrency={preferences.baseCurrency} adjustment={preferences.adjustment} onInterval={setInterval} onSource={setSource} onChartType={setChartType} onHistory={() => setHistoryOpen(true)} onRun={run} onBaseCurrency={setBaseCurrency} onAdjustment={setAdjustment} onAlerts={() => setAlertsOpen(true)} onSystemStatus={() => setSystemStatusOpen(true)} unreadAlerts={unreadAlerts} />
-      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : <IntegrityRail compact={mode === 'research'} dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={mode === 'portfolio' ? portfolioResult?.data_source.includes(':stale-cache') : chartIsStale} lastBarTime={mode === 'portfolio' ? undefined : chartLastBarTime} />}
-      {error || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setBootIssues([]) }}>关闭</button></div> : null}
+      {mode === 'quantjudge' ? <div className="qj-global-rail"><strong>PRIVACY MODEL</strong><span><b>默认私有</b>源码与参数（公开测试样本除外）</span><span><b>作者控制</b>原始投资决策的公开范围</span><span className="is-public"><b>公开</b>验算收益与证明回执</span></div> : mode === 'research' ? null : <IntegrityRail dataSource={integrity.source} tradeCount={integrity.trades} hasResult={Boolean(activeResult)} warningCount={integrity.warnings} isStale={mode === 'portfolio' ? portfolioResult?.data_source.includes(':stale-cache') : chartIsStale} lastBarTime={mode === 'portfolio' ? undefined : chartLastBarTime} />}
+      {error || (mode === 'single' && marketError) || bootIssues.length ? <div className="error-banner" role="alert"><AlertCircle size={15} /><span>{error ?? (mode === 'single' ? marketError : null) ?? `暂时无法加载：${bootIssues.join('、')}。其他已加载功能仍可使用。`}</span>{bootIssues.length ? <button onClick={() => { setError(null); setMarketLoading(true); setBootAttempt((current) => current + 1) }}>重新连接</button> : null}<button onClick={() => setSystemStatusOpen(true)}>系统状态</button><button onClick={() => { setError(null); setMarketError(null); setBootIssues([]) }}>关闭</button></div> : null}
       <div className="workspace-content" id="workspace-content" tabIndex={-1}>
       {mode === 'single' ? <WorkspaceErrorBoundary>
         <main className="terminal-grid">
           <MarketSidebar assets={assets} selectedSymbol={asset?.symbol ?? ''} onSelect={selectAsset} />
           <ResizeHandle rootRef={shellRef} side="left" cssVariable="--market-sidebar-width" oppositeCssVariable="--strategy-panel-width" centerMinimum={460} value={preferences.marketSidebarWidth} minimum={150} maximum={360} defaultValue={178} label="调整市场列表宽度" onCommit={(value) => commitLayout('marketSidebarWidth', value)} />
-          <div className={`center-stack results-${preferences.resultsPanelMode}`}>
+          <div className={`center-stack results-${standaloneRun ? 'normal' : preferences.resultsPanelMode}`}>
             <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载图表组件…</div>}>
               <TradingChart notice={<>
               {mode === 'single' && preferences.source === 'baostock' ? <div className="chart-source-notice" role="status"><AlertCircle size={15} /><span>长历史数据与本地日线对账存在差异，仅供查看，不能用于回测；2018—2019 年暂无数据。</span></div> : null}
               {mode === 'single' && !singleResult && preferences.source !== 'huggingface' && supportsHuggingFaceHistory(asset, preferences.interval) ? <div className="chart-source-notice" role="status"><span>当前来源为近期行情；更早的本地分钟数据需切换来源查看，数据截至 2026-08-07。</span><button onClick={() => setSource('huggingface')}>切换本地长历史与回测</button></div> : null}
-              </>} highlightStart={singleResult?.bars[0]?.time ?? (start ? Date.parse(start) / 1000 : undefined)} highlightEnd={singleResult?.bars.at(-1)?.time ?? (end ? Date.parse(end) / 1000 : undefined)} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={chartSource} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}:${singleResult?.run_id ?? 'market'}:${chartSource?.split(':')[0]}:${preferences.source}:${chartAdjustment ?? 'unknown'}`} onLoadHistory={(singleResult?.backtest_engine !== 'rqalpha' || chartSource === 'hf-ohlcv') && historyAdjustment && chartSource && !chartSource.startsWith('demo') ? loadChartHistory : undefined} lastBarTime={chartLastBarTime} isStale={chartIsStale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
+              </>}
+                sourceDetail={!singleResult && market?.chart_feed ? `${chartFeedLabel(market.chart_feed.source)} · ${market.chart_feed.used_as_fallback ? '近期行情' : '接续历史快照'}${market.chart_feed.has_gap ? ' · 数据之间有缺口' : ''}${market.is_stale ? ' · 缓存行情' : ''}。回测使用已发布的行情。` : undefined}
+                highlightStart={singleResult?.bars[0]?.time ?? (start ? Date.parse(start) / 1000 : undefined)} highlightEnd={singleResult?.bars.at(-1)?.time ?? (end ? Date.parse(end) / 1000 : undefined)} bars={chartBars} indicators={chartIndicators} trades={singleResult?.trades ?? EMPTY_TRADES} chartType={chartType} interval={preferences.interval} source={chartSource} datasetKey={`${asset?.symbol ?? 'none'}:${preferences.interval}:${singleResult?.run_id ?? 'market'}:${chartSource?.split(':')[0]}:${preferences.source}:${chartAdjustment ?? 'unknown'}`} onLoadHistory={(singleResult?.backtest_engine !== 'rqalpha' || chartSource === 'hf-ohlcv') && historyAdjustment && chartSource && !chartSource.startsWith('demo') ? loadChartHistory : undefined} lastBarTime={chartLastBarTime} isStale={chartIsStale} showVolume={preferences.showVolume} showMacd={preferences.showMacd} onShowVolume={(showVolume) => setPreferences((current) => ({ ...current, showVolume }))} onShowMacd={(showMacd) => setPreferences((current) => ({ ...current, showMacd }))} />
             </Suspense>
-            {preferences.resultsPanelMode === 'normal' ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
-            <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode} onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))} />
+            {preferences.resultsPanelMode === 'normal' || standaloneRun ? <ResizeHandle rootRef={shellRef} side="bottom" cssVariable="--results-panel-height" centerMinimum={260} value={preferences.bottomPanelHeight} minimum={180} maximum={520} defaultValue={270} label="调整回测结果高度" onCommit={(value) => commitLayout('bottomPanelHeight', value)} /> : <div className="panel-divider-spacer" />}
+            {standaloneRun && savedSelection ? <SavedProjectRunResult key={savedSelection.key} selection={savedSelection} report={projectReport} job={savedMultiJob} busy={singleRunning} ownerId={ownerId} />
+              : <ResultsPanel result={singleResult} loading={singleRunning} panelMode={preferences.resultsPanelMode}
+                onPanelMode={(resultsPanelMode) => setPreferences((current) => ({ ...current, resultsPanelMode }))}
+                proofAction={proofSnapshot && proofSnapshot.runId === singleResult?.run_id
+                  ? <Suspense fallback={null}><SavedStrategyProof key={proofSnapshot.runId} record={proofSnapshot.record} ownerId={ownerId} /></Suspense>
+                  : savedSelection && singleResult ? <small>生成 ZKP 需要受限 Python 策略。</small> : null} />}
           </div>
           <ResizeHandle rootRef={shellRef} side="right" cssVariable="--strategy-panel-width" oppositeCssVariable="--market-sidebar-width" centerMinimum={460} value={preferences.strategyPanelWidth} minimum={230} maximum={520} defaultValue={264} label="调整策略参数宽度" onCommit={(value) => commitLayout('strategyPanelWidth', value)} />
-          <StrategyPanel enginePicker={<BacktestEnginePicker executionModel={executionModel} onExecutionModel={setExecutionModel} unifiedAvailable={preferences.source === 'huggingface' && !releaseId} value={backtestEngine} onChange={engine => { setBacktestEngine(engine); if (engine !== 'atlas') setReleaseId('') }} result={singleResult} />} externalEngine={backtestEngine !== 'atlas'} codeContext={codeBacktest ? <section className="trine-code-context"><small>当前回测 · 我编写的 Python</small><strong>{codeBacktest.name}</strong><code title={codeBacktest.hash}>代码 SHA256 · {codeBacktest.hash.slice(0,12)}</code><p>{asset?.symbol} · {preferences.interval} · {preferences.source}</p><small>使用点击回测时的代码快照；再次运行将继续使用此版本。回测不代表 ZKP 已验证。</small><details><summary>查看本次代码</summary><pre>{codeBacktest.source}</pre></details><button onClick={() => setMode('research')}>返回编辑</button><button onClick={() => setCodeBacktest(null)}>切换策略模板</button></section> : undefined} releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { setCodeBacktest(null); setReleaseId(id) }}/>} releaseSelected={!!releaseId || !!codeBacktest} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
+          <StrategyPanel sweepContext={{ symbol: asset?.symbol, asset_class: asset?.asset_class, interval: preferences.interval,
+            data_source: preferences.source, initial_capital: capital, commission_rate: commission, slippage_rate: slippage,
+            spread_rate: spread, max_position: maxPosition, max_participation_rate: maxParticipation,
+            stop_loss: stopLoss || null, take_profit: takeProfit || null, adjustment: preferences.adjustment,
+            base_currency: preferences.baseCurrency }} enginePicker={<BacktestEnginePicker executionModel={executionModel} onExecutionModel={setExecutionModel} unifiedAvailable={preferences.source === 'huggingface' && !releaseId} value={backtestEngine} onChange={engine => { setBacktestEngine(engine); if (engine !== 'atlas') setReleaseId('') }} result={singleResult} />} externalEngine={backtestEngine !== 'atlas'} standaloneRun={standaloneRun}
+            savedPicker={<SavedLabStrategyPicker ownerId={ownerId} selected={savedSelection} disabled={singleRunning} onSelect={chooseSavedStrategy} />}
+            codeContext={savedArchive ? <ArchiveRunSettings selection={savedArchive} disabled={singleRunning} onChange={chooseSavedStrategy} />
+              : savedStrategy ? <section className="trine-code-context"><strong>{savedStrategy.name}</strong>
+                <small>{savedMulti ? '使用策略保存的股票池和回测设置。' : '使用已保存的源码和当前所选行情。'} · 修订 {savedStrategy.revision}</small>
+                <a href={`#research?strategy=${encodeURIComponent(savedStrategy.id)}`}>在策略实验室编辑</a>
+              </section> : undefined}
+            releasePicker={<SubscribedStrategyPicker value={releaseId} onChange={id => { chooseSavedStrategy(null); setReleaseId(id) }}/>}
+            releaseSelected={!!releaseId || !!savedSelection} start={start} end={end} onStart={setStart} onEnd={setEnd} asset={asset} strategies={singleStrategies} selectedId={strategyId} values={params} capital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} stopLoss={stopLoss} takeProfit={takeProfit} onStrategy={chooseStrategy} onValue={(key, value) => setParams((current) => ({ ...current, [key]: value }))} onCapital={setCapital} onCommission={setCommission} onSlippage={setSlippage} onSpread={setSpread} onMaxPosition={setMaxPosition} onMaxParticipation={setMaxParticipation} onStopLoss={setStopLoss} onTakeProfit={setTakeProfit} onReset={() => { setParams(defaultsFor(singleStrategies.find((strategy) => strategy.id === strategyId))); setStart(''); setEnd(''); setCapital(100_000); setCommission(0.001); setSlippage(0.0005); setSpread(0.0005); setMaxPosition(0.95); setMaxParticipation(0.01); setStopLoss(0); setTakeProfit(0) }} fundamentals={fundamentals} fundamentalsLoading={fundamentalsLoading} fundamentalsError={fundamentalsError} onFundamentals={loadFundamentals} />
         </main>
       </WorkspaceErrorBoundary> : null}
       {visitedModes.includes('portfolio') ? <div className="retained-workspace" hidden={mode !== 'portfolio'} inert={mode !== 'portfolio'}><WorkspaceErrorBoundary>
         <main className="portfolio-mode"><PortfolioWorkspace catalog={assets} strategies={portfolioStrategies} interval={preferences.interval} source={preferences.source} baseCurrency={preferences.baseCurrency} runSignal={portfolioRunSignal} onLoading={setPortfolioRunning} onResult={acceptPortfolioResult} onError={setError} /><ResultsPanel result={portfolioResult} loading={portfolioRunning} panelMode="normal" onPanelMode={() => undefined} controls={false} /></main>
       </WorkspaceErrorBoundary></div> : null}
-      {visitedModes.includes('research') ? <div className="retained-workspace" hidden={mode !== 'research'} inert={mode !== 'research'}><WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}><StrategyLabWorkspace asset={asset} assets={assets} onResearchContextChange={selectAsset} strategies={singleStrategies} interval={preferences.interval} source={preferences.source} initialCapital={capital} commission={commission} slippage={slippage} spread={spread} maxPosition={maxPosition} maxParticipation={maxParticipation} onLoading={setResearchRunning} onError={setError} onOpenMarket={() => setMode('quantjudge')} onCustomResult={(result, code) => { if(code?.backtestSettings){const c=code.backtestSettings;setCapital(c.capital);setCommission(c.commission);setSlippage(c.slippage);setSpread(c.spread);setMaxPosition(c.position);setMaxParticipation(c.participation)} setBacktestEngine(result.backtest_engine??'atlas'); setCodeBacktest(code || null); setReleaseId(''); setStart(code?.start ?? ''); setEnd(code?.end ?? ''); setStopLoss(0); setTakeProfit(0); setSingleResult(result); setMarket(current => retainChartHistory(current, marketFromResult(result))); setAsset(result.asset); setMode('single'); api.listRuns().then(setRuns).catch(() => undefined) }} /></Suspense></WorkspaceErrorBoundary></div> : null}
-      {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载 QuantJudge…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
+        {visitedModes.includes('research') ? <section className="retained-workspace trine-strategy-lab" hidden={mode !== 'research'} inert={mode !== 'research'}>
+          <WorkspaceErrorBoundary>
+            <Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略实验室…</div>}>
+              <div className="trine-lab-pane"><RqAlphaLabWorkspace ownerId={ownerId} assets={assets} active={mode === 'research'} onRunSaved={refreshRunHistory} defaults={{
+                  symbol: asset?.symbol ?? preferences.symbol, asset_class: asset?.asset_class ?? preferences.assetClass,
+                  interval: preferences.interval, data_source: preferences.source === 'baostock' ? 'auto' : preferences.source,
+                  adjustment: preferences.adjustment, start: null, end: null, initial_capital: capital,
+                  commission_rate: commission, slippage_rate: slippage, spread_rate: spread,
+                  max_position: maxPosition, max_participation_rate: maxParticipation,
+                }} /></div>
+            </Suspense>
+          </WorkspaceErrorBoundary>
+        </section> : null}
+      {mode === 'quantjudge' ? <WorkspaceErrorBoundary><Suspense fallback={<div className="chart-loading"><LoaderCircle size={20} className="spin" />加载策略市场…</div>}><QuantJudgeWorkspace onError={setError} onOpenLab={() => setMode('research')} /></Suspense></WorkspaceErrorBoundary> : null}
       </div>
       <HistoryDrawer open={historyOpen} runs={runs} onClose={() => setHistoryOpen(false)} onOpen={openHistoryRun} onDelete={deleteHistoryRun} onSync={syncHistoryRun} />
       <AlertDrawer open={alertsOpen} asset={asset} interval={preferences.interval} source={preferences.source} onClose={() => setAlertsOpen(false)} onUnread={setUnreadAlerts} onError={setError} />

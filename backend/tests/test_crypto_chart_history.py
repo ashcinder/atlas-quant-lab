@@ -79,3 +79,46 @@ def test_chart_failures_are_not_reported_as_history_end(client, monkeypatch):
     response = client.get("/api/v1/market/chart", params={"symbol": "BTC-USD", "interval": "1m"})
     assert response.status_code == 502
     assert response.json()["detail"] == "offline"
+
+
+def test_mainland_chart_falls_back_and_persists_latest_minutes(client, monkeypatch, tmp_path):
+    from app.data.service import MarketDataService
+
+    symbol = "002371.SZ"
+    first = 1794523800
+    rows = [first, first + 60, first + 120]
+    service = MarketDataService(tmp_path)
+    monkeypatch.setattr(main, "data_service", service)
+
+    def offline(*args):
+        raise ProviderError("offline")
+
+    def fresh(*args):
+        return pd.DataFrame(
+            {"open": 10.0, "high": 12.0, "low": 9.0, "close": 11.0, "volume": 200.0},
+            index=pd.to_datetime(rows, unit="s", utc=True),
+        )
+
+    monkeypatch.setattr(service.providers["sina"], "fetch_bars", offline)
+    monkeypatch.setattr(service.providers["eastmoney"], "fetch_bars", fresh)
+    query = {"symbol": symbol, "asset_class": "equity", "interval": "1m", "adjustment": "raw"}
+    published = client.get("/api/v1/market/manifest", params={**query, "data_source": "huggingface"})
+    assert published.status_code == 202
+
+    first_response = client.get("/api/v1/market/chart", params=query)
+    assert first_response.status_code == 200
+    assert first_response.json()["source"] == "eastmoney"
+    assert [bar["time"] for bar in first_response.json()["bars"]] == rows
+
+    # A new service using the same volume must find the chart after restart.
+    restarted = MarketDataService(tmp_path)
+    monkeypatch.setattr(main, "data_service", restarted)
+    for provider in ("sina", "eastmoney"):
+        monkeypatch.setattr(restarted.providers[provider], "fetch_bars", offline)
+    cached = client.get("/api/v1/market/chart", params=query)
+    assert cached.status_code == 200
+    assert cached.json()["cache_hit"]
+    assert [bar["time"] for bar in cached.json()["bars"]] == rows
+    history = client.get("/api/v1/market/chart", params={**query, "before": rows[-1], "provider": "eastmoney"})
+    assert [bar["time"] for bar in history.json()["bars"]] == rows[:-1]
+    assert client.get("/api/v1/market/manifest", params={**query, "data_source": "huggingface"}).status_code == 202

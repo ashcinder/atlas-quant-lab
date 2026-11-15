@@ -2,14 +2,18 @@ import { BacktestPeriod } from './BacktestPeriod'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, BarChart3, ChevronDown, Info, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import type { Asset, FundamentalsResponse, Strategy } from '../types'
+import { ParameterSweep } from './ParameterSweep'
 import { FundamentalsPanel } from './FundamentalsPanel'
 
 interface Props {
   enginePicker?: React.ReactNode
+  savedPicker?: React.ReactNode
+  standaloneRun?: boolean
   externalEngine?: boolean
   codeContext?: React.ReactNode
   releasePicker?: React.ReactNode
   releaseSelected?: boolean
+  sweepContext?: Record<string, unknown>
   asset: Asset | null
   strategies: Strategy[]
   selectedId: string
@@ -66,14 +70,17 @@ export function StrategyPanel(props: Props) {
       ) : <>
       <div className="panel-heading panel-context-heading">
         <span>回测参数</span>
-        <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button>
+        {!props.standaloneRun ? <button className="icon-button" onClick={props.onReset} title="恢复默认参数"><RotateCcw size={14} /></button> : null}
       </div>
+      {props.savedPicker}
+      {props.standaloneRun ? props.codeContext : <>
       {props.enginePicker}
       {props.codeContext}
       <div className="form-section backtest-time-controls">
         <BacktestPeriod start={props.start ?? ''} end={props.end ?? ''} onApply={(start, end) => { props.onStart?.(start); props.onEnd?.(end) }} />
         <small>完整历史 K 线保持显示，所选区间用更鲜明的颜色突出。</small>
       </div>
+      {!props.externalEngine && selected && props.sweepContext && !props.releaseSelected && <ParameterSweep key={selected.id} disabled={!asset} fields={selected.parameters.filter(p => p.kind === 'number' || p.kind === 'integer').map(p => ({ key: `params.${p.key}`, label: p.label, value: Number(props.values[p.key] ?? p.default), min: p.minimum ?? undefined, max: p.maximum ?? undefined, integer: p.kind === 'integer' }))} payload={{ ...props.sweepContext, strategy_id: selected.id, params: props.values }} onApply={values => Object.entries(values).forEach(([key, value]) => props.onValue(key.replace(/^params\./, ''), value))} />}
       {!props.codeContext && <div className="strategy-select-wrap">
         {!props.externalEngine && props.releasePicker}
         <label>策略模板{props.releaseSelected ? "（已选版本将覆盖此模板）" : ""}</label>
@@ -106,7 +113,7 @@ export function StrategyPanel(props: Props) {
         <label className="field-row"><span>止损（0=关闭）</span><div className="input-suffix"><input type="number" min={0} max={99} step={0.5} value={props.stopLoss * 100} onChange={(event) => props.onStopLoss(Number(event.target.value) / 100)} /><em>%</em></div></label>
         <label className="field-row"><span>止盈（0=关闭）</span><div className="input-suffix"><input type="number" min={0} max={1000} step={1} value={props.takeProfit * 100} onChange={(event) => props.onTakeProfit(Number(event.target.value) / 100)} /><em>%</em></div></label>
       </div>
-      {!props.codeContext && <div className="form-section strategy-params">
+      <div className="form-section strategy-params">
         <h3>策略参数</h3>
         {selected?.parameters.map((parameter) => (
           <label className="field-stack" key={parameter.key}>
@@ -123,7 +130,8 @@ export function StrategyPanel(props: Props) {
           </label>
         ))}
         {selected?.parameters.length === 0 ? <div className="empty-inline">该策略没有额外参数</div> : null}
-      </div>}
+      </div>
+      </>}
       </>}
     </aside>
   )

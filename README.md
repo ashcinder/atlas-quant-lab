@@ -1,8 +1,10 @@
-# DeAI Quant Hub · QuantJudge
+# Trine
 
-DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平台，代码仓库沿用 Atlas Quant Lab 名称。前端使用 React / TypeScript，业务后端使用 FastAPI / SQLite，完整实验室栈另运行 Supervisor 与 MySQL。
+Trine 是多用户量化策略研究、历史回测与资产账本平台。前端使用 React / TypeScript，业务后端使用 FastAPI / SQLite，完整实验室栈另运行 Supervisor 与 MySQL。
 
-本分支包含本机验收通过的 r23 应用源码，采用浏览器计算和独立行情发布器。更新于 2026-11-09。运行方式、验收结果与既有镜像适用范围见[当前状态](docs/CURRENT_STATUS.md)。
+策略实验室有两个工作台。**Python 策略项目**支持单标的研究、文件与项目导入和切换回测框架。**RQAlpha 多标的回测**保留私有草稿、A 股行业和题材股票池、日线与分钟回测，以及六标签报告和历史结果。原生 RQAlpha 任务使用独立执行器，环境与行情配置见下方部署文档。
+
+沪深和加密货币图表可以自动获取近期行情，并从服务器持久缓存恢复。沪深不复权分钟图可以在已发布历史快照之后显示近期行情，行情出版和回测数据版本仍独立管理。部署和迁移说明见[近期行情与服务器缓存](docs/BROWSER_COMPUTE.md#图表近期行情和服务器缓存)。
 
 ## 文档入口
 
@@ -19,9 +21,10 @@ DeAI Quant Hub 是多用户量化策略研究、历史回测与资产账本平�
 | A股龙头与同行策略 | [代码、运行方法和真实数据回测](strategy/examples/a_share_leader_follow/README.md) |
 | 历史固定镜像交付 | [基础两镜像](docs/LAB_OFFLINE_DEPLOYMENT.md)、[完整四镜像测试链](docs/LAB_CHAIN_DEPLOYMENT.md) |
 | 测试 | [隔离浏览器验收](tools/e2e/README.md)、[r23 本机验收](docs/testing/comprehensive-20261108/FOLLOWUP.md) |
-| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md) |
+| 使用与开发 | [当前工作流](docs/CURRENT_WORKSPACE_WALKTHROUGH.md)、[实验室入门](docs/LAB_QUICKSTART.md)、[策略格式与SDK](docs/STRATEGY_DEVELOPMENT.md)、[A 股多股策略实验室](docs/LAB_MULTI_PORTFOLIO.md) |
+| 学术米筐日线与回测报告 | [RQAlpha 使用与部署](docs/LAB_MULTI_PORTFOLIO.md#rqalpha-学术非商用日线)、[六标签报告](docs/LAB_MULTI_PORTFOLIO.md#米筐式回测报告) |
 | 交易与付费 | [交易环境](docs/TRADING.md)、[BKC与Proof](docs/TRINE_SERVICE_WORKFLOW.md)、[测试账户](docs/TRINE_TEST_ACCOUNTS.md) |
-| 评分与证据 | [QuantJudge](docs/QUANTJUDGE.md)、[执行与隐私](docs/EXECUTION_TRUST.md)、[ZKP协议](docs/ZKP.md)、[本地代码到Proof](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
+| 评分与证据 | [策略市场](docs/QUANTJUDGE.md)、[执行与隐私](docs/EXECUTION_TRUST.md)、[ZKP协议](docs/ZKP.md)、[本地代码到Proof](docs/CODE_TO_PROOF_WALKTHROUGH.md) |
 | 结构与产品 | [项目结构](docs/PROJECT_STRUCTURE.md)、[架构](docs/ARCHITECTURE.md)、[产品范围](docs/PRD.md) |
 
 ## 公开分支功能

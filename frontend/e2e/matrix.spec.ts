@@ -123,14 +123,14 @@ test('LEDGER-12 historical income fees withdrawal validation and record edit del
 test('CODE-02 unsupported languages and invalid Python cannot pretend to run', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
-  await page.getByRole('button', { name: '代码', exact: true }).click()
+  await page.getByRole('button', { name: '新建策略', exact: true }).click()
   const studio = page.getByRole('region', { name: '代码策略工作区' })
-  const language = studio.getByLabel('策略编程语言')
-  const options = await language.getByRole('option').evaluateAll(items => items.map(item => (item as HTMLOptionElement).value))
+  const language = page.getByRole('combobox', { name: '策略编程语言' })
+  const options = await language.locator('option').evaluateAll(items => items.map(item => (item as HTMLOptionElement).value))
   for (const id of options.filter(item => item !== 'python')) {
     await language.selectOption(id)
     await expect(studio.getByRole('button', { name: '检查代码', exact: true })).toBeDisabled()
-    await expect(studio).toContainText('编译和回测尚未接入')
+    await expect(studio).toContainText('尚未接入检查与回测')
   }
   await language.selectOption('python')
   const editor = studio.getByLabel('Python 策略代码', { exact: true })
@@ -146,11 +146,11 @@ test('CODE-02 unsupported languages and invalid Python cannot pretend to run', a
   await studio.locator('input[type=file]').setInputFiles({ name: 'oversize.py', mimeType: 'text/plain', buffer: Buffer.alloc(60_001, 'x') })
   await expect(studio.getByRole('alert')).toContainText('不能超过 60 KB')
   expect(await editor.inputValue()).toBe(before)
-  await studio.getByRole('button', { name: '载入可证明 Python 模板', exact: true }).click()
-  await page.getByRole('alertdialog').getByRole('button', { name: '替换代码', exact: true }).click()
+  await editor.fill('def target_bps(index, close, sma):\n    return 3000 if index >= 30 else 0\n')
+  await studio.getByRole('button', { name: '保存策略', exact: true }).click()
   await studio.getByRole('button', { name: '检查代码', exact: true }).click()
   await expect(studio.locator('.code-validation')).toContainText('检测通过')
-  await savedRun(page, () => studio.getByRole('button', { name: '进行回测', exact: true }).click())
+  await savedRun(page, () => studio.getByRole('button', { name: '运行回测', exact: true }).click())
 })
 
 test('BT-04 time validation, zero fees, position limits and duplicate submission preserve one result', async ({ page, account }) => {
@@ -241,7 +241,8 @@ test('IMPORT-01 export large Unicode backup, reject duplicate IDs atomically, pr
   expect(after.journals).toEqual(state.journals)
 })
 
-test('LAB-09 every visual comparison operator executes with saved AND and OR snapshots', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('LAB-09 every visual comparison operator executes with saved AND and OR snapshots', async ({ page, account }) => {
   test.setTimeout(90_000)
   await login(page, account)
   await route(page, '#research')
@@ -279,7 +280,8 @@ test('LAB-09 every visual comparison operator executes with saved AND and OR sna
   expect(await builder.locator('.logic-block.entry .rule-row').count()).toBe(1)
 })
 
-test('LAB-10 empty selection and invalid rolling windows fail without a server fallback', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('LAB-10 empty selection and invalid rolling windows fail without a server fallback', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
   await page.getByRole('button', { name: '参数测试', exact: true }).click()
@@ -381,7 +383,8 @@ test('PLAN-01 due plan skip undo confirm and edit preserve prior occurrence', as
   expect(after.plans[0].amount).toBe(23.45)
 })
 
-test('LAB-11 project Escape asks before discarding and cancelled close preserves the draft', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('LAB-11 project Escape asks before discarding and cancelled close preserves the draft', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
   await page.getByRole('button', { name: '新建策略项目', exact: true }).click()

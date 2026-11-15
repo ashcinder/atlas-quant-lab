@@ -17,7 +17,7 @@ export async function login(page:Page, name='user00', pass=password) {
   await page.getByLabel('登录邮箱').fill(name+'@e2e.example.test')
   await page.getByLabel('密码',{exact:true}).fill(pass)
   const response=page.waitForResponse(r=>r.url().endsWith('/api/login')&&r.request().method()==='POST')
-  await page.getByRole('button',{name:'登录 Atlas',exact:true}).click()
+  await page.getByRole('button',{name:'登录 Trine',exact:true}).click()
   expect((await response).status()).toBe(200)
   await expect(page.getByLabel('登录邮箱')).toBeHidden()
   await expect(page.getByRole('button',{name:'运行回测',exact:true})).toBeVisible()

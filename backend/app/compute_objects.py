@@ -3,11 +3,13 @@
 Only public objects have CDN URLs. Private objects always require application
 authorization; their keys alone are never download credentials.
 """
+import gzip
 import hashlib
 import json
 import os
 import re
 import tempfile
+import zlib
 import subprocess
 from pathlib import Path
 
@@ -78,11 +80,27 @@ class ComputeObjects:
         except (OSError, subprocess.SubprocessError):
             raise ValueError("公共对象上传失败，未发布新数据清单") from None
 
-    def read(self, visibility: str, digest: str):
-        body = self.path(visibility, digest).read_bytes()
-        if len(body) > self.max_bytes(visibility) or hashlib.sha256(body).hexdigest() != digest:
+    def read_bytes(self, visibility: str, digest: str) -> bytes:
+        path = self.path(visibility, digest)
+        limit = self.max_bytes(visibility)
+        try:
+            body = path.read_bytes()
+        except FileNotFoundError:
+            if visibility != "public":
+                raise
+            # Historical market chunks can be stored compressed without changing
+            # the digest of the canonical JSON consumed by backtests and browsers.
+            try:
+                with gzip.open(path.with_suffix(".json.gz"), "rb") as handle:
+                    body = handle.read(limit + 1)
+            except (gzip.BadGzipFile, EOFError, zlib.error):
+                raise ValueError("存储对象完整性检查失败") from None
+        if len(body) > limit or hashlib.sha256(body).hexdigest() != digest:
             raise ValueError("存储对象完整性检查失败")
-        return json.loads(body)
+        return body
+
+    def read(self, visibility: str, digest: str):
+        return json.loads(self.read_bytes(visibility, digest))
 
     def public_url(self, digest: str) -> str:
         self.path("public", digest)

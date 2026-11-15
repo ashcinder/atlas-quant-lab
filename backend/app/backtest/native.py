@@ -148,14 +148,23 @@ def run_native(r, publications):
     return normalize(r,raw,source,note)
 
 
-def native_router(publications, runs):
+def native_router(publications, runs, drafts=None):
     router=APIRouter(prefix='/api/v1')
     @router.get('/backtest-engines')
     def engines(): return engine_status()
     @router.post('/backtests/native',response_model=BacktestResult)
     def backtest(body:BacktestRequest, request:Request):
+        if request.headers.get('X-Atlas-Lab-Owner'):
+            from app.lab_strategies import require_lab_owner
+            require_lab_owner(request)
+        payload = body.model_dump(mode='json')
+        if body.lab_strategy_id:
+            from app.lab_strategies import require_lab_owner, single_run_snapshot
+            if drafts is None:
+                raise HTTPException(503, "策略库不可用")
+            payload['lab_snapshot'] = single_run_snapshot(drafts, require_lab_owner(request), body.lab_strategy_id, payload)
         try: result=run_native(body,publications)
         except ValueError as exc: raise HTTPException(422,str(exc)) from exc
-        if body.persist: runs.save(request.state.user.id,'single',body.model_dump(mode='json'),result.model_dump(mode='json'))
+        if body.persist: runs.save(request.state.user.id,'single',payload,result.model_dump(mode='json'),lab_strategy_id=body.lab_strategy_id)
         return result
     return router

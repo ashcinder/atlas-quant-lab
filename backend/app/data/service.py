@@ -13,6 +13,7 @@ from app.config import CACHE_DIR
 from app.data.providers import (
     BinanceProvider,
     DemoProvider,
+    EastmoneyCnMinuteProvider,
     MarketDataProvider,
     NoMarketData,
     ProviderError,
@@ -47,6 +48,7 @@ class MarketDataService:
             "tencent": TencentProvider(),
             "binance": BinanceProvider(),
             "demo": DemoProvider(),
+            "eastmoney": EastmoneyCnMinuteProvider(),
         }
 
     def _cache_path(
@@ -74,6 +76,10 @@ class MarketDataService:
             self.cache_dir
             / f"{provider}_{symbol.replace('/', '_').replace('=', '-')}_{interval}_{digest}.csv.gz"
         )
+
+    def chart_cache_path(self, provider: str, symbol: str, interval: str, adjustment: str) -> Path:
+        path = self._cache_path(provider, symbol, interval, None, None, adjustment)
+        return path.with_name(f"chart_{path.name}")
 
     def _read_cache(self, path: Path) -> pd.DataFrame | None:
         stored = self.store.read(path.name)
@@ -122,6 +128,7 @@ class MarketDataService:
         minimum_bars: int | None = None,
         provider_hint: str | None = None,
         cache_history: bool = True,
+        cache_limit: int | None = None,
     ) -> DataBundle:
         asset = find_asset(symbol, asset_class)
         if asset.asset_class == "unknown":
@@ -169,6 +176,11 @@ class MarketDataService:
             cache_path = self._cache_path(
                 provider_name, asset.symbol, interval, start, end, adjustment
             )
+            write_path = cache_path
+            if cache_limit is not None:
+                write_path = self.chart_cache_path(provider_name, asset.symbol, interval, adjustment)
+                if self.store.timestamp(write_path.name) is not None:
+                    cache_path = write_path
             cached = self._read_cache(cache_path)
             if (
                 cached is not None
@@ -188,7 +200,9 @@ class MarketDataService:
                 fetch_start = start
                 # Adjusted equity history can change after corporate actions;
                 # re-fetch the requested history daily rather than mixing bases.
-                full_refresh = asset.asset_class != "crypto" and (datetime.now(UTC) - self._cache_time(cache_path)).total_seconds() > 86400 if cached is not None else False
+                preserve_raw_minutes = cache_limit is not None and cn_equity and adjustment == "raw" and interval in {"1m", "5m", "15m", "1h"}
+                full_refresh = (cached is not None and asset.asset_class != "crypto" and not preserve_raw_minutes
+                                and (datetime.now(UTC) - self._cache_time(cache_path)).total_seconds() > 86400)
                 if cached is not None and len(cached) >= 3 and end is None and not full_refresh:
                     overlap_start = cached.index[-3].to_pydatetime()
                     fetch_start = max(start, overlap_start) if start else overlap_start
@@ -202,8 +216,11 @@ class MarketDataService:
                 )
                 if len(frame) < minimum_bars:
                     raise ProviderError(f"有效K线少于{minimum_bars}根")
+                if cache_limit is not None:
+                    # A chart cache is a rolling window, independent of published versions.
+                    frame = frame.tail(cache_limit)
                 if cache_history:
-                    self._write_cache(cache_path, frame)
+                    self._write_cache(write_path, frame)
                 return DataBundle(
                     asset=asset,
                     frame=frame,

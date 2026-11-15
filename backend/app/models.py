@@ -118,6 +118,7 @@ class PortablePlan(BaseModel):
 
 
 class BacktestRequest(BaseModel):
+    lab_strategy_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     backtest_engine: Literal['atlas', 'rqalpha', 'vnpy'] = 'atlas'
     execution_model: Literal['native', 'unified'] = 'native'
     release_id: str | None = Field(default=None, max_length=64)

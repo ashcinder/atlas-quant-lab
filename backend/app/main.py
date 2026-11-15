@@ -5,6 +5,8 @@ import re
 from datetime import UTC, datetime
 from threading import BoundedSemaphore
 
+import pandas as pd
+
 from fastapi import FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -20,6 +22,7 @@ from app.catalog import find_asset, search_assets
 from app.config import ALLOWED_ORIGINS, APP_NAME, APP_VERSION, STATIC_DIR
 from app.data import MarketDataService
 from app.data.providers import NoMarketData, ProviderError
+from app.data.service import DataBundle
 from app.execution_api import execution_router
 from app.fundamentals import FundamentalsService
 from app.indicators import calculate_indicators, serialize_indicators
@@ -54,6 +57,9 @@ from app.quantjudge_models import (
 from app.research import ResearchService
 from app.bkc_payments import bkc_router
 from app.storage import RunStore
+from app.lab_strategies import LAB_OWNER_HEADER, LabStrategyStore, lab_strategy_router
+from app.lab_portfolio import LabPortfolioStore, portfolio_router
+from app.sector_backtests import router as sector_backtest_router
 from app.strategies import list_strategies
 from app.strategy_projects import (
     ProjectArtifactLink,
@@ -100,6 +106,7 @@ data_service = MarketDataService()
 market_history_slots = BoundedSemaphore(2)
 fundamentals_service = FundamentalsService()
 run_store = RunStore()
+lab_strategy_store = LabStrategyStore()
 workspace_store = WorkspaceStore()
 research_service = ResearchService(data_service)
 alert_monitor = AlertMonitor(workspace_store, data_service)
@@ -114,6 +121,7 @@ strategy_runtime_scheduler = StrategyRuntimeScheduler(strategy_runtime_store)
 manual_trade_sync_scheduler = ManualTradeSyncScheduler()
 cloud_proof_service = CloudProofService(strategy_runtime_store, run_store, zk_proof_store)
 market_publications = MarketPublication()
+lab_portfolio_store = LabPortfolioStore(lab_strategy_store, strategy_runtime_store, market_publications)
 strategy_runtime_store.publications = market_publications
 private_compute = PrivateCompute(strategy_runtime_store, market_publications)
 strategy_runtime_store.private_compute = private_compute
@@ -122,6 +130,7 @@ public_artifacts = PublicArtifacts(quantjudge_store, zk_proof_store, market_publ
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    lab_portfolio_store.start()
     cloud_proof_service.start()
     if not browser_compute_enabled():
         alert_monitor.start()
@@ -130,6 +139,7 @@ async def lifespan(_: FastAPI):
         strategy_runtime_scheduler.start()
     manual_trade_sync_scheduler.start()
     yield
+    lab_portfolio_store.stop()
     cloud_proof_service.stop()
     manual_trade_sync_scheduler.stop()
     strategy_runtime_scheduler.stop()
@@ -156,8 +166,11 @@ app.include_router(runtime_router(strategy_runtime_store))
 app.include_router(bkc_router(strategy_runtime_store, run_store))
 app.include_router(cloud_proof_router(cloud_proof_service))
 app.include_router(proof_inspection_router(zk_proof_store))
-app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store))
-app.include_router(native_router(market_publications, run_store))
+app.include_router(browser_router(strategy_runtime_store, market_publications, run_store, private_compute, workspace_store, lab_strategy_store))
+app.include_router(lab_strategy_router(lab_strategy_store, run_store))
+app.include_router(portfolio_router(lab_portfolio_store))
+app.include_router(sector_backtest_router)
+app.include_router(native_router(market_publications, run_store, lab_strategy_store))
 app.include_router(public_artifact_router(public_artifacts))
 app.add_middleware(
     CORSMiddleware,
@@ -200,6 +213,10 @@ async def require_atlas_user(request: Request, call_next):
         user = parse_session(request, journal_store.find_session_user)
         if user is None:
             return JSONResponse({"error": "需要登录"}, status_code=401, headers={"X-Atlas-Session-Required": "1"})
+        expected_lab_owner = request.headers.get(LAB_OWNER_HEADER)
+        if expected_lab_owner is not None and expected_lab_owner != user.id:
+            return JSONResponse({"error": "当前登录账号已改变。请刷新工作台后重试。"}, status_code=403,
+                                headers={"Cache-Control": "no-store"})
         request.state.user = user
     retired_package_upload = request.method == 'POST' and re.fullmatch(
         r'/api/v1/quantjudge/agents/[^/]+/packages', request.url.path
@@ -265,45 +282,93 @@ def strategies(mode: str | None = Query(default=None, pattern="^(single|portfoli
 
 
 @app.get("/api/v1/market/chart", response_model=MarketDataResponse)
-def crypto_chart(
+def market_chart(
     symbol: str = Query(min_length=1, max_length=64),
     interval: str = Query(pattern="^(1m|5m|15m|1h|4h|1d|1wk)$"),
     adjustment: str = Query(default="auto", pattern="^(auto|raw|forward|backward)$"),
+    asset_class: str = Query(default="crypto", pattern="^(crypto|equity)$"),
+    provider: str | None = Query(default=None, pattern="^(binance|sina|eastmoney)$"),
     before: int | None = Query(default=None, gt=0, le=253402300799),
 ):
-    """Read one live Binance chart page without changing published backtest data."""
-    asset = find_asset(symbol, "crypto")
-    if asset.asset_class != "crypto":
-        raise HTTPException(400, "此图表接口仅支持加密货币")
+    """Serve a bounded recent chart from live feeds and persisted cache."""
+    asset = find_asset(symbol, asset_class)
+    cn_equity = asset.asset_class == "equity" and asset.exchange in {"SSE", "SZSE"}
+    if asset_class != asset.asset_class or not (asset.asset_class == "crypto" or cn_equity):
+        raise HTTPException(400, "近期图表仅支持加密货币及沪深A股")
+    is_minute = interval in {"1m", "5m", "15m", "1h"}
+    if cn_equity and adjustment not in {"auto", "raw"}:
+        raise HTTPException(422, "近期沪深图表只提供不复权行情")
+    sources = (["sina", "eastmoney"] if is_minute else ["sina"]) if cn_equity else ["binance"]
+    if provider is not None:
+        if provider not in sources:
+            raise HTTPException(422, "该来源不支持所选市场或周期")
+        sources = [provider]
     if not market_history_slots.acquire(blocking=False):
         raise HTTPException(429, "行情请求较多，请稍后重试")
     now = datetime.now(UTC)
+    end = datetime.fromtimestamp(before - 0.001, UTC) if before is not None else None
+    bundle = None
+    failures: list[str] = []
     try:
-        try:
-            end = datetime.fromtimestamp(before - 0.001, UTC) if before is not None else None
-            frame = data_service.providers["binance"].fetch_bars(asset, interval, None, end, adjustment)
-        except NoMarketData as exc:
-            if before is None:
-                raise HTTPException(502, "币安未返回该交易对的行情") from exc
-            frame = None
-        except ProviderError as exc:
-            raise HTTPException(502, str(exc)) from exc
+        for source in sources:
+            try:
+                if end is None:
+                    candidate = data_service.fetch(
+                        asset.symbol, asset.asset_class, interval, None, None,
+                        ("raw" if cn_equity else adjustment), source,
+                        minimum_bars=1, cache_limit=20_000,
+                    )
+                elif cn_equity:
+                    path = data_service.chart_cache_path(source, asset.symbol, interval, "raw")
+                    frame = data_service.store.read(path.name)
+                    page = frame.loc[frame.index < pd.Timestamp(before, unit="s", tz="UTC")].tail(3000) if frame is not None else None
+                    if page is None or page.empty:
+                        frame = data_service.providers[source].fetch_bars(asset, interval, None, end, "raw")
+                        candidate = DataBundle(asset, frame, source, fetched_at=now)
+                    else:
+                        candidate = DataBundle(asset, page, f"{source}:cache",
+                                               fetched_at=data_service.store.timestamp(path.name), cache_hit=True)
+                else:
+                    frame = data_service.providers[source].fetch_bars(asset, interval, None, end, adjustment)
+                    candidate = DataBundle(asset, frame, source, fetched_at=now)
+            except NoMarketData:
+                continue
+            except ProviderError as exc:
+                failures.append(str(exc))
+                continue
+            if not candidate.is_stale:
+                bundle = candidate
+                break
+            if bundle is None or candidate.frame.index[-1] > bundle.frame.index[-1]:
+                bundle = candidate
     finally:
         market_history_slots.release()
+    if bundle is None and (failures or before is None):
+        raise HTTPException(502, failures[0] if failures else "近期数据源暂未返回有效行情")
     bars = []
-    if frame is not None:
+    if bundle is not None:
         import math
-        for index, row in frame.iterrows():
-            bar = {"time": int(index.timestamp()), "open": float(row.open), "high": float(row.high),
-                   "low": float(row.low), "close": float(row.close), "volume": float(row.volume)}
-            if not all(math.isfinite(bar[key]) for key in ("open", "high", "low", "close", "volume")) or min(bar["open"], bar["high"], bar["low"], bar["close"]) <= 0 or bar["volume"] < 0 or bar["high"] < max(bar["open"], bar["close"]) or bar["low"] > min(bar["open"], bar["close"]):
-                raise HTTPException(502, "交易所返回了无效K线")
+        for index, row in bundle.frame.tail(3000).iterrows():
+            bar = {"time": int(index.timestamp()), "open": float(row.open),
+                   "high": float(row.high), "low": float(row.low),
+                   "close": float(row.close), "volume": float(row.volume)}
+            if (not all(math.isfinite(bar[key]) for key in ("open", "high", "low", "close", "volume"))
+                    or min(bar["open"], bar["high"], bar["low"], bar["close"]) <= 0
+                    or bar["volume"] < 0 or bar["high"] < max(bar["open"], bar["close"])
+                    or bar["low"] > min(bar["open"], bar["close"])):
+                continue
             if before is None or bar["time"] < before:
                 bars.append(bar)
-    return MarketDataResponse(asset=asset, interval=interval, adjustment=adjustment, source="binance",
-        source_note="币安实时图表；历史回测使用已发布数据", fetched_at=int(now.timestamp()),
+        if not bars and before is None:
+            raise HTTPException(502, "近期数据源暂未返回有效行情")
+    return MarketDataResponse(
+        asset=asset, interval=interval, adjustment=adjustment, source=bundle.source if bundle else sources[0],
+        source_note=bundle.source_note if bundle else None,
+        fetched_at=int((bundle.fetched_at if bundle and bundle.fetched_at else now).timestamp()),
         last_bar_time=bars[-1]["time"] if bars else int((end or now).timestamp()),
-        cache_hit=False, is_stale=False, bars=bars, indicators={})
+        cache_hit=bundle.cache_hit if bundle else False, is_stale=bundle.is_stale if bundle else False,
+        bars=bars, indicators={},
+    )
 
 
 @app.get("/api/v1/market/bars", response_model=MarketDataResponse)

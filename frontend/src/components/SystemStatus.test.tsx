@@ -8,7 +8,7 @@ afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe('system capability status', () => {
   it('does not equate an online backend with ZKP, TEE, chain or real trading readiness', async () => {
-    vi.mocked(api.getHealth).mockResolvedValue({ status: 'ok', name: 'Atlas', version: '0.3.0' })
+    vi.mocked(api.getHealth).mockResolvedValue({ status: 'ok', name: 'Trine', version: '0.3.0' })
     vi.mocked(api.listZkProfiles).mockResolvedValue([])
     vi.mocked(api.getQuantChainStatus).mockRejectedValue(new Error('unreachable'))
     render(<SystemStatus onClose={vi.fn()} />)

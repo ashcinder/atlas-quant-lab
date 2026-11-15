@@ -7,15 +7,15 @@ const destinations = [
   { id: 'single', label: '行情与回测', detail: '单标的研究', icon: CandlestickChart },
   { id: 'portfolio', label: '投资组合', detail: '多资产配置', icon: Layers3 },
   { id: 'research', label: '策略实验室', detail: '开发与验证', icon: FlaskConical },
-  { id: 'quantjudge', label: '策略市场', detail: 'QuantJudge', icon: Gavel },
+  { id: 'quantjudge', label: '策略市场', detail: '策略市场', icon: Gavel },
 ] as const
 
 export function WorkspaceNavigation({ mode, onMode, collapsed, onCollapse }: {
   mode: WorkspaceMode; onMode: (mode: WorkspaceMode) => void; collapsed: boolean; onCollapse: () => void
 }) {
   return <aside className="workspace-navigation">
-    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Atlas 首页">
-      <span className="workspace-monogram">A<span>↗</span></span><span><strong>Atlas</strong></span>
+    <a className="workspace-brand" href="#single" onClick={(event) => { event.preventDefault(); onMode('single') }} aria-label="Trine 首页">
+      <span className="workspace-monogram">T<span>↗</span></span><span><strong>Trine</strong></span>
     </a>
     <nav aria-label="工作模式">{destinations.map(({ id, label, detail, icon: Icon }) => <button key={id} aria-label={label} data-tooltip={collapsed ? label : undefined} title={`${label} · ${detail}`} aria-current={mode === id ? 'page' : undefined} onClick={() => onMode(id)}>
       <Icon size={20} /><span><strong>{label}</strong></span>

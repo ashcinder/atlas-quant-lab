@@ -1,4 +1,6 @@
 import runner from './python_project_runner.py?raw'
+import bootstrap from './portable_runner.py?raw'
+import type { Bar } from '../types'
 import { runIsolatedPython } from './portablePython'
 
 const worker = `
@@ -35,6 +37,14 @@ const worker = `
   }
   await py.loadPackage([...packages]);
   py.globals.set('_root',staged.root);
+  if (data.action === 'targets') {
+    await py.runPythonAsync(${JSON.stringify(bootstrap)});
+    py.globals.set('_bars',JSON.stringify(data.bars));
+    py.globals.set('_params',JSON.stringify(data.params || {}));
+    const targets=JSON.parse(await py.runPythonAsync('run_namespace(execute_project(_entry, _root, True), _bars, _params)'));
+    self.postMessage({kind:'done',targets});
+    return;
+  }
   await py.runPythonAsync('_log = execute_project(_entry, _root)');
   const report=JSON.parse(py.runPython('collect_report(_root, _log)'));
   const archive=py.FS.readFile('/atlas-report.zip').buffer;
@@ -48,11 +58,20 @@ export interface PythonProject {
   root: string
 }
 
+export type ImportedPythonProject = PythonProject & { file: File; libraryId?: string }
+
 export type ProjectFilePreview = { kind: 'text'; text: string; truncated: boolean } | { kind: 'binary' | 'encoding' }
+
+export interface ProjectReportSummary {
+  path: string
+  data: Record<string, unknown>
+  equity?: Record<string, string | number>[]
+  trades?: Record<string, string | number>[]
+}
 
 export interface ProjectReport {
   log: string
-  summaries: { path: string; data: Record<string, unknown> }[]
+  summaries: ProjectReportSummary[]
   warnings: string[]
   archive: Blob
 }
@@ -92,4 +111,27 @@ export async function exportPythonProject(file: File, edits: Record<string, stri
 export async function previewPythonProjectFile(file: File, path: string, signal: AbortSignal) {
   const archive = await readArchive(file, signal)
   return runIsolatedPython({ archive, path, action: 'preview' }, result => result.preview as ProjectFilePreview, signal, worker)
+}
+
+export async function projectTargets(file: File, entry: string, edits: Record<string, string>, bars: Bar[], params: Record<string, unknown>, signal: AbortSignal): Promise<number[]> {
+  const archive = await readArchive(file, signal)
+  return runIsolatedPython({ archive, entry, edits, bars, params, action: 'targets' }, result => {
+    const targets = result.targets
+    if (!Array.isArray(targets) || targets.length !== bars.length || targets.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)) throw new Error('项目目标仓位序列无效')
+    return targets as number[]
+  }, signal, worker)
+}
+
+export async function prepareProjectPlan(file: File, entry: string, edits: Record<string, string>, bars: Bar[], datasetId: string, signal: AbortSignal) {
+  const snapshot = Object.keys(edits).length ? await exportPythonProject(file, edits, signal) : file
+  const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, '0')).join('')
+  const fingerprint = hex(await crypto.subtle.digest('SHA-256', await snapshot.arrayBuffer()))
+  const source = '# Trine Python project SHA-256 ' + fingerprint + '\n# entry ' + entry
+  const sourceHash = hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(source)))
+  const targets = await projectTargets(file, entry, edits, bars, {}, signal)
+  return {
+    source,
+    plan: { dataset_id: datasetId, source_sha256: sourceHash, name: file.name.replace(/\.zip$/i, '').slice(0, 80),
+      start: bars[0].time, end: bars.at(-1)!.time, targets },
+  }
 }

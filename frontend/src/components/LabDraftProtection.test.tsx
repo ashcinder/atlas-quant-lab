@@ -273,6 +273,6 @@ describe('workflow drafts and private sessions', () => {
     await act(async () => request.resolve(proof))
     expect(screen.queryByText(proof.proof_hash)).toBeNull()
     expect(screen.queryByText('dataset-a')).toBeNull()
-    expect((screen.getByRole('button', { name: '发布 QuantJudge' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '发布到策略市场' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

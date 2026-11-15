@@ -1,0 +1,36 @@
+.sector-backtest {
+  margin: 0 0 20px;
+  border: 1px solid var(--border-soft);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.sector-backtest header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px;
+}
+.sector-backtest header h2 { display: flex; align-items: center; gap: 7px; }
+.sector-backtest header h2 svg { color: var(--accent); }
+.sector-backtest header p, .sector-backtest .sector-backtest-note { color: var(--muted); font-size: .8125rem; }
+.sector-backtest header p { margin-top: 5px; }
+.sector-backtest-body:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0 14px 14px; }
+.sector-backtest-setup { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.sector-backtest-setup .lab-settings-grid { display: block; min-width: min(13rem, 100%); }
+.sector-backtest-setup select { width: 100%; }
+.sector-backtest-result { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; border-top: 1px solid var(--border-soft); }
+.sector-backtest-result header { padding: 12px 0 0; }
+.sector-backtest-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr)); gap: 8px; margin: 0; }
+.sector-backtest-metrics div { padding: 10px; border: 1px solid var(--border-soft); border-radius: 5px; }
+.sector-backtest-metrics div:first-child { border-color: var(--accent); }
+.sector-backtest-metrics dt { color: var(--muted); font-size: .8125rem; }
+.sector-backtest-metrics dd { margin: 4px 0 0; font-size: 1.125rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.sector-backtest-result .equity-chart { display: block; height: 300px; border: 1px solid var(--border-soft); border-radius: 5px; }
+.sector-backtest-result summary { cursor: pointer; padding: 7px 0; }
+.sector-backtest-trades { max-height: 24rem; overflow: auto; }
+.sector-backtest-trades thead { position: sticky; top: 0; }
+.sector-backtest-trades td, .sector-backtest-trades th { font-variant-numeric: tabular-nums; }
+.sector-backtest-trades .lab-table tbody th { white-space: nowrap; }

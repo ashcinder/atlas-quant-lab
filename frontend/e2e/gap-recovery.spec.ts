@@ -1,26 +1,32 @@
 import { test, expect, login, route } from './helpers'
 import type { Page } from '@playwright/test'
 
-const endpoint = '**/api/v1/strategy-projects'
-const thesis = 'Synthetic strategy hypothesis: compare returns after transaction costs.'
+const endpoint = '**/api/v1/lab-strategies'
+const source = 'def target_bps(index, close, sma):\n    return 3000\n'
 
 async function startDraft(page: Page, name: string) {
   await route(page, '#research')
-  await page.getByRole('button', { name: '新建策略项目', exact: true }).click()
-  const draft = page.getByRole('dialog', { name: '创建策略项目', exact: true })
-  await draft.getByLabel('项目名称', { exact: true }).fill(name)
-  await draft.locator('textarea[name=project-thesis]').fill(thesis)
-  await draft.locator('input[name=asset-symbol]').fill('BTC-USD')
+  await page.getByRole('button', { name: '新建策略', exact: true }).click()
+  const draft = page.getByRole('region', { name: '代码策略工作区', exact: true })
+  await draft.getByLabel('代码策略名称', { exact: true }).fill(name)
+  await draft.getByLabel('Python 策略代码').fill(source)
   return draft
 }
 
-async function matchingProjects(page: Page, name: string) {
-  const response = await page.request.get('/api/v1/strategy-projects')
+async function matchingStrategies(page: Page, name: string) {
+  const session = await (await page.request.get('/api/session')).json()
+  const headers = { 'X-Atlas-Lab-Owner': session.userId }
+  const response = await page.request.get('/api/v1/lab-strategies', { headers })
   expect(response.ok()).toBeTruthy()
-  return (await response.json() as Array<{ id: string; name: string; thesis: string }>).filter(project => project.name === name)
+  const items = (await response.json() as Array<{ id: string; name: string }>).filter(strategy => strategy.name === name)
+  return Promise.all(items.map(async item => {
+    const detail = await page.request.get('/api/v1/lab-strategies/' + item.id, { headers })
+    expect(detail.ok()).toBeTruthy()
+    return detail.json()
+  }))
 }
 
-test('FAULT-15 a slow project save keeps its draft and prevents repeat submission', async ({ page, account }) => {
+test('FAULT-15 a slow strategy save keeps its draft and prevents repeat submission', async ({ page, account }) => {
   await login(page, account)
   const name = 'Slow save ' + Date.now()
   const draft = await startDraft(page, name)
@@ -33,27 +39,27 @@ test('FAULT-15 a slow project save keeps its draft and prevents repeat submissio
     await hold
     await request.continue()
   })
-  const saved = page.waitForResponse(r => r.url().endsWith('/strategy-projects') && r.request().method() === 'POST')
+  const saved = page.waitForResponse(r => r.url().endsWith('/lab-strategies') && r.request().method() === 'POST')
   try {
-    await draft.getByRole('button', { name: '创建策略项目', exact: true }).click()
+    await draft.getByRole('button', { name: '保存策略', exact: true }).click()
     await expect.poll(() => arrivals).toBe(1)
-    await expect(draft.getByRole('button', { name: '保存中…' })).toBeDisabled()
-    await expect(draft.getByLabel('项目名称', { exact: true })).toHaveValue(name)
-    await expect(draft.locator('textarea')).toHaveValue(thesis)
+    await expect(draft.getByRole('button', { name: '保存策略' })).toBeDisabled()
+    await expect(draft.getByLabel('代码策略名称', { exact: true })).toHaveValue(name)
+    await expect(draft.getByLabel('Python 策略代码')).toHaveValue(source)
     await page.keyboard.press('Escape')
     await expect(draft).toBeVisible()
-    expect(await matchingProjects(page, name)).toHaveLength(0)
+    expect(await matchingStrategies(page, name)).toHaveLength(0)
   } finally {
     release()
   }
   expect((await saved).status()).toBe(201)
-  await expect(draft).toBeHidden()
+  await expect(draft.getByText('已保存', { exact: true })).toBeVisible()
   expect(arrivals).toBe(1)
   await page.reload()
-  expect(await matchingProjects(page, name)).toMatchObject([{ name, thesis }])
+  expect(await matchingStrategies(page, name)).toMatchObject([{ name, source }])
 })
 
-test('FAULT-16 the client timeout preserves an unsent project draft and retry saves it once', async ({ page, account }) => {
+test('FAULT-16 the client timeout preserves an unsent strategy draft and retry saves it once', async ({ page, account }) => {
   await page.clock.install()
   await login(page, account)
   const name = 'Timeout save ' + Date.now()
@@ -70,24 +76,24 @@ test('FAULT-16 the client timeout preserves an unsent project draft and retry sa
     await request.abort().catch(() => undefined)
   })
   try {
-    await draft.getByRole('button', { name: '创建策略项目', exact: true }).click()
+    await draft.getByRole('button', { name: '保存策略', exact: true }).click()
     await reachedRoute
-    await expect(draft.getByRole('button', { name: '保存中…' })).toBeDisabled()
+    await expect(draft.getByRole('button', { name: '保存策略' })).toBeDisabled()
     await page.clock.fastForward(121_000)
-    await expect(page.locator('.error-banner')).toContainText('请求超时')
-    await expect(draft.getByLabel('项目名称', { exact: true })).toHaveValue(name)
-    await expect(draft.locator('textarea')).toHaveValue(thesis)
-    expect(await matchingProjects(page, name)).toHaveLength(0)
+    await expect(page.locator('.lab-workbench .lab-error')).toContainText('请求超时')
+    await expect(draft.getByLabel('代码策略名称', { exact: true })).toHaveValue(name)
+    await expect(draft.getByLabel('Python 策略代码')).toHaveValue(source)
+    expect(await matchingStrategies(page, name)).toHaveLength(0)
   } finally {
     release()
     await page.unrouteAll({ behavior: 'wait' })
   }
-  const saved = page.waitForResponse(r => r.url().endsWith('/strategy-projects') && r.request().method() === 'POST')
-  await draft.getByRole('button', { name: '创建策略项目', exact: true }).click()
+  const saved = page.waitForResponse(r => r.url().endsWith('/lab-strategies') && r.request().method() === 'POST')
+  await draft.getByRole('button', { name: '保存策略', exact: true }).click()
   expect((await saved).status()).toBe(201)
-  await expect(draft).toBeHidden()
+  await expect(draft.getByText('已保存', { exact: true })).toBeVisible()
   await page.reload()
-  expect(await matchingProjects(page, name)).toMatchObject([{ name, thesis }])
+  expect(await matchingStrategies(page, name)).toMatchObject([{ name, source }])
 })
 
 test('FAULT-17 proof verification outage stays unverified and a retry validates the existing receipt', async ({ page, account }) => {

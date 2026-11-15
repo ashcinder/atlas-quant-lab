@@ -1,5 +1,5 @@
 export const STRATEGY_LANGUAGES = [
-  { id: 'python', label: 'Python', extensions: ['.py'], environment: 'Atlas Python SDK', template: `from atlas_strategy_sdk import BaseStrategy, StrategyContext, TargetPosition
+  { id: 'python', label: 'Python', extensions: ['.py'], environment: 'Trine Python SDK', template: `from atlas_strategy_sdk import BaseStrategy, StrategyContext, TargetPosition
 
 
 class MyStrategy(BaseStrategy):
@@ -142,3 +142,21 @@ void OnTick() {
 ] as const
 export type StrategyLanguage = typeof STRATEGY_LANGUAGES[number]['id']
 export const languageForFile = (name: string) => STRATEGY_LANGUAGES.find((language) => language.extensions.some((extension) => name.toLowerCase().endsWith(extension)))
+
+export const MAX_STRATEGY_SOURCE = 60_000
+export const MAX_BOUNDED_SOURCE = 16_384
+export const sourceBytes = (source: string) => new TextEncoder().encode(source).byteLength
+export const STRATEGY_FILE_ACCEPT = STRATEGY_LANGUAGES.flatMap((language) => [...language.extensions]).join(',')
+
+export async function readStrategyFile(file: File) {
+  const language = languageForFile(file.name)
+  if (!language) throw new Error('不支持此文件扩展名，请导入编辑器支持的源码文件。')
+  if (file.size > MAX_STRATEGY_SOURCE) throw new Error('文件不能超过 60 KB。')
+  try {
+    const source = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+    if (source.includes('\0')) throw new Error('binary')
+    return { source, language: language.id, name: file.name.replace(/\.[^.]+$/, '').slice(0, 80).trim() || '未命名策略' }
+  } catch {
+    throw new Error('无法读取文件，请使用 UTF-8 文本格式的源码文件。')
+  }
+}

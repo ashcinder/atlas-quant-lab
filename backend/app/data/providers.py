@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from app.data.cn_minutes import TZ as CN_TZ, aggregate_minutes
 from app.models import Asset
 
 
@@ -466,6 +467,53 @@ class SinaProvider(MarketDataProvider):
             frame = frame.loc[frame.index <= pd.Timestamp(end)]
         if start is None and end is None:
             frame = frame.tail(self.DEFAULT_LIMIT[interval])
+        return _normalize(frame)
+
+
+class EastmoneyCnMinuteProvider(MarketDataProvider):
+    """Recent unadjusted mainland stock minutes for chart fallback."""
+
+    name = "eastmoney"
+    PERIODS = {"1m": 1, "5m": 5, "15m": 15, "1h": 60}
+    URL = "https://push2.eastmoney.com/api/qt/stock/trends2/get"
+
+    def __init__(self) -> None:
+        self.client = httpx.Client(timeout=5)
+
+    def fetch_bars(self, asset: Asset, interval: str, start: datetime | None,
+                   end: datetime | None, adjustment: str) -> pd.DataFrame:
+        if (asset.asset_class != "equity" or not re.fullmatch(r"[0-9]{6}\.(SS|SZ)", asset.symbol)
+                or interval not in self.PERIODS or adjustment not in {"auto", "raw"}):
+            raise ProviderError("东方财富备用来源仅支持沪深股票不复权分钟行情")
+        code, exchange = asset.symbol.split(".")
+        try:
+            response = self.client.get(self.URL, params={
+                "secid": f"{int(exchange == 'SS')}.{code}", "ndays": 5, "iscr": 0, "iscca": 0,
+                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            })
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            rows = [row.split(",") for row in data.get("trends") or []]
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+            raise ProviderError("东方财富分钟行情暂不可用") from exc
+        if rows and str(data.get("code")) != code:
+            raise ProviderError("东方财富返回了其他标的的行情")
+        frame = _records_frame(rows, ["date", "open", "close", "high", "low", "volume"], "Asia/Shanghai")
+        # The source reports lots. Use shares, like the published A-share snapshots.
+        frame["volume"] *= 100
+        local = frame.index.tz_convert(CN_TZ)
+        clock = local.hour * 60 + local.minute
+        frame = frame.loc[((clock >= 570) & (clock <= 690)) | ((clock >= 781) & (clock <= 900))]
+        frame = frame.loc[frame.index <= pd.Timestamp.now(tz="UTC")]
+        try:
+            frame = aggregate_minutes(frame, self.PERIODS[interval])
+        except ValueError as exc:
+            raise NoMarketData("东方财富未返回完整沪深分钟K线") from exc
+        if start is not None:
+            frame = frame.loc[frame.index >= pd.Timestamp(start)]
+        if end is not None:
+            frame = frame.loc[frame.index <= pd.Timestamp(end)]
         return _normalize(frame)
 
 

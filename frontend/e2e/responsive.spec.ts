@@ -2,7 +2,7 @@ import {test,expect,login,route} from './helpers'
 for(const size of [{width:1440,height:900},{width:1920,height:1080},{width:768,height:1024},{width:390,height:844},{width:360,height:800}]){
  test(`RESP-${size.width} all workspaces expose primary controls within viewport`,async({page,account})=>{
   await page.setViewportSize(size);await login(page,account)
-  for(const [hash,selector] of [['#single','.run-button'],['#portfolio','.run-button'],['#research','.lab-module-switch'],['#/journal/overview','.journal-root:not([hidden])'],['#/trading','.trading-workspace']]){
+  for(const [hash,selector] of [['#single','.run-button'],['#portfolio','.run-button'],['#research','.lab-library-header'],['#/journal/overview','.journal-root:not([hidden])'],['#/trading','.trading-workspace']]){
    await route(page,hash);const surface=page.locator(selector).first();await expect(surface).toBeVisible()
    const layout=await page.evaluate(()=>({scroll:document.documentElement.scrollWidth,width:innerWidth}));expect(layout.scroll,'Document must not force horizontal viewport scrolling').toBeLessThanOrEqual(layout.width+2)
    if(selector==='.run-button'){const box=await surface.boundingBox();expect(box).not.toBeNull();expect(box!.x).toBeGreaterThanOrEqual(0);expect(box!.x+box!.width).toBeLessThanOrEqual(size.width+2)}

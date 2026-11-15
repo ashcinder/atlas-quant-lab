@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import APIRouter, HTTPException, Path, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.compute_mode import browser_compute_enabled
+from app.lab_strategies import require_lab_owner, single_run_snapshot
 from app.models import BacktestResult, PortfolioResult, ResearchResult
 
 
@@ -33,6 +34,10 @@ def capability(runtime, owner: str, release_id: str | None, purpose: str = "back
             raise HTTPException(403, "只能使用自己开发或已订阅的策略")
     snapshot = json.loads(release["snapshot"])
     strategy_id = release["strategy_id"]
+    if release["source_kind"] == "multi_python":
+        return {"execution_location": "server_private", "available": False,
+                "strategy_version": release["content_hash"],
+                "unavailable_reason": "多股版本请从策略实验室回测或从交易账户启动多股模拟"}
     if snapshot.get("execution_mode", "candles") != "candles":
         return {"execution_location": "server_private", "available": purpose == "runtime", "strategy_version": release["content_hash"],
                 "release_id": release_id, "unavailable_reason": "实时报价联调与作者签名信号仅用于按需运行，不提供历史回测"}
@@ -61,6 +66,7 @@ class BrowserRunInput(BaseModel):
     dataset_ids: list[str] = Field(min_length=1, max_length=24)
     engine_version: Literal["browser-ts/v1"]
     strategy_version: str | None = Field(default=None, max_length=128)
+    lab_strategy_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
 
     @model_validator(mode="after")
     def report_only(self):
@@ -103,7 +109,7 @@ class AlertObservation(BaseModel):
     triggered: bool
 
 
-def browser_router(runtime, publications, runs, private_compute, workspace=None):
+def browser_router(runtime, publications, runs, private_compute, workspace=None, lab_strategies=None):
     router = APIRouter(prefix="/api/v1")
 
     @router.get('/python-runtime/{filename}')
@@ -149,18 +155,37 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None)
         except KeyError:
             raise HTTPException(404, "行情版本不存在") from None
 
+    @router.get("/market/datasets/{identifier}/overview")
+    def chart_overview(identifier: str = Path(pattern=r"^[a-f0-9]{64}$")):
+        try:
+            return publications.chart_overview(identifier)
+        except (KeyError, ValueError, FileNotFoundError):
+            raise HTTPException(404, "行情概览暂不可用") from None
+
     @router.get("/market/files/{digest}.json")
     def public_file(digest: str):
         try:
-            publications.objects.read("public", digest)
+            body = publications.objects.read_bytes("public", digest)
             path = publications.objects.path("public", digest)
         except (ValueError, FileNotFoundError):
             raise HTTPException(404, "公共行情对象不存在或完整性检查失败") from None
-        return FileResponse(path, media_type="application/json", headers={"Cache-Control": "public, max-age=31536000, immutable", "Access-Control-Allow-Origin": "*", "ETag": f'"{digest}"'})
+        headers = {"Cache-Control": "public, max-age=31536000, immutable",
+                   "Access-Control-Allow-Origin": "*", "ETag": f'"{digest}"'}
+        if path.is_file():
+            return FileResponse(path, media_type="application/json", headers=headers)
+        return Response(body, media_type="application/json", headers=headers)
 
     @router.post("/compute/runs", status_code=201)
     def save_browser_run(body: BrowserRunInput, request: Request):
         owner = request.state.user.id
+        if body.lab_strategy_id:
+            require_lab_owner(request)
+            if lab_strategies is None:
+                raise HTTPException(404, "代码策略库不可用")
+            lab_strategies.require_owned(owner, body.lab_strategy_id)
+            if body.mode != "single":
+                raise HTTPException(422, "单标的策略仅接受单标的结果")
+            body.request["lab_snapshot"] = single_run_snapshot(lab_strategies, owner, body.lab_strategy_id, body.request)
         if body.request.get("release_id"):
             permission = capability(runtime, owner, body.request["release_id"])
             if permission["execution_location"] != "browser" or permission["strategy_version"] != body.strategy_version:
@@ -183,7 +208,8 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None)
         # Price history belongs to immutable datasets, not every saved result.
         if body.mode == "single":
             result["bars"] = []
-        runs.save_computed(owner, body.mode, body.request, result, publications.objects)
+        runs.save_computed(owner, body.mode, body.request, result, publications.objects,
+                           lab_strategy_id=body.lab_strategy_id)
         if body.mode == "research":
             digest = publications.objects.put("private", result)
             with runs._connect() as db:

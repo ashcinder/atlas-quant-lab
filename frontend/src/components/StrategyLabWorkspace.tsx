@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { LoaderCircle, Settings2 } from 'lucide-react'
 import type { ResearchWorkspaceProps } from './ResearchWorkspace'
 import { api } from '../api'
@@ -12,13 +12,15 @@ const CodeStrategyWorkspace = lazy(() => import('./CodeStrategyWorkspace').then(
 // Kept for callers reading existing project gate metadata. The lab renders code only.
 export type StrategyLabTab = 'overview' | 'builder' | 'workflow' | 'validate' | 'packages' | 'proof' | 'sdk'
 interface Props extends Omit<ResearchWorkspaceProps, 'view' | 'showHeader'> {
+  children?: ReactNode
+  typeControl?: ReactNode
   initialTab?: StrategyLabTab
   onOpenMarket?: () => void
   assets?: Asset[]
   onResearchContextChange?: (asset: Asset, interval: Interval) => void
 }
 
-export function StrategyLabWorkspace({ assets = [], onResearchContextChange, ...researchProps }: Props) {
+export function StrategyLabWorkspace({ assets = [], onResearchContextChange, typeControl, children, ...researchProps }: Props) {
   const [projects, setProjects] = useState<StrategyProject[]>([])
   const [projectId, setProjectId] = useState('')
   const [pendingProjectRequests, setPendingProjectRequests] = useState(0)
@@ -89,11 +91,13 @@ export function StrategyLabWorkspace({ assets = [], onResearchContextChange, ...
       interval={researchProps.interval} busy={projectBusy} onSelect={selectProject} onCreate={createProject} onUpdate={updateProject} />
   </div>
 
+  if (children) return <div className="strategy-lab-modules">{draftConfiguration}<div className="lab-module-content">{children}</div></div>
+
   return <div className="strategy-lab-modules">
     <div className="lab-module-content">
       <Suspense fallback={<div className="chart-loading"><LoaderCircle className="spin" size={20} />加载代码策略编辑器…</div>}>
         <CodeStrategyWorkspace research={researchProps} assets={assets} onResearchContextChange={onResearchContextChange}
-          draftConfiguration={draftConfiguration} />
+          draftConfiguration={draftConfiguration} typeControl={typeControl} />
       </Suspense>
     </div>
   </div>

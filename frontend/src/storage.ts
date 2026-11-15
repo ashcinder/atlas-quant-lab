@@ -21,6 +21,7 @@ export interface Preferences {
   resultsPanelMode: ResultsPanelMode
   showVolume: boolean
   showMacd: boolean
+  showRangeNavigator: boolean
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -36,6 +37,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   resultsPanelMode: 'normal',
   showVolume: true,
   showMacd: true,
+  showRangeNavigator: true,
 }
 
 export function sourceForAssetClass(source: DataSource, assetClass: string): DataSource {

@@ -1,6 +1,8 @@
 """Boundary validation plus real engine smoke tests when optional engines exist."""
 import json
 import subprocess
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +23,26 @@ def test_native_rejects_incompatible_requests(updates):
     request=BacktestRequest(start='2025-01-01',end='2025-06-01',**{k:v for k,v in updates.items() if k not in {'start','end'}})
     if 'start' in updates: request=request.model_copy(update={'start':updates['start']})
     with pytest.raises(ValueError): validate_native(request)
+
+
+def test_native_worker_writes_complete_report_to_a_pipe_with_partial_writes(monkeypatch, capfd):
+    from engine_workers import native as worker
+
+    output = bytearray()
+
+    def partial_write(fd, remaining):
+        assert fd == sys.stdout.fileno()
+        portion = remaining[:65_536]
+        output.extend(portion)
+        return len(portion)
+
+    monkeypatch.setattr(worker, "os", SimpleNamespace(write=partial_write))
+    result = {"snapshots": [{"time": i, "equity": 10000.0} for i in range(3000)]}
+    worker.write_result(result)
+
+    assert len(output) > 65_536
+    assert json.loads(output) == result
+    assert output.endswith(b"\n")
 
 
 @pytest.mark.skipif(not PYTHON.exists(),reason='optional native environment not installed')

@@ -1,0 +1,8 @@
+# Headless event-adapter dependencies. The RQAlpha base fixes its scientific stack.
+deap==1.4.4
+loguru==0.8.0
+plotly==7.1.0
+TA-Lib==0.8.3
+tqdm==4.70.1
+tzlocal==5.4.5
+# Installed separately without desktop UI extras from the existing pinned source revisions.

@@ -110,6 +110,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 :where(.quant-workspace) .source-pill { margin-left: 5px; padding: 3px 6px; border: 1px solid var(--border); color: var(--positive); font: 8px var(--mono); text-transform: uppercase; }
 :where(.quant-workspace) .source-pill.demo, :where(.quant-workspace) .source-pill.stale { border-color: var(--border-strong); color: var(--accent); }
 :where(.quant-workspace) .market-freshness { color: var(--muted); font: 8px var(--mono); white-space: nowrap; }
+:where(.quant-workspace) .chart-scroll-area {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
 :where(.quant-workspace) .chart-canvas-wrap { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 :where(.quant-workspace) .replay-toolbar { height: 34px; flex: 0 0 34px; padding: 0 7px; border-bottom: 1px solid var(--border); background: var(--bg); display: flex; align-items: center; gap: 5px; }
 :where(.quant-workspace) .replay-toolbar > button { height: 24px; padding: 0 8px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }

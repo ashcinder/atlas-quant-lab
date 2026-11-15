@@ -1,5 +1,6 @@
 """Browser architecture boundaries; synthetic data and disposable SQLite only."""
 from datetime import UTC, datetime
+import gzip
 import hashlib
 import json
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from app.cloud_proofs import CloudProofService
 from app.compute_mode import browser_compute_enabled, cloud_generation_enabled
 from app.compute_objects import ComputeObjects
 from app.data.service import DataBundle
+from app.lab_strategies import LabDraftCreate, LabStrategyStore
 from app.market_publication import MarketPublication
 from app.models import Asset, BacktestRequest
 from app.storage import RunStore
@@ -47,7 +49,8 @@ def architecture(tmp_path, monkeypatch):
     workspace = WorkspaceStore(path)
     objects = ComputeObjects(tmp_path / 'objects')
     publications = MarketPublication(path, objects)
-    for singleton in (main.strategy_runtime_store, main.run_store, main.workspace_store, main.market_publications):
+    LabStrategyStore(path)
+    for singleton in (main.strategy_runtime_store, main.run_store, main.workspace_store, main.market_publications, main.lab_strategy_store):
         monkeypatch.setattr(singleton, 'path', path)
     monkeypatch.setattr(main.market_publications, 'objects', objects)
     monkeypatch.setattr(main.data_service, 'fetch', lambda *args, **kwargs: pytest.fail('HTTP consumer must never fetch upstream market data'))
@@ -70,6 +73,33 @@ def published(architecture):
     request = BacktestRequest(symbol='BTC-USD', asset_class='crypto', strategy_id='dca', persist=False)
     result = run_backtest(request, bundle).model_dump(mode='json')
     return SimpleNamespace(manifest=manifest, bundle=bundle, request=request.model_dump(mode='json'), result=result)
+
+
+def test_chart_overview_includes_published_candle_boundaries(architecture, published):
+    response = architecture.client.get(f"/api/v1/market/datasets/{published.manifest['dataset_id']}/overview")
+    assert response.status_code == 200
+    points = response.json()
+    assert 2 <= len(points) <= 192
+    assert points[0] == {"time": published.manifest["start"], "close": 101.0}
+    assert points[-1] == {"time": published.manifest["end"], "close": 160.0}
+
+
+def test_compressed_market_chunk_keeps_its_public_digest(architecture, published):
+    chunk = published.manifest["chunks"][0]
+    public_path = architecture.objects.path("public", chunk["sha256"])
+    original = public_path.read_bytes()
+    compressed = public_path.with_suffix(".json.gz")
+    compressed.write_bytes(gzip.compress(original))
+    public_path.unlink()
+
+    response = TestClient(main.app).get(chunk["url"])
+    assert response.status_code == 200
+    assert response.content == original
+    assert response.headers["etag"] == f'"{chunk["sha256"]}"'
+    assert len(architecture.publications.bundle(published.manifest["dataset_id"]).frame) == chunk["count"]
+
+    compressed.write_bytes(gzip.compress(b'{"bars":[]}'))
+    assert TestClient(main.app).get(chunk["url"]).status_code == 404
 
 
 def upload(published, **updates):
@@ -109,6 +139,63 @@ def test_dense_python_plan_is_accepted_without_relaxing_other_uploads(architectu
     response=architecture.client.post('/api/v1/backtests/native',content=encoded,headers={'Content-Type':'application/json'})
     assert response.status_code==200,response.text[:500]
     assert architecture.client.post('/api/v1/backtests',content=b'x'*4_000_001,headers={'Content-Type':'application/json'}).status_code==413
+
+
+def test_code_lab_keeps_private_drafts_and_separate_run_snapshots(architecture, published):
+    client, other = architecture.client, architecture.other
+    root = "/api/v1/lab-strategies"
+    initial = "def target_bps(index, close, sma):\n    return 5000\n"
+    draft = {"id": uuid4().hex, "name": "私有测试策略", "language": "python", "source": initial,
+             "settings": {"symbol": "BTC-USD", "asset_class": "crypto", "initial_capital": 6000}}
+    assert TestClient(main.app).get(root).status_code == 401
+    client_owner = owner(client)
+    client.headers["X-Atlas-Lab-Owner"] = client_owner
+    other.headers["X-Atlas-Lab-Owner"] = owner(other)
+    assert other.post(root, json=draft, headers={"X-Atlas-Lab-Owner": client_owner}).status_code == 403
+    assert other.post("/api/v1/compute/compile", json={"source": initial},
+                      headers={"X-Atlas-Lab-Owner": client_owner}).status_code == 403
+    assert other.get(root).json() == []
+    assert client.post(root, json=draft).status_code == 201
+    item = main.lab_strategy_store.create(client_owner, LabDraftCreate.model_validate(draft))
+    url = f"{root}/{item['id']}"
+    assert item["revision"] == 1
+    assert client.get(url).json()["source"] == initial
+    summary = client.get(root)
+    assert summary.headers["cache-control"] == "no-store"
+    assert set(summary.json()[0]) == {"id", "name", "language", "kind", "revision", "updated_at"}
+    assert summary.json()[0]["kind"] == "single_bounded"
+    assert other.get(root).json() == []
+    assert other.get(url).status_code == 404
+    assert other.get(f"{url}/runs").status_code == 404
+    changed = {**{key: value for key, value in draft.items() if key != "id"}, "expected_revision": 1, "name": "改名"}
+    assert other.patch(url, json=changed).status_code == 404
+    assert client.patch(url, json=changed).status_code == 200
+    assert client.get(url).json()["revision"] == 2
+    assert client.patch(url, json=changed).status_code == 409
+    assert client.patch(url, json={**changed, "source": "\0", "expected_revision": 1}).status_code == 422
+
+    expected = {}
+    for target, capital in ((3000, 8000), (9500, 9000)):
+        source = initial.replace("5000", str(target))
+        request = BacktestRequest(symbol="BTC-USD", asset_class="crypto", strategy_id="python_bounded",
+                                  python_source=source, initial_capital=capital)
+        result = run_backtest(request, published.bundle).model_dump(mode="json")
+        body = upload(published, request=request.model_dump(mode="json"), result=result, lab_strategy_id=item["id"])
+        assert other.post("/api/v1/compute/runs", json=body).status_code == 404
+        response = client.post("/api/v1/compute/runs", json=body)
+        assert response.status_code == 201, response.text
+        digest = hashlib.sha256(source.encode()).hexdigest()
+        expected[response.json()["run_id"]] = (digest, capital)
+    assert client.post("/api/v1/compute/runs", json=upload(published, lab_strategy_id=item["id"])).status_code == 422
+    history = client.get(f"{url}/runs").json()
+    assert len(history) == 2
+    for row in history:
+        assert (row["source_sha256"], row["settings"]["initial_capital"]) == expected[row["id"]]
+        assert "python_source" not in row
+        assert client.get(f"/api/v1/runs/{row['id']}").status_code == 200
+        assert other.get(f"/api/v1/runs/{row['id']}").status_code == 404
+    assert client.get(url).json()["settings"]["initial_capital"] == 6000
+    assert client.get(url).json()["source"] == initial
 
 
 def owner(client):
@@ -441,3 +528,41 @@ def test_published_query_coverage_includes_closed_market_days(architecture):
     assert manifest['coverage']['start'] < manifest['start'] and manifest['coverage']['end'] > manifest['end']
     with pytest.raises(ValueError,match='开始日期'):
         architecture.publications.bundle(manifest['dataset_id'],datetime(2025,2,28,tzinfo=UTC),query['end'])
+
+
+def test_code_lab_schema_upgrade_preserves_existing_run_and_project(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old-copy.sqlite"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+            CREATE TABLE backtest_runs (
+                id TEXT PRIMARY KEY, mode TEXT NOT NULL, strategy_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, request_json TEXT NOT NULL, result_json TEXT NOT NULL,
+                created_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'completed', owner_id TEXT NOT NULL
+            );
+            INSERT INTO backtest_runs VALUES (
+                'old-run','single','sma_cross','BTC-USD','{}','{"metrics":{"total_return":0.2}}',
+                '2025-01-01T00:00:00Z','completed','old-owner'
+            );
+            CREATE TABLE strategy_projects (id TEXT PRIMARY KEY);
+            INSERT INTO strategy_projects VALUES ('old-project');
+        """)
+    store = RunStore(path)
+    LabStrategyStore(path)
+    assert store.list("old-owner")[0].total_return == 0.2
+    assert store.get("old-owner", "old-run") == {"metrics": {"total_return": 0.2}}
+    assert store.list_lab("old-owner", "new-draft") == []
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT id FROM strategy_projects").fetchone() == ("old-project",)
+        assert db.execute("SELECT lab_strategy_id FROM backtest_runs").fetchone() == (None,)
+
+def test_project_native_run_rejects_changed_account_before_executing(architecture, published, monkeypatch):
+    from app.backtest import native
+    called = []
+    monkeypatch.setattr(native, "run_native", lambda *args: called.append(args))
+    response = architecture.client.post("/api/v1/backtests/native",
+        json={**published.request, "backtest_engine": "vnpy"},
+        headers={"X-Atlas-Lab-Owner": owner(architecture.other)})
+    assert response.status_code == 403
+    assert not called

@@ -178,7 +178,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
       setVerifying(false)
       setOverview(nextOverview); setAgents(nextAgents); setChain(nextChain)
       setSelected((current) => preserveSelection ? nextAgents.find((item) => item.id === current?.id) ?? nextAgents[0] ?? null : nextAgents[0] ?? null)
-    } catch (reason) { if (request === loadRequest.current) onError(reason instanceof Error ? reason.message : '无法读取 QuantJudge') }
+    } catch (reason) { if (request === loadRequest.current) onError(reason instanceof Error ? reason.message : '无法读取策略市场') }
     finally { if (request === loadRequest.current) setLoading(false) }
   }, [category, onError, query, reportType])
 
@@ -252,7 +252,7 @@ export function QuantJudgeWorkspace({ onError, onOpenLab }: Props) {
       </section>
 
       <section className="qj-tabs">
-        <nav aria-label="QuantJudge 页面">
+        <nav aria-label="策略市场页面">
           <button aria-pressed={activeView === 'market'} className={activeView === 'market' ? 'is-active' : ''} onClick={() => setActiveView('market')}><Activity size={15} />策略排行</button>
           <button aria-pressed={activeView === 'runtime'} className={activeView === 'runtime' ? 'is-active' : ''} onClick={() => setActiveView('runtime')}><Zap size={15} />可运行策略</button>
           <button aria-pressed={activeView === 'subscriptions'} className={activeView === 'subscriptions' ? 'is-active' : ''} onClick={openSubscriptions}><UserRoundCheck size={15} />我的订阅</button>

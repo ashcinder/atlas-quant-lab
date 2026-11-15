@@ -20,7 +20,7 @@ export default function SummaryExport({ title, identifier, summary }: { title: s
     style.textContent = '@page{size:A4;margin:16mm}body{font:14px/1.6 sans-serif;color:#172b35;margin:24px}h1{font-size:24px}h2{font-size:16px;break-after:avoid}section{break-inside:avoid}pre{font:12px/1.5 sans-serif;white-space:pre-wrap;overflow-wrap:anywhere;border-bottom:1px solid #ccd6db;padding-bottom:12px}button{padding:8px 16px}@media print{button{display:none}body{margin:0}}'
     doc.head.append(style)
     const heading = doc.createElement('h1'); heading.textContent = title; doc.body.append(heading)
-    const note = doc.createElement('p'); note.textContent = 'Atlas 报告摘要 · 未记录的信息不补齐；证据范围以各项说明为准。'; doc.body.append(note)
+    const note = doc.createElement('p'); note.textContent = 'Trine 报告摘要 · 未记录的信息不补齐；证据范围以各项说明为准。'; doc.body.append(note)
     for (const [key, value] of Object.entries(summary)) {
       const section = doc.createElement('section'), label = doc.createElement('h2'), content = doc.createElement('pre')
       label.textContent = key; content.textContent = summaryText(value); section.append(label, content); doc.body.append(section)

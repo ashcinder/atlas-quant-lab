@@ -156,7 +156,8 @@ test('A11Y-19 revealing a retained picker cannot steal focus from a foreground d
   await expectFocusInside(picker)
 })
 
-test('A11Y-20 a retained discard confirmation cannot consume a foreground Escape', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('A11Y-20 a retained discard confirmation cannot consume a foreground Escape', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
   await openByKeyboard(page.getByRole('button', { name: '新建策略项目', exact: true }))

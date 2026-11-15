@@ -7,8 +7,8 @@ test('AUTH-01 registration stays disabled and anonymous APIs reject access',asyn
 })
 test('AUTH-02 wrong password reports error then correct login recovers',async({page,account})=>{
  await page.goto('/');await page.getByLabel('登录邮箱').fill(account+'@e2e.example.test');await page.getByLabel('密码',{exact:true}).fill('incorrect-password')
- await page.getByRole('button',{name:'登录 Atlas',exact:true}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByLabel('登录邮箱')).toBeVisible()
- await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:'登录 Atlas',exact:true}).click();await expect(page.getByLabel('登录邮箱')).toBeHidden()
+ await page.getByRole('button',{name:'登录 Trine',exact:true}).click();await expect(page.getByRole('alert')).toBeVisible();await expect(page.getByLabel('登录邮箱')).toBeVisible()
+ await page.getByLabel('密码',{exact:true}).fill(password);await page.getByRole('button',{name:'登录 Trine',exact:true}).click();await expect(page.getByLabel('登录邮箱')).toBeHidden()
 })
 test('AUTH-03 logout and browser session revocation remove access',async({page,account})=>{
  await login(page,account);await page.request.post('/api/logout');await page.reload();await expect(page.getByLabel('登录邮箱')).toBeVisible();expect((await page.request.get('/api/ledger')).status()).toBe(401)
@@ -19,8 +19,8 @@ test('NAV-01 direct routes refresh and back preserve the intended workspace',asy
  const routes=[
   ['#single',page.getByRole('button',{name:'运行回测',exact:true})],
   ['#portfolio',page.getByRole('heading',{name:'多资产组合构建'})],
-  ['#research',page.getByRole('button',{name:'图形化',exact:true})],
-  ['#quantjudge',page.getByRole('navigation',{name:'QuantJudge 页面'})],
+  ['#research',page.getByRole('heading',{name:'我的策略',exact:true})],
+  ['#quantjudge',page.getByRole('navigation',{name:'策略市场页面'})],
   ['#/journal/overview',page.locator('.journal-root:not([hidden])')],
   ['#/trading',page.getByRole('button',{name:'新建运行',exact:true}).first()],
  ] as const

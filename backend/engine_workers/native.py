@@ -1,6 +1,7 @@
 """Trusted target-plan adapters. No user Python is evaluated in this process."""
 import contextlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 
@@ -256,6 +257,17 @@ def rqalpha_run(payload):
                   '均线预热读取区间开始前的 bundle 历史；执行价格使用原生未复权行情，历史均线采用 RQAlpha 默认前复权口径。日期按上海时区的完整交易日处理。'])
 
 
+def write_result(result):
+    # The sandbox's stdout pipe can accept only part of a large write.
+    remaining = memoryview(json.dumps(result, allow_nan=False).encode() + b"\n")
+    stdout = sys.stdout.fileno()
+    while remaining:
+        written = os.write(stdout, remaining)
+        if not written:
+            raise OSError("引擎结果输出中断")
+        remaining = remaining[written:]
+
+
 if __name__ == '__main__':
     payload=json.load(sys.stdin)
     try:
@@ -268,9 +280,9 @@ if __name__ == '__main__':
                 result = vnpy_replay(payload) if payload['engine']=='vnpy' else rqalpha_replay(payload)
             else:
                 result=vnpy_run(payload) if payload['engine']=='vnpy' else rqalpha_run(payload)
-        print(json.dumps(result,allow_nan=False))
+        write_result(result)
     except Exception as exc:
         import traceback
         traceback.print_exc(file=sys.stderr)
-        print(json.dumps({'error':str(exc)}))
+        write_result({'error':str(exc)})
         sys.exit(1)

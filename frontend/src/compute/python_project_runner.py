@@ -4,6 +4,7 @@ import ast
 import contextlib
 import io
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import runpy
@@ -169,7 +170,7 @@ class OutputLog(io.TextIOBase):
         return len(text)
 
 
-def execute_project(entry, root):
+def execute_project(entry, root, strategy=False):
     script = PROJECT / entry
     project_root = PROJECT / root
     OUTPUT.mkdir()
@@ -192,13 +193,43 @@ def execute_project(entry, root):
         try:
             if package:
                 sys.path.insert(0, str(script.parents[len(package)]))
-                runpy.run_module(".".join([*package, script.stem]), run_name="__main__", alter_sys=True)
+                namespace = runpy.run_module(".".join([*package, script.stem]), run_name="__trine_strategy__" if strategy else "__main__", alter_sys=True)
             else:
-                runpy.run_path(str(script), run_name="__main__")
+                namespace = runpy.run_path(str(script), run_name="__trine_strategy__" if strategy else "__main__")
         except SystemExit as error:
             if error.code not in (None, 0):
                 raise RuntimeError(f"入口脚本退出（{error.code}）\n{log.text[-3000:]}") from None
-    return log.text
+    return namespace if strategy else log.text
+
+
+def report_records(folder, name, warnings):
+    path = folder / name
+    if path.is_symlink() or not path.is_file():
+        return []
+    if path.stat().st_size > 4 * 1024 * 1024:
+        warnings.append(f"{name} 过大，请下载报告查看完整明细。")
+        return []
+    records = []
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for index, line in enumerate(handle):
+                if index >= 5000:
+                    warnings.append(f"{name} 在页面显示前 5000 条，完整数据可下载。")
+                    break
+                try:
+                    value = json.loads(line, parse_constant=lambda _: None)
+                    if isinstance(value, dict):
+                        allowed = ("date", "time", "equity", "cash", "positions", "buys", "sells",
+                                   "symbol", "side", "shares", "price", "fee", "tax", "slippage")
+                        records.append({key: item for key in allowed
+                                        if isinstance(item := value.get(key), (str, int, float))
+                                        and (not isinstance(item, str) or len(item) <= 120)
+                                        and (not isinstance(item, float) or math.isfinite(item))})
+                except (ValueError, RecursionError):
+                    continue
+    except UnicodeError:
+        warnings.append(f"{name} 无法预览，请下载报告查看。")
+    return records
 
 
 def collect_report(root, log):
@@ -217,7 +248,7 @@ def collect_report(root, log):
                     continue
                 size = path.stat().st_size
                 if count >= 500 or total + size > REPORT_LIMIT:
-                    if not warnings:
+                    if "部分输出超出下载上限（500 个文件或 16 MiB）" not in warnings:
                         warnings.append("部分输出超出下载上限（500 个文件或 16 MiB）")
                     continue
                 relative = prefix + path.relative_to(folder).as_posix()
@@ -231,7 +262,11 @@ def collect_report(root, log):
                     try:
                         report = json.loads(path.read_text(), parse_constant=lambda _: None)
                         if isinstance(report, dict):
-                            summaries.append({"path": relative, "data": report})
+                            summaries.append({
+                                "path": relative, "data": report,
+                                "equity": report_records(path.parent, "equity.jsonl", warnings),
+                                "trades": report_records(path.parent, "trades.jsonl", warnings),
+                            })
                     except (ValueError, RecursionError):
                         continue
     return json.dumps({"log": log, "summaries": summaries, "warnings": warnings}, ensure_ascii=False, allow_nan=False)

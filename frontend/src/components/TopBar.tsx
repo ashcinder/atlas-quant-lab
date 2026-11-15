@@ -62,7 +62,7 @@ export function TopBar(props: Props) {
   return (
     <header className="topbar">
       <div className="symbol-block">
-        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? 'QuantJudge' : (props.asset?.symbol ?? '—')}</strong>
+        <strong>{props.mode === 'portfolio' ? '多资产组合' : props.mode === 'research' ? '策略实验室' : props.mode === 'quantjudge' ? '策略市场' : (props.asset?.symbol ?? '—')}</strong>
         <span>{props.mode === 'portfolio' ? '组合策略实验室' : props.mode === 'research' ? `${props.asset?.symbol ?? '当前标的'} · 开发 / 验证` : props.mode === 'quantjudge' ? '可验证 Agent 市场' : props.asset?.name}</span>
         {props.mode === 'single' || props.mode === 'portfolio' ? <em>{props.mode === 'portfolio' ? props.baseCurrency : (props.asset?.currency ?? props.baseCurrency)}</em> : null}
       </div>

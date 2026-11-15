@@ -3,6 +3,7 @@ import hashlib
 import json
 import sqlite3
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -112,6 +113,19 @@ class MarketPublication:
         result = json.loads(row[0])
         result["chunks"] = [{**part, "url": self.objects.public_url(part["sha256"])} for part in result["chunks"]]
         return result
+
+    @lru_cache(maxsize=128)
+    def chart_overview(self, identifier: str) -> list[dict]:
+        """Read a bounded number of immutable chunks for the date navigator."""
+        chunks = self.manifest(identifier)["chunks"]
+        samples = min(24, len(chunks))
+        indices = np.linspace(0, len(chunks) - 1, samples, dtype=int)
+        points = []
+        for index in indices:
+            bars = self.objects.read("public", chunks[index]["sha256"])["bars"]
+            times = np.linspace(0, len(bars) - 1, min(8, len(bars)), dtype=int)
+            points.extend({"time": bars[i]["time"], "close": bars[i]["close"]} for i in times)
+        return points
 
     def lookup(self, query: dict) -> dict | None:
         with self.connect() as db:

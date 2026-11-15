@@ -5,6 +5,9 @@ import { request } from '../request'
 export interface MarketChunk {sha256:string;count:number;start:number;end:number;url:string}
 export interface MarketManifest {status:'ready';schema:'atlas.market/v1';dataset_id:string;asset:Asset;interval:Interval;adjustment:Adjustment;source:string;source_note:string|null;fetched_at:number;is_stale:boolean;start:number;end:number;count:number;chunks:MarketChunk[];coverage?:{start:number;end:number;basis:string};conversions?:Record<string,string>}
 export interface MarketQuery {symbol:string;asset_class:string;interval:Interval;adjustment:Adjustment;data_source:DataSource;start?:string;end?:string}
+export class MarketChunkUnavailableError extends Error {
+  constructor(message: string) { super(message); this.name = 'MarketChunkUnavailableError' }
+}
 export class MarketPreparingError extends Error {constructor(message='历史数据尚未发布，请等待数据准备完成后重试'){super(message);this.name='MarketPreparingError'}}
 export function validateManifest(raw:unknown):MarketManifest {
  if(!raw||typeof raw!=='object')throw new Error('行情清单格式无效')
@@ -46,7 +49,24 @@ export async function loadMarket(manifest:MarketManifest,store:ComputeStore,sign
  for(const chunk of chunks){if(signal?.aborted)throw signal.reason??new DOMException('请求已取消','AbortError');let bytes=await store.get<ArrayBuffer>('chunks',chunk.sha256).catch(()=>undefined)
   if(bytes){try{for(const bar of await decodeChunk(bytes,chunk))bars.push(bar);continue}catch{await store.delete('chunks',chunk.sha256).catch(()=>undefined)}}
   const url=new URL(chunk.url,globalThis.location?.origin??'http://localhost');if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error('行情下载地址无效')
-  const response=await fetch(url,{credentials:'omit',signal});if(!response.ok)throw new Error(`行情分块下载失败（HTTP ${response.status}）`);bytes=await response.arrayBuffer();const decoded=await decodeChunk(bytes,chunk);await store.put('chunks',chunk.sha256,bytes).catch(()=>undefined);for(const bar of decoded)bars.push(bar)
+  let response: Response
+  try {
+    response = await fetch(url, { credentials: 'omit', signal })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new MarketChunkUnavailableError('无法连接行情分块服务')
+  }
+  if (!response.ok) {
+    const message = `行情分块下载失败（HTTP ${response.status}）`
+    if (response.status === 404 || response.status === 429 || response.status >= 500) {
+      throw new MarketChunkUnavailableError(message)
+    }
+    throw new Error(message)
+  }
+  bytes = await response.arrayBuffer()
+  const decoded = await decodeChunk(bytes, chunk)
+  await store.put('chunks', chunk.sha256, bytes).catch(() => undefined)
+  for (const bar of decoded) bars.push(bar)
  }
  if(bars.length!==chunks.reduce((count,chunk)=>count+chunk.count,0))throw new Error('行情数据集不完整')
  return {asset:manifest.asset,bars,source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,last_bar_time:bars.at(-1)!.time,is_stale:manifest.is_stale}
@@ -54,15 +74,25 @@ export async function loadMarket(manifest:MarketManifest,store:ComputeStore,sign
 
 // Chart pages are independent from backtest coverage: reaching the beginning
 // returns an empty page, while backtests still require the entire requested range.
-export async function loadChartPage(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal,range:{start?:number;end?:number}={},limit=3000):Promise<MarketInput>{
- const start=range.start??-Infinity,end=range.end??Infinity
- const parts=manifest.chunks.filter(c=>c.end>=start&&c.start<=end)
- if(!parts.length)return {asset:manifest.asset,bars:[],source:manifest.source,interval:manifest.interval,adjustment:manifest.adjustment}
- let bars:Bar[]=[]
- for(let index=parts.length-1;index>=0&&bars.length<limit;index--){
-  const data=await loadMarket({...manifest,chunks:[parts[index]]},store,signal)
-  const page=data.bars.filter(b=>b.time>=start&&b.time<=end&&(manifest.source!=='hf-unverified'||b.volume>0))
-  bars=page.concat(bars)
- }
- return {asset:manifest.asset,bars:bars.slice(-limit),source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,is_stale:manifest.is_stale}
+export async function loadChartPage(
+  manifest: MarketManifest, store: ComputeStore, signal?: AbortSignal,
+  range: { start?: number; end?: number; fromStart?: boolean } = {}, limit = 3000,
+): Promise<MarketInput> {
+  const start = range.start ?? -Infinity
+  const end = range.end ?? Infinity
+  const parts = manifest.chunks.filter(part => part.end >= start && part.start <= end)
+  if (!range.fromStart) parts.reverse()
+  let bars: Bar[] = []
+  for (const part of parts) {
+    const data = await loadMarket({ ...manifest, chunks: [part] }, store, signal)
+    const page = data.bars.filter(bar => bar.time >= start && bar.time <= end
+      && (manifest.source !== 'hf-unverified' || bar.volume > 0))
+    bars = range.fromStart ? bars.concat(page) : page.concat(bars)
+    if (bars.length >= limit) break
+  }
+  return {
+    asset: manifest.asset, bars: range.fromStart ? bars.slice(0, limit) : bars.slice(-limit),
+    source: manifest.source, source_note: manifest.source_note, interval: manifest.interval,
+    adjustment: manifest.adjustment, fetched_at: manifest.fetched_at, is_stale: manifest.is_stale,
+  }
 }

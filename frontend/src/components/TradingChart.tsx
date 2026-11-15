@@ -26,6 +26,7 @@ import { bindChartTheme } from '../chartTheme'
 
 interface Props {
   notice?: ReactNode
+  sourceDetail?: string
   highlightStart?: number
   highlightEnd?: number
   bars: Bar[]
@@ -139,7 +140,7 @@ function rangeTime(time: number, interval: Interval) {
 }
 
 export const TradingChart = memo(function TradingChart({
-  notice, bars: currentBars, indicators, trades, chartType, interval, source, datasetKey, onLoadHistory, lastBarTime, isStale = false,
+  notice, sourceDetail, bars: currentBars, indicators, trades, chartType, interval, source, datasetKey, onLoadHistory, lastBarTime, isStale = false,
   showVolume, showMacd, onShowVolume, onShowMacd, highlightStart, highlightEnd,
 }: Props) {
   const [replayMode, setReplayMode] = useState(false)
@@ -147,7 +148,7 @@ export const TradingChart = memo(function TradingChart({
   const bars = history.bars
   const loadHistory = history.load
   const loadHistoryRef = useRef<() => void>(() => {})
-  useEffect(() => { loadHistoryRef.current = () => { void loadHistory() } }, [loadHistory])
+  useEffect(() => { loadHistoryRef.current = () => { void loadHistory(true) } }, [loadHistory])
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasWrapRef = useRef<HTMLDivElement>(null)
   const volumeCaptionRef = useRef<HTMLDivElement>(null)
@@ -324,7 +325,7 @@ export const TradingChart = memo(function TradingChart({
     let previousFirst: number | undefined
     let updating = false
     const binding: ChartBinding = {
-      update: (payload, fit) => {
+              update: (payload, fit) => {
         updating = true
         const range = chart.timeScale().getVisibleLogicalRange()
         const first = previousFirst
@@ -388,17 +389,36 @@ export const TradingChart = memo(function TradingChart({
     }
     chart.timeScale().subscribeVisibleTimeRangeChange(syncVisibleTime)
     requestAnimationFrame(syncVisibleTime)
-    let userInteracted = false
-    const checkHistory = () => {
-      const range = chart.timeScale().getVisibleLogicalRange()
-      if (!updating && userInteracted && range && range.from < 50) loadHistoryRef.current()
+    let previousFrom = chart.timeScale().getVisibleLogicalRange()?.from
+    let gesture: { pointerId: number; x: number; y: number; requested: boolean } | null = null
+    const nearStart = () => (chart.timeScale().getVisibleLogicalRange()?.from ?? Infinity) < 50
+    const requestEarlier = () => {
+      if (updating || !nearStart() || gesture?.requested) return
+      if (gesture) gesture.requested = true
+      loadHistoryRef.current()
     }
-    const startInteraction = () => { userInteracted = true }
-    const finishInteraction = () => { requestAnimationFrame(checkHistory) }
+    const checkHistory = () => {
+      const from = chart.timeScale().getVisibleLogicalRange()?.from
+      if (gesture && previousFrom !== undefined && from !== undefined && from < previousFrom) requestEarlier()
+      previousFrom = from
+    }
+    const startInteraction = (event: PointerEvent) => {
+      if (event.button === 0) gesture = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, requested: false }
+    }
+    const finishInteraction = (event: PointerEvent) => {
+      if (!gesture || gesture.pointerId !== event.pointerId) return
+      // At the clamped edge the logical range may not move during a drag.
+      const dx = event.clientX - gesture.x
+      if (event.type === 'pointerup' && dx > 8 && dx > Math.abs(event.clientY - gesture.y)) requestEarlier()
+      gesture = null
+    }
+    const wheelHistory = (event: WheelEvent) => {
+      if (event.deltaX < 0 && Math.abs(event.deltaX) > Math.abs(event.deltaY)) requestEarlier()
+    }
     container.addEventListener('pointerdown', startInteraction)
-    container.addEventListener('pointerup', finishInteraction)
-    container.addEventListener('wheel', startInteraction, { passive: true })
-    container.addEventListener('wheel', finishInteraction, { passive: true })
+    window.addEventListener('pointerup', finishInteraction)
+    window.addEventListener('pointercancel', finishInteraction)
+    container.addEventListener('wheel', wheelHistory, { passive: true })
     chart.timeScale().subscribeVisibleLogicalRangeChange(checkHistory)
 
     const syncCrosshairTime = (param: MouseEventParams<Time>) => {
@@ -425,9 +445,9 @@ export const TradingChart = memo(function TradingChart({
       chart.timeScale().unsubscribeVisibleTimeRangeChange(syncVisibleTime)
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(checkHistory)
       container.removeEventListener('pointerdown', startInteraction)
-      container.removeEventListener('pointerup', finishInteraction)
-      container.removeEventListener('wheel', startInteraction)
-      container.removeEventListener('wheel', finishInteraction)
+      window.removeEventListener('pointerup', finishInteraction)
+      window.removeEventListener('pointercancel', finishInteraction)
+      container.removeEventListener('wheel', wheelHistory)
       chart.unsubscribeCrosshairMove(syncCrosshairTime)
       bindingRef.current = null
       window.removeEventListener('atlas-appearance-change', refreshLineTheme)
@@ -495,12 +515,15 @@ export const TradingChart = memo(function TradingChart({
     })
   }
   const isDemo = source?.startsWith('demo') ?? false
-  const sourceDescription = source?.split(':')[0] === 'hf-ohlcv'
+  const sourceDescription = sourceDetail ?? (source?.split(':')[0] === 'hf-ohlcv'
     ? `Hugging Face 历史快照 · 不复权\n当前图表末根K线：${marketTime(lastBarTime)}\n按已发布的历史范围查看与回测；零成交K线保留但不成交，跨除权日需结合公司行动解释。`
-    : undefined
+    : undefined)
   const latestMacd = latestIndicator(displayIndicators.macd)
   const latestSignal = latestIndicator(displayIndicators.macd_signal)
   const replayEquity = replayAccount.cash + replayAccount.quantity * (latest?.close ?? 0)
+  const extraPaneCount = Number(showVolume) + Number(showMacd)
+    + indicatorCatalog.filter(item => item.pane && visibleIndicators.has(item.key)).length
+  const minimumChartHeight = 280 + extraPaneCount * 95
 
   return (
     <section className="chart-workspace">
@@ -522,21 +545,23 @@ export const TradingChart = memo(function TradingChart({
           {!replayMode ? <button className="replay-launch" onClick={startReplay} title="从历史时点逐根回放"><RotateCcw size={11} />回放</button> : null}
           <span className={`source-pill ${isDemo ? 'demo' : isStale ? 'stale' : ''}`} title={sourceDescription}>{source ?? '等待数据'}</span>
         </div>
+
       </div>
       {notice}
       {replayMode ? <div className="replay-toolbar"><span className="replay-status"><i />REPLAY <b>{replayIndex + 1}</b><em>/ {bars.length}</em></span><button onClick={() => setReplayPlaying((value) => !value)} title={replayPlaying ? '暂停' : '播放'}>{replayPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}</button><button onClick={stepReplay} title="下一根K线"><StepForward size={13} /></button><span className="replay-clock">{rangeTime(latest?.time ?? 0, interval)}</span><span className="replay-account"><small>模拟权益</small><strong>{formatNumber(replayEquity, 2)}</strong><em>仓位 {formatNumber(replayAccount.quantity, 4)}</em></span><button className="paper-buy" onClick={() => placeReplayOrder('buy')}>买入25%</button><button className="paper-sell" onClick={() => placeReplayOrder('sell')}>全部卖出</button><button className="replay-exit" onClick={() => { setReplayMode(false); setReplayPlaying(false) }} title="返回实时图表"><X size={13} /></button></div> : null}
-      {!replayMode && onLoadHistory ? <div className="chart-history" role="status">
-        <span>{history.status === 'loading' ? '正在加载更早行情…' : history.status === 'end' ? '该数据源未提供更早行情，可切换周期或来源' : history.status === 'error' ? `更早行情暂不可用：${history.error}` : '向前拖动可分批加载更早行情'}</span>
-        <span aria-label="已加载K线范围">{bars.length} 根 · {bars[0] ? rangeTime(bars[0].time, interval) : '等待行情'}</span>
-        {history.status !== 'end' && <button disabled={history.status === 'loading'} onClick={() => void history.load(true)}>{history.status === 'error' ? '重试加载历史' : '加载更早行情'}</button>}
+      {!replayMode && onLoadHistory && history.status !== 'idle' ? <div className="chart-history" role="status">
+        <span>{history.status === 'loading' ? '正在加载更早行情…' : history.status === 'end' ? '已到该数据源的历史起点' : `更早行情暂不可用：${history.error}。向左查看可重试。`}</span>
       </div> : null}
-      <div className="chart-canvas-wrap" ref={canvasWrapRef} style={{ minHeight: 280 + (Number(showVolume) + Number(showMacd) + indicatorCatalog.filter(x => x.pane && visibleIndicators.has(x.key)).length) * 95 }}>
-        <div className="chart-canvas" ref={containerRef} aria-label="金融K线、成交量与MACD技术指标图" />
-        {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button aria-label="隐藏成交量" onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}
-        {showMacd ? <div className="pane-caption macd-caption" ref={macdCaptionRef}><button aria-label="隐藏MACD" onClick={() => onShowMacd(false)} title="隐藏MACD"><Eye size={11} /></button><strong>MACD (12, 26, 9)</strong><span className="macd-value">M {formatNumber(latestMacd, 2)}</span><span className="signal-value">S {formatNumber(latestSignal, 2)}</span></div> : null}
-        <div className="chart-time-axis" aria-label="当前可见K线时间范围"><span ref={timeStartRef} /><span ref={timeMiddleRef} /><span ref={timeEndRef} /></div>
-        <div className="crosshair-time-label" ref={crosshairTimeRef} aria-hidden="true" />
+      <div className="chart-scroll-area">
+        <div className="chart-canvas-wrap" ref={canvasWrapRef} style={{ minHeight: minimumChartHeight }}>
+          <div className="chart-canvas" ref={containerRef} aria-label="金融K线、成交量与MACD技术指标图" />
+          {showVolume ? <div className="pane-caption volume-caption" ref={volumeCaptionRef}><button aria-label="隐藏成交量" onClick={() => onShowVolume(false)} title="隐藏成交量"><Eye size={11} /></button><strong>VOL · 成交量</strong><span>{formatNumber(latest?.volume, 0)}</span></div> : null}
+          {showMacd ? <div className="pane-caption macd-caption" ref={macdCaptionRef}><button aria-label="隐藏MACD" onClick={() => onShowMacd(false)} title="隐藏MACD"><Eye size={11} /></button><strong>MACD (12, 26, 9)</strong><span className="macd-value">M {formatNumber(latestMacd, 2)}</span><span className="signal-value">S {formatNumber(latestSignal, 2)}</span></div> : null}
+          <div className="chart-time-axis" aria-label="当前可见K线时间范围"><span ref={timeStartRef} /><span ref={timeMiddleRef} /><span ref={timeEndRef} /></div>
+          <div className="crosshair-time-label" ref={crosshairTimeRef} aria-hidden="true" />
+        </div>
       </div>
+
     </section>
   )
 })

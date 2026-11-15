@@ -1,9 +1,19 @@
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Braces, Check, ChevronRight, Download, FileCode2, FileText, Folder, FolderArchive, FolderOpen, LoaderCircle, MoreHorizontal, PanelLeft, PanelRight, Play, Plus, Square, X } from 'lucide-react'
-import type { ProjectFilePreview, ProjectReport, PythonProject } from '../compute/pythonProject'
+import { highlightStrategyCode } from './highlightStrategyCode'
+import { useDeferredValue, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { ArrowLeft, BarChart3, Braces, Check, ChevronRight, Download, FileCode2, FileText, Folder, FolderArchive, FolderOpen, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeft, PanelRight, Play, Plus, Search, SlidersHorizontal, Square, Terminal, X } from 'lucide-react'
+import { preferredEntry } from '../project-entry'
+import type { ImportedPythonProject, ProjectFilePreview, ProjectReport } from '../compute/pythonProject'
 import './python-project.css'
+import { api } from '../api'
+import { checkComparisonEngines, comparisonError, prepareComparison, runPreparedComparison,
+  type ComparisonEngineCheck, type ComparisonMethod, type ComparisonRow, type PreparedComparison } from '../compute/compareBacktests'
+import { BacktestComparison } from './BacktestComparison'
+import { ProjectComparisonSetup } from './ProjectComparisonSetup'
+import { LabConfirmDialog } from './LabConfirmDialog'
+import { ProjectReportDetails } from './ProjectReportDetails'
+import type { LabBacktestSettings } from '../lab-strategy-types'
+import type { Asset } from '../types'
 
-type ImportedProject = PythonProject & { file: File }
 type TreeNode = { name: string; path: string; children?: Map<string, TreeNode>; hasCode?: boolean }
 
 function buildTree(paths: string[], root: string) {
@@ -59,82 +69,116 @@ function downloadFile(file: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-function preferredEntry(scripts: string[], root: string) {
-  const prefix = root ? root + '/' : ''
-  return scripts.find(path => path === prefix + 'main.py')
-    ?? scripts.find(path => path === prefix + 'backtest.py')
-    ?? scripts.find(path => /(^|\/)strategy_[^/]+\.py$/.test(path))
-    ?? scripts[0]
+function isStrategyEntry(path: string, prefix: string) {
+  return path === prefix + 'main.py' || path === prefix + 'backtest.py' || /(?:^|\/)strategy_[^/]+\.py$/.test(path)
 }
 
-function ProjectMetrics({ report }: { report: ProjectReport }) {
-  return report.summaries.map(({ path, data }) => {
-    const result = data.result && typeof data.result === 'object' ? data.result as Record<string, unknown> : data
-    const percent = (value: unknown) => typeof value === 'number' ? (value * 100).toFixed(2) + '%' : '—'
-    const metrics = [
-      ['累计收益', percent(result.return)],
-      ['最大回撤', percent(result.max_drawdown)],
-      ['期末净值', typeof result.equity === 'number' ? result.equity.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—'],
-      ['已平仓', typeof result.sells === 'number' ? String(result.sells) : '—'],
-    ]
-    if (metrics.every(([, value]) => value === '—')) return null
-    return <section className="python-project-metrics" key={path}>
-      <h3>{typeof data.industry === 'string' ? data.industry : '项目报告'}</h3>
-      {typeof data.from === 'string' && typeof data.to === 'string' ? <p>{data.from} 至 {data.to}</p> : null}
-      <dl>{metrics.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-    </section>
-  })
+function entryOption(path: string, prefix: string) {
+  const relative = path.slice(prefix.length)
+  const separator = relative.lastIndexOf('/')
+  return separator < 0 ? relative : relative.slice(separator + 1) + ' · ' + relative.slice(0, separator)
 }
 
-export default function PythonProjectWorkspace({ children, draftToolbar, draftConfiguration, draftFilename, draftDirty, incomingArchive, importDisabled, onOpenArchive }: {
+export default function PythonProjectWorkspace({ compact = false, comparisonContext, children, draftToolbar, draftConfiguration, typeControl, draftFilename, draftDirty, incomingArchive, importDisabled, onOpenArchive, onBackToLibrary, initialProject, onArchiveImported }: {
+  comparisonContext?: { settings: LabBacktestSettings; assets: Asset[]; ownerId: string }
+  compact?: boolean
   children: ReactNode
   draftToolbar: ReactNode
   draftConfiguration?: ReactNode
-  draftFilename: string
+  typeControl?: ReactNode
+  draftFilename?: string
   draftDirty: boolean
   incomingArchive: { file: File } | null
   importDisabled: boolean
   onOpenArchive: () => void
+  onBackToLibrary?: () => void
+  initialProject?: ImportedPythonProject
+  onArchiveImported?: (file: File, id?: string) => Promise<string>
 }) {
   const explorerId = useId()
   const operation = useRef<AbortController | null>(null)
   const editor = useRef<HTMLTextAreaElement>(null)
   const gutter = useRef<HTMLPreElement>(null)
-  const [project, setProject] = useState<ImportedProject | null>(null)
+  const highlight = useRef<HTMLPreElement>(null)
+  const activeTab = useRef<HTMLDivElement>(null)
+  const outputScroll = useRef<HTMLDivElement>(null)
+  const outputPane = useRef<HTMLElement>(null)
+  const [comparisonRows, setComparisonRows] = useState<ComparisonRow[]>([])
+  const [comparisonSettings, setComparisonSettings] = useState(comparisonContext?.settings)
+  const [comparisonMethod, setComparisonMethod] = useState<ComparisonMethod>('unified')
+  const [inspection, setInspection] = useState<{
+    file: File; entry: string; edits: Record<string, string>; settings: LabBacktestSettings
+    method: ComparisonMethod; owner: string; prepared: PreparedComparison; engines: ComparisonEngineCheck[]
+  } | null>(null)
+  const [resultContext, setResultContext] = useState<Omit<PreparedComparison, 'request'>>()
+  const [project, setProject] = useState<ImportedPythonProject | null>(initialProject ?? null)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [newFiles, setNewFiles] = useState<string[]>([])
-  const [active, setActive] = useState('')
-  const [entry, setEntry] = useState('')
+  const [entry, setEntry] = useState(() => initialProject ? preferredEntry(initialProject.scripts, initialProject.root) : '')
+  const [active, setActive] = useState(entry)
+  const [fileQuery, setFileQuery] = useState('')
+  const deferredQuery = useDeferredValue(fileQuery.trim().toLowerCase())
   const [previews, setPreviews] = useState<Record<string, ProjectFilePreview>>({})
   const [previewError, setPreviewError] = useState<{ path: string; message: string } | null>(null)
   const [previewAttempt, setPreviewAttempt] = useState(0)
-  const [outputOpen, setOutputOpen] = useState(false)
-  const [view, setView] = useState<'draft' | 'project'>('draft')
+  const [outputOpen, setOutputOpen] = useState(!!initialProject)
+  const [outputExpanded, setOutputExpanded] = useState(false)
+  const [view, setView] = useState<'draft' | 'project'>(initialProject ? 'project' : 'draft')
   const [archiveError, setArchiveError] = useState('')
-  const [tabs, setTabs] = useState<string[]>([])
-  const [phase, setPhase] = useState<'import' | 'run' | 'export' | null>(null)
+  const [tabs, setTabs] = useState<string[]>(() => entry ? [entry] : [])
+  const [phase, setPhase] = useState<'import' | 'check' | 'run' | 'export' | 'save' | null>(null)
   const [report, setReport] = useState<ProjectReport | null>(null)
   const [runPath, setRunPath] = useState('')
+  const [runKind, setRunKind] = useState<'script' | 'comparison'>('script')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [explorerOpen, setExplorerOpen] = useState(true)
   const [newFile, setNewFile] = useState(false)
   const [newPath, setNewPath] = useState('')
-  const [outputTab, setOutputTab] = useState<'summary' | 'log'>('summary')
+  const [newFileError, setNewFileError] = useState('')
+  const [outputTab, setOutputTab] = useState<'summary' | 'settings'>('summary')
   const dirty = Object.keys(edits).length > 0
-  const tree = useMemo(() => buildTree([...(project?.files.map(file => file.path) ?? []), ...newFiles], project?.root ?? ''), [project, newFiles])
+  const paths = useMemo(() => [...(project?.files.map(file => file.path) ?? []), ...newFiles], [project, newFiles])
+  const tree = useMemo(() => buildTree(paths, project?.root ?? ''), [paths, project?.root])
+  const scripts = useMemo(() => [...(project?.scripts ?? []), ...newFiles.filter(path => !path.endsWith('/__init__.py') && path !== '__init__.py')], [project, newFiles])
   const prefix = project?.root ? project.root + '/' : ''
   const source = Object.hasOwn(edits, active) ? edits[active] : project?.sources[active]
   const archive = project?.file
   const preview = Object.hasOwn(previews, active) ? previews[active] : undefined
   const canPreview = !!active && canPreviewProjectFile(active)
-  const entryName = entry.split('/').at(-1)
+  const entryGroups = useMemo(() => {
+    const preferred: string[] = []
+    const other: string[] = []
+    for (const path of scripts) {
+      if (isStrategyEntry(path, prefix)) preferred.push(path)
+      else other.push(path)
+    }
+    return [{ label: '常用入口', paths: preferred }, { label: '其他 Python 文件', paths: other }]
+  }, [scripts, prefix])
+  const entrySource = edits[entry] ?? project?.sources[entry]
+  const scriptOnly = entrySource !== undefined && !/\btarget\b/.test(entrySource)
+    && /^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:/m.test(entrySource)
+    && !/^\s*from\s+[.\w]+\s+import\s+\*/m.test(entrySource)
+    && !/\b(?:exec|globals|locals|vars)\s*\(/.test(entrySource)
+  const effectiveMethod = comparisonSettings?.data_source === 'huggingface' ? comparisonMethod : 'native'
+  const checked = inspection && inspection.file === archive && inspection.entry === entry && inspection.edits === edits
+    && inspection.settings === comparisonSettings && inspection.method === effectiveMethod && inspection.owner === comparisonContext?.ownerId ? inspection : null
+  const eligibleEngines = checked?.engines.filter(engine => engine.state !== 'unavailable').length ?? 0
+  const matchedPaths = useMemo(() => deferredQuery ? paths.filter(path => path.slice(prefix.length).toLowerCase().includes(deferredQuery)) : [], [deferredQuery, paths, prefix])
+  const runLabel = runKind === 'script' ? '脚本运行' : '引擎对比'
   const activeName = active.split('/').at(-1)
   const relativePath = active.slice(prefix.length)
   const parentPath = relativePath.split('/').slice(0, -1).join(' / ')
+  const highlighted = useMemo(() => source === undefined ? null : highlightStrategyCode(source, 'python'), [source])
   const lineNumbers = useMemo(() => source?.split('\n').map((_, index) => index + 1).join('\n'), [source])
 
   useEffect(() => () => operation.current?.abort(), [])
+  useEffect(() => {
+    activeTab.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [active, view])
+  useEffect(() => {
+    if (outputScroll.current) outputScroll.current.scrollTop = 0
+  }, [outputTab, runPath])
   useEffect(() => {
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -158,15 +202,27 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
 
   const handledArchive = useRef<typeof incomingArchive>(null)
   const [replaceFile, setReplaceFile] = useState<File | null>(null)
+  const [leavingProject, setLeavingProject] = useState(false)
+
+  function revealOutput(tab: typeof outputTab) {
+    setOutputOpen(true)
+    setOutputTab(tab)
+    requestAnimationFrame(() => {
+      const pane = outputPane.current
+      if (pane && pane.getBoundingClientRect().top > window.innerHeight * 0.65) {
+        pane.scrollIntoView({ block: 'nearest' })
+      }
+    })
+  }
 
   function openFile(path: string) {
     setView('project')
     setPreviewError(null)
     setActive(path)
-    if (path.endsWith('.py') && path.split('/').at(-1) !== '__init__.py') setEntry(path)
     setTabs(current => current.includes(path) ? current : [...current, path])
     if (editor.current) editor.current.scrollTop = editor.current.scrollLeft = 0
     if (gutter.current) gutter.current.scrollTop = 0
+    if (highlight.current) highlight.current.scrollTop = highlight.current.scrollLeft = 0
   }
 
   function closeTab(path: string) {
@@ -179,7 +235,7 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
     }
   }
 
-  async function perform(next: 'import' | 'run' | 'export', action: (signal: AbortSignal) => Promise<void>) {
+  async function perform(next: 'import' | 'check' | 'run' | 'export' | 'save', action: (signal: AbortSignal) => Promise<void>) {
     if (operation.current) return
     const controller = new AbortController()
     operation.current = controller
@@ -191,10 +247,10 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
       await action(controller.signal)
     } catch (reason) {
       const cancelled = reason instanceof Error && reason.name === 'AbortError'
-      const detail = cancelled ? '已停止' : reason instanceof Error ? reason.message : '项目操作失败'
+      const detail = cancelled ? '已停止' : comparisonError(reason, '项目操作失败')
       if (next === 'import') setArchiveError(detail)
       else if (cancelled) setMessage(detail)
-      else setError(detail)
+      else { setError(detail); if (next === 'save') revealOutput('summary') }
     } finally {
       operation.current = null
       setPhase(null)
@@ -206,8 +262,10 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
     void perform('import', async signal => {
       const { inspectPythonProject } = await import('../compute/pythonProject')
       const imported = await inspectPythonProject(file, signal)
+      const libraryId = await onArchiveImported?.(file)
+      signal.throwIfAborted()
       const entry = preferredEntry(imported.scripts, imported.root)
-      setProject({ ...imported, file })
+      setProject({ ...imported, file, libraryId })
       setEdits({})
       setNewFiles([])
       setView('project')
@@ -215,9 +273,16 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
       setEntry(entry)
       setPreviews({})
       setPreviewError(null)
-      setOutputOpen(false)
+      setOutputOpen(true)
+      setOutputExpanded(false)
+      setComparisonSettings(comparisonContext?.settings)
+      setComparisonMethod('unified')
+      setInspection(null)
+      setResultContext(undefined)
+      setFileQuery('')
       setTabs([entry])
       setReport(null)
+      setComparisonRows([])
       setRunPath('')
       setNewFile(false)
       setOutputTab('summary')
@@ -236,17 +301,58 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
     receiveArchive(incomingArchive.file)
   }, [incomingArchive])
 
+  function startRun(kind: 'script' | 'comparison') {
+    setRunKind(kind)
+    setRunPath(entry)
+    setReport(null)
+    setComparisonRows([])
+    setResultContext(undefined)
+    revealOutput('summary')
+  }
+
+  function inspectComparison() {
+    if (!project || !entry || !comparisonContext || !comparisonSettings?.symbol || scriptOnly) return
+    const settings = comparisonSettings
+    const owner = comparisonContext.ownerId
+    void perform('check', async signal => {
+      setInspection(null)
+      outputScroll.current?.scrollTo?.({ top: 0 })
+      if (settings.start && settings.end && Date.parse(settings.start) >= Date.parse(settings.end)) {
+        throw new Error('结束时间必须晚于开始时间。')
+      }
+      if (!Number.isFinite(settings.initial_capital) || settings.initial_capital <= 0) throw new Error('初始资金必须大于零。')
+      const { prepareProjectPlan } = await import('../compute/pythonProject')
+      const payload = {
+        ...settings, strategy_name: project.file.name.replace(/\.zip$/i, ''), params: {},
+        execution_model: effectiveMethod, adjustment: settings.data_source === 'huggingface' ? 'raw' : 'auto',
+      }
+      const [prepared, statuses] = await Promise.all([
+        prepareComparison(payload, signal, (bars, datasetId, runSignal) => prepareProjectPlan(project.file, entry, edits, bars, datasetId, runSignal)),
+        api.backtestEngines(signal).catch(() => undefined),
+      ])
+      signal.throwIfAborted()
+      setInspection({ file: project.file, entry, edits, settings, method: effectiveMethod, owner,
+        prepared, engines: checkComparisonEngines(payload, statuses) })
+    })
+  }
+
+  function compareProject() {
+    if (!checked || !eligibleEngines) return
+    void perform('run', async signal => {
+      startRun('comparison')
+      const { barCount, from, to, method, datasetId } = checked.prepared
+      setResultContext({ barCount, from, to, method, datasetId })
+      await runPreparedComparison(checked.prepared, signal, setComparisonRows, checked.owner, checked.engines)
+    })
+  }
+
   function run() {
     if (!project || !entry) return
     void perform('run', async signal => {
-      setReport(null)
-      setOutputTab('summary')
-      setOutputOpen(true)
-      setRunPath(entry)
+      startRun('script')
       const { runPythonProject } = await import('../compute/pythonProject')
       const completed = await runPythonProject(project.file, entry, edits, signal)
       setReport(completed)
-      setOutputTab(completed.summaries.length ? 'summary' : 'log')
       setMessage(completed.summaries.length ? '回测完成' : '入口脚本运行结束')
     })
   }
@@ -258,6 +364,23 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
       const archive = dirty ? await exportPythonProject(project.file, edits, signal) : project.file
       downloadFile(archive, project.file.name)
       setMessage('项目 ZIP 已导出')
+    })
+  }
+
+  function saveProject() {
+    if (!project?.libraryId || !onArchiveImported || !dirty) return
+    const { libraryId } = project
+    void perform('save', async signal => {
+      const { exportPythonProject, inspectPythonProject } = await import('../compute/pythonProject')
+      const archive = await exportPythonProject(project.file, edits, signal)
+      const file = new File([archive], project.file.name, { type: 'application/zip' })
+      const inspected = await inspectPythonProject(file, signal)
+      signal.throwIfAborted()
+      await onArchiveImported(file, libraryId)
+      setProject({ ...inspected, file, libraryId })
+      setNewFiles([])
+      setEdits({})
+      setMessage('项目已保存')
     })
   }
 
@@ -274,59 +397,75 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
     const path = newPath.trim()
     const fullPath = prefix + path
     if (!path.endsWith('.py') || fullPath.length > 500 || path.includes('\0') || path.includes('\\') || path.includes(':') || path.split('/').some(part => ['', '.', '..', '__MACOSX', '__pycache__', '.DS_Store'].includes(part))) {
-      setError('请输入项目内的 Python 路径，例如 signals.py 或 lib/signals.py')
+      setNewFileError('请输入项目内的 Python 路径，例如 signals.py 或 lib/signals.py')
       return
     }
-    const paths = [...(project?.files.map(file => file.path) ?? []), ...newFiles]
     if (paths.some(other => other === fullPath || other.startsWith(fullPath + '/') || fullPath.startsWith(other + '/'))) {
-      setError('文件路径已存在，或与目录冲突')
+      setNewFileError('文件路径已存在，或与目录冲突')
       return
     }
     setEdits(current => ({ ...current, [fullPath]: '' }))
     setNewFiles(current => [...current, fullPath])
+    setFileQuery('')
     openFile(fullPath)
     setNewFile(false)
     setNewPath('')
-    setError('')
   }
 
-  return <div className={`strategy-code-workspace${explorerOpen ? '' : ' is-explorer-closed'}`}>
+  return <div className={`strategy-code-workspace${compact && view === 'draft' ? ' is-embedded' : ''}${explorerOpen ? '' : ' is-explorer-closed'}${view === 'project' ? ' is-project-view' : ''}`}>
+    {leavingProject ? <LabConfirmDialog title="离开 ZIP 项目？" description="项目有未导出的修改。可以先导出 ZIP，再返回策略库。"
+      confirmLabel="离开项目" destructive onCancel={() => setLeavingProject(false)}
+      onConfirm={() => { setLeavingProject(false); onBackToLibrary?.() }}
+      extraAction={<button type="button" disabled={!!phase} onClick={exportProject}>导出项目 ZIP</button>} /> : null}
     <header className="strategy-draft-header" hidden={view !== 'draft'} aria-label="策略草稿工具栏">
+      {typeControl}
       {draftConfiguration}
       {draftToolbar}
     </header>
-    <aside className="project-explorer" aria-label="文件资源管理器">
+    <aside className="project-explorer" aria-label="文件资源管理器" hidden={view === 'project' && !explorerOpen}>
       <header>
         <strong>文件</strong>
-        <button type="button" aria-expanded={explorerOpen} aria-controls={explorerId} title={explorerOpen ? '收起文件树' : '展开文件树'}
-          aria-label={explorerOpen ? '收起文件树' : '展开文件树'} onClick={() => setExplorerOpen(value => !value)}><PanelLeft size={16} /></button>
+        {view === 'draft' ? <button type="button" aria-expanded={explorerOpen} aria-controls={explorerId} title={explorerOpen ? '收起文件树' : '展开文件树'}
+          aria-label={explorerOpen ? '收起文件树' : '展开文件树'} onClick={() => setExplorerOpen(value => !value)}><PanelLeft size={16} /></button> : null}
       </header>
       <div id={explorerId} className="project-explorer-body" hidden={!explorerOpen}>
         <div className="project-explorer-actions">
           {phase === 'import'
             ? <button type="button" onClick={() => operation.current?.abort()}><LoaderCircle size={14} className="spin" /> 取消导入</button>
             : <button type="button" disabled={!!phase || importDisabled} onClick={onOpenArchive}><FolderOpen size={15} /> 打开项目 ZIP</button>}
+          {project ? <label className="project-file-search">
+            <Search size={14} aria-hidden="true" />
+            <input type="search" aria-label="搜索项目文件" placeholder="搜索文件名或路径" value={fileQuery} onChange={event => setFileQuery(event.target.value)} />
+          </label> : null}
         </div>
         <div className="project-tree-scroll">
-          <div className="project-tree-group">草稿</div>
-          <button type="button" className="project-file-row project-draft-row" aria-current={view === 'draft' ? 'true' : undefined} onClick={() => setView('draft')}>
-            <FileCode2 size={14} /><span>{draftFilename}</span>{draftDirty ? <i aria-label="已修改" /> : null}
-          </button>
+          {draftFilename ? <>
+            <div className="project-tree-group">策略草稿</div>
+            <button type="button" className="project-file-row project-draft-row" aria-current={view === 'draft' ? 'true' : undefined} onClick={() => setView('draft')}>
+              <FileCode2 size={14} /><span>{draftFilename}</span>{draftDirty ? <i aria-label="已修改" /> : null}
+            </button>
+          </> : null}
           {project ? <div className="project-tree-project">
             <div className="project-tree-group">
-              <FolderArchive size={14} /><span title={project.file.name}>{project.file.name}</span>
+              <FolderArchive size={14} /><span title={project.file.name}>{project.file.name.replace(/\.zip$/i, '')}</span>
               <button type="button" title="新建 Python 文件" aria-label="新建 Python 文件" disabled={!!phase}
-                onClick={() => { setNewFile(true); setNewPath(''); setError('') }}><Plus size={15} /></button>
+                onClick={() => { setNewFile(true); setNewPath(''); setNewFileError('') }}><Plus size={15} /></button>
             </div>
             {newFile ? <form onSubmit={event => { event.preventDefault(); createFile() }}>
               <input aria-label="新建文件路径" autoFocus placeholder="例如 lib/signals.py" value={newPath} onChange={event => setNewPath(event.target.value)} />
               <button type="submit">新建</button><button type="button" aria-label="取消新建" onClick={() => setNewFile(false)}><X size={14} /></button>
-              {error && view === 'draft' ? <p role="alert">{error}</p> : null}
+              {newFileError ? <p role="alert">{newFileError}</p> : null}
             </form> : null}
-            {runPath && view === 'draft' && (phase === 'run' || report) ? <div className="project-explorer-actions">
-              <button type="button" onClick={() => { openFile(runPath); setOutputOpen(true) }}>{phase === 'run' ? <><LoaderCircle size={14} className="spin" /> 查看正在运行的回测</> : <><Check size={14} /> 查看最近的回测</>}</button>
+            {runPath && view === 'draft' && (phase === 'run' || report || comparisonRows.length > 0) ? <div className="project-explorer-actions">
+              <button type="button" onClick={() => { openFile(runPath); revealOutput('summary') }}>{phase === 'run' ? <><LoaderCircle size={14} className="spin" /> 查看正在运行的回测</> : <><Check size={14} /> 查看最近的回测</>}</button>
             </div> : null}
-            <FileTree nodes={tree} active={view === 'project' ? active : ''} edits={edits} openFile={openFile} />
+            {deferredQuery ? matchedPaths.length ? <ul className="project-search-results">{matchedPaths.map(path => <li key={path}>
+              <button type="button" className="project-file-row" aria-current={view === 'project' && active === path ? 'true' : undefined}
+                title={path.slice(prefix.length)} onClick={() => openFile(path)}>
+                <ProjectFileIcon path={path} /><span><strong>{path.split('/').at(-1)}</strong><small>{path.slice(prefix.length)}</small></span>
+              </button>
+            </li>)}</ul> : <p className="project-search-empty">找不到匹配的文件</p>
+              : <FileTree nodes={tree} active={view === 'project' ? active : ''} edits={edits} openFile={openFile} />}
           </div> : null}
         </div>
       </div>
@@ -346,49 +485,85 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
       <div className="strategy-draft-view" hidden={view !== 'draft'}>{children}</div>
       {project ? <section className="python-project-workspace" aria-label="Python 项目工作区" hidden={view !== 'project'}>
         <header className="project-document-bar">
-          <div className="project-file-tabs" aria-label="已打开文件">
-            {tabs.map(path => <div key={path} className={active === path ? 'is-active' : ''}>
-              <button type="button" aria-pressed={active === path} title={path} onClick={() => openFile(path)}>
-                <ProjectFileIcon path={path} /><span>{path.split('/').at(-1)}</span>{Object.hasOwn(edits, path) ? ' •' : ''}
-              </button>
-              <button type="button" aria-label={`关闭 ${path.slice(prefix.length)}`} onClick={() => closeTab(path)}><X size={13} /></button>
-            </div>)}
-            {!tabs.length ? <span className="project-no-tabs">项目编辑器</span> : null}
+          <div className="project-entry-area">
+            <button type="button" className="project-icon-button" aria-expanded={explorerOpen} aria-controls={explorerId}
+              aria-label={explorerOpen ? '收起文件树' : '展开文件树'} title={explorerOpen ? '收起文件树' : '展开文件树'}
+              onClick={() => setExplorerOpen(value => !value)}><PanelLeft size={16} /></button>
+            {onBackToLibrary ? <button className="project-icon-button" type="button" disabled={!!phase || importDisabled} aria-label="返回策略库" title="返回策略库"
+              onClick={() => dirty ? setLeavingProject(true) : onBackToLibrary()}><ArrowLeft size={16} /></button> : null}
+            <label className="project-entry-select">
+              <span>运行入口</span>
+              <select aria-label="运行入口" title={entry.slice(prefix.length)} value={entry} disabled={!!phase} onChange={event => { setEntry(event.target.value); openFile(event.target.value) }}>
+                {entryGroups.filter(group => group.paths.length > 0).map(group => <optgroup key={group.label} label={group.label}>
+                  {group.paths.map(path => <option key={path} value={path}>{entryOption(path, prefix)}</option>)}
+                </optgroup>)}
+              </select>
+            </label>
           </div>
           <div className="project-document-actions">
-            <button type="button" aria-expanded={outputOpen} aria-controls={`${explorerId}-output`} onClick={() => setOutputOpen(value => !value)}>
-              <PanelRight size={15} /><span>回测输出</span>
-            </button>
-            {phase === 'run' || phase === 'export'
-              ? <button type="button" onClick={() => operation.current?.abort()}><Square size={14} /> 停止</button>
+            {typeControl}
+            {phase === 'run' || phase === 'export' || phase === 'check'
+              ? <button className="project-stop" type="button" onClick={() => operation.current?.abort()}><Square size={13} />停止</button>
               : <button className="project-run" type="button" disabled={!entry || !!phase} onClick={run}
-                title={entry ? `运行 ${entry.slice(prefix.length)}（⌘ / Ctrl + Enter）` : '选择 Python 入口脚本'}>
-                <Play size={15} /><span>运行 {entryName ?? '回测'}</span>
-              </button>}
+                aria-keyshortcuts="Control+Enter Meta+Enter" title="运行选中的入口（⌘ / Ctrl + Enter）"><Play size={14} />运行脚本</button>}
+            {comparisonContext && comparisonSettings ? <button type="button" disabled={!!phase} onClick={() => revealOutput('settings')}>
+              <SlidersHorizontal size={14} /><span>引擎对比</span>
+            </button> : null}
+            <button type="button" className="project-icon-button" aria-expanded={outputOpen} aria-controls={`${explorerId}-output`}
+              aria-label={outputOpen ? '隐藏回测输出' : '显示回测输出'} title={outputOpen ? '隐藏回测输出' : '显示回测输出'}
+              onClick={() => outputOpen ? setOutputOpen(false) : revealOutput(outputTab)}><PanelRight size={16} /></button>
             <details className="project-actions-menu">
               <summary aria-label="项目操作" title="项目操作"><MoreHorizontal size={17} /></summary>
-              <div><button type="button" disabled={!!phase} onClick={event => {
+              <div>
+                {onArchiveImported && project.libraryId ? <button type="button" disabled={!!phase || !dirty} onClick={event => {
+                  event.currentTarget.closest('details')?.removeAttribute('open')
+                  saveProject()
+                }}><Check size={15} /> 保存项目</button> : null}
+                <button type="button" disabled={!!phase} onClick={event => {
                 event.currentTarget.closest('details')?.removeAttribute('open')
                 exportProject()
               }}><Download size={15} /> 导出项目 ZIP</button></div>
             </details>
           </div>
         </header>
-        <div className={`project-workbench-grid${outputOpen ? ' has-output' : ''}`}>
+        <div className={`project-workbench-grid${outputOpen ? ' has-output' : ''}${outputOpen && outputExpanded ? ' is-output-expanded' : ''}`}>
           <div className="project-code-panel">
+            <div className="project-file-tabs" aria-label="已打开文件">
+              {tabs.length ? tabs.map(path => <div key={path} ref={active === path ? activeTab : undefined} className={active === path ? 'is-active' : undefined}>
+                <button type="button" aria-pressed={active === path} title={path.slice(prefix.length)} onClick={() => openFile(path)}>
+                  <ProjectFileIcon path={path} /><span>{path.split('/').at(-1)}</span>{Object.hasOwn(edits, path) ? <span aria-label="已修改">•</span> : null}
+                </button>
+                <button type="button" aria-label={`关闭 ${path.slice(prefix.length)}`} onClick={() => closeTab(path)}><X size={13} /></button>
+              </div>) : <span className="project-no-tabs">从文件列表打开文件</span>}
+            </div>
             {active ? <div className="project-file-path" title={relativePath}>
               {parentPath ? <><span>{parentPath}</span><ChevronRight size={12} /></> : null}
               <strong>{activeName}</strong>
-              {typeof source !== 'string' ? <small>只读</small> : null}
+              {entry === active ? <small className="project-entry-badge">入口</small>
+                : scripts.includes(active) ? <button type="button" className="project-entry-action" disabled={!!phase} onClick={() => setEntry(active)}>设为入口</button>
+                  : typeof source !== 'string' ? <small>只读</small> : null}
             </div> : null}
             {typeof source === 'string' ? <div className="project-source">
-              <pre ref={gutter} aria-hidden="true">{lineNumbers}</pre>
+              <pre ref={gutter} className="project-gutter" aria-hidden="true">{lineNumbers}</pre>
+              <div className="project-editor-layer">
+              <pre ref={highlight} className="project-highlight" aria-hidden="true">{highlighted}{'\n'}</pre>
               <textarea key={active} ref={editor} aria-label="项目 Python 源码" value={source} spellCheck={false} wrap="off" readOnly={!!phase}
-                onScroll={event => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop }}
+                onScroll={event => {
+                  const { scrollTop, scrollLeft } = event.currentTarget
+                  if (gutter.current) gutter.current.scrollTop = scrollTop
+                  if (highlight.current) {
+                    highlight.current.scrollTop = scrollTop
+                    highlight.current.scrollLeft = scrollLeft
+                  }
+                }}
                 onChange={event => edit(event.target.value)}
                 onKeyDown={event => {
                   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); run() }
-                  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') { event.preventDefault(); exportProject() }
+                  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+                    event.preventDefault()
+                    if (project.libraryId) saveProject()
+                    else exportProject()
+                  }
                   if (event.key === 'Tab' && !event.shiftKey && !phase) {
                     event.preventDefault()
                     const { selectionStart, selectionEnd } = event.currentTarget
@@ -396,6 +571,7 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
                     requestAnimationFrame(() => editor.current?.setSelectionRange(selectionStart + 4, selectionStart + 4))
                   }
                 }} />
+              </div>
             </div> : canPreview ? <div className="project-file-preview" aria-label={`${activeName} 预览`}>
               {preview?.kind === 'text' ? <>
                 {preview.truncated ? <p className="project-preview-note">预览前 512 KiB</p> : null}
@@ -411,22 +587,62 @@ export default function PythonProjectWorkspace({ children, draftToolbar, draftCo
               {active ? <><FileText size={27} /><p>{active.endsWith('.py') ? '该文件使用其他编码，可以运行，编辑需要 UTF-8 源码。' : '此文件随项目提供，可导出 ZIP 后在本地打开。'}</p></>
                 : <><FileCode2 size={27} /><p>从左侧打开文件。</p></>}
             </div>}
-            <footer>{project.files.length + newFiles.length} 个文件{dirty ? ' · 有修改，可导出 ZIP' : ''}</footer>
+            <footer><span>{paths.length} 个文件</span>{phase === 'save' ? <span role="status">正在保存项目…</span>
+              : dirty ? <button type="button" disabled={!!phase} onClick={project.libraryId ? saveProject : exportProject}>
+                {project.libraryId ? '保存项目' : '有修改 · 导出项目'}
+              </button> : message === '项目已保存' ? <span role="status">项目已保存</span> : null}</footer>
           </div>
-          <aside id={`${explorerId}-output`} className="project-output" aria-label="项目回测结果" hidden={!outputOpen}>
-            <header><button type="button" aria-pressed={outputTab === 'summary'} onClick={() => setOutputTab('summary')}>回测结果</button><button type="button" aria-pressed={outputTab === 'log'} onClick={() => setOutputTab('log')}>运行日志</button></header>
-            <div className="project-output-scroll">
-              {runPath ? <p className="project-output-path" title={runPath}>{runPath.slice(prefix.length)}</p> : null}
-              {phase ? <p role="status"><LoaderCircle className="spin" size={14} /> {phase === 'run' ? '正在回测…' : phase === 'import' ? '正在读取项目…' : '正在导出项目…'}</p> : null}
-              {message ? <p role="status">{message}</p> : null}
-              {error ? <pre className="python-project-error" role="alert">{error}</pre> : null}
-              {!phase && !report && !error && !message ? <p>回测使用项目内的行情和参数。运行后，结果与日志会显示在这里。</p> : null}
-              {report ? <>
-                {outputTab === 'summary' ? <>{report.summaries.length ? <ProjectMetrics report={report} /> : <p>项目未生成摘要。可查看运行日志或下载输出。</p>}
-                  {report.warnings.map(warning => <p key={warning}>{warning}</p>)}</> : <pre>{report.log || '没有日志输出。'}</pre>}
-                <button className="project-report-download" type="button" onClick={() => downloadFile(report.archive, (runPath.split('/').at(-1) ?? '项目').replace(/\.py$/, '') + '-回测报告.zip')}><Download size={15} /> 下载报告</button>
-              </> : null}
+          <aside ref={outputPane} id={`${explorerId}-output`} className="project-output" aria-label="项目回测结果" hidden={!outputOpen}>
+            <header className="project-output-heading">
+              <strong><BarChart3 size={16} />回测输出</strong>
+              <div className="project-output-actions">
+                <button type="button" className="project-icon-button" aria-pressed={outputExpanded}
+                  aria-label={outputExpanded ? '还原回测输出' : '放大回测输出'} title={outputExpanded ? '还原回测输出' : '放大回测输出'}
+                  onClick={() => setOutputExpanded(value => !value)}>{outputExpanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>
+                <button type="button" className="project-icon-button" aria-label="关闭回测输出" title="关闭回测输出" onClick={() => setOutputOpen(false)}><X size={16} /></button>
+              </div>
+            </header>
+            <div className="project-output-tabs" aria-label="输出视图">
+              <button type="button" aria-pressed={outputTab === 'summary'} onClick={() => setOutputTab('summary')}>结果</button>
+              {comparisonContext && comparisonSettings ? <button type="button" aria-pressed={outputTab === 'settings'} onClick={() => setOutputTab('settings')}>对比配置</button> : null}
             </div>
+            <div ref={outputScroll} className="project-output-scroll">
+              {outputTab === 'settings' && comparisonContext && comparisonSettings ? <ProjectComparisonSetup
+                entry={entry.slice(prefix.length)} scriptOnly={scriptOnly} method={effectiveMethod} busy={!!phase} preparing={phase === 'check'}
+                settings={comparisonSettings} assets={comparisonContext.assets} error={error || (message === '已停止' ? message : undefined)}
+                checked={checked?.prepared} engines={checked?.engines}
+                onMethod={method => { setError(''); setComparisonMethod(method) }}
+                onSettings={patch => { setError(''); setComparisonSettings(value => value && ({ ...value, ...patch })) }}
+              /> : <>
+                {runPath ? <div className="project-run-context">
+                  <span>{runLabel}</span>
+                  <strong title={runPath.slice(prefix.length)}>{runPath.split('/').at(-1)}</strong>
+                </div> : null}
+                {phase === 'run' ? <p className="project-run-status" role="status"><LoaderCircle className="spin" size={14} />正在{runKind === 'script' ? '运行脚本' : '回测'}…</p> : null}
+                {message && message !== '项目已保存' ? <p className="project-run-status" role="status"><Check size={14} />{message}</p> : null}
+                {error ? <pre className="python-project-error" role="alert">{error}</pre> : null}
+                <BacktestComparison context={resultContext} rows={comparisonRows} compact />
+                  {report ? <>
+                    {report.summaries.length ? <ProjectReportDetails report={report} /> : <p>脚本已结束。可以下载报告查看项目输出。</p>}
+                  </> : null}
+                {!runPath && !phase && !error && !message ? <div className="project-output-empty">
+                  <Terminal size={22} aria-hidden="true" />
+                  <strong>等待运行</strong>
+                  <p>选择运行入口，点击「运行脚本」查看项目输出。</p>
+                </div> : null}
+              </>}
+            </div>
+            {outputTab === 'settings' ? <footer className="project-output-footer">
+              {scriptOnly ? <button type="button" className="project-run" disabled={!!phase || !entry} onClick={run}><Play size={14} />运行项目脚本</button>
+                : checked ? <div className="project-comparison-commands">
+                  <button type="button" disabled={!!phase} onClick={inspectComparison}>重新检查</button>
+                  <button type="button" className="project-run" disabled={!!phase || eligibleEngines === 0} onClick={compareProject}>
+                    <Play size={14} />{eligibleEngines === 1 ? '运行 Trine 回测' : `运行 ${eligibleEngines} 个引擎`}
+                  </button>
+                </div> : <button type="button" className="project-run" disabled={!comparisonSettings?.symbol || !entry || !!phase} onClick={inspectComparison}><Check size={14} />检查配置</button>}
+            </footer> : report ? <footer className="project-output-footer">
+              <button className="project-report-download" type="button" onClick={() => downloadFile(report.archive, (runPath.split('/').at(-1) ?? '项目').replace(/\.py$/, '') + '-回测报告.zip')}><Download size={15} /> 下载报告</button>
+            </footer> : null}
           </aside>
         </div>
       </section> : null}

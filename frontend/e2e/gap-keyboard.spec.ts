@@ -18,7 +18,8 @@ async function closeByKeyboard(page: Page, dialog: Locator, trigger: Locator) {
   await expect(trigger).toBeFocused()
 }
 
-test('A11Y-03 project editor traps keyboard focus and restores it on Escape', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('A11Y-03 project editor traps keyboard focus and restores it on Escape', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
   const trigger = page.getByRole('button', { name: '新建策略项目', exact: true })
@@ -178,11 +179,10 @@ test('A11Y-10 trading composer and unsaved-change confirmation contain focus and
   await closeByKeyboard(page, dialog, trigger)
 
   await route(page, '#research')
-  await openByKeyboard(page.getByRole('button', { name: '新建策略项目', exact: true }))
-  const project = page.getByRole('dialog', { name: '创建策略项目', exact: true })
-  const name = project.getByLabel('项目名称', { exact: true })
+  await openByKeyboard(page.getByRole('button', { name: '新建策略', exact: true }))
+  const name = page.getByLabel('代码策略名称', { exact: true })
   await name.fill('Draft keyboard confirmation')
-  await page.keyboard.press('Escape')
+  await openByKeyboard(page.getByRole('button', { name: '我的策略', exact: true }))
   const confirm = page.getByRole('alertdialog')
   await focusIn(confirm)
   await page.keyboard.press('Tab')
@@ -203,7 +203,8 @@ test('A11Y-11 system-status dialog opens by keyboard and returns its focus', asy
   await closeByKeyboard(page, dialog, trigger)
 })
 
-test('A11Y-12 retained hidden project drafts cannot intercept another workspace Escape', async ({ page, account }) => {
+// Historical r23 browser path. The code workbench has no legacy project/visual editor entry.
+test.skip('A11Y-12 retained hidden project drafts cannot intercept another workspace Escape', async ({ page, account }) => {
   await login(page, account)
   await route(page, '#research')
   await openByKeyboard(page.getByRole('button', { name: '新建策略项目', exact: true }))

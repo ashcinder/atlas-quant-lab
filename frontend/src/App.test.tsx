@@ -8,13 +8,14 @@ vi.mock('./api', () => ({ api: { searchAssets: vi.fn(), getStrategies: vi.fn(), 
 vi.mock('./components/AlertDrawer', () => ({ AlertDrawer: () => null }))
 vi.mock('./components/HistoryDrawer', () => ({ HistoryDrawer: ({ open, runs, onOpen }: { open: boolean; runs: { id: string }[]; onOpen: (run: { id: string }) => void }) => open ? <>{runs.map(run => <button key={run.id} onClick={() => onOpen(run)}>打开 {run.id}</button>)}</> : null }))
 vi.mock('./components/ResultsPanel', () => ({ ResultsPanel: () => null }))
-vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ codeContext, start, end, onStart, onEnd }: { codeContext?: React.ReactNode; start: string; end: string; onStart: (s: string) => void; onEnd: (s: string) => void }) => <>{codeContext}<input aria-label="开始" value={start} onChange={e => onStart(e.target.value)} /><input aria-label="结束" value={end} onChange={e => onEnd(e.target.value)} /></> }))
+vi.mock('./components/StrategyPanel', () => ({ StrategyPanel: ({ start, end, onStart, onEnd }: { start: string; end: string; onStart: (s: string) => void; onEnd: (s: string) => void }) => <><input aria-label="开始" value={start} onChange={e => onStart(e.target.value)} /><input aria-label="结束" value={end} onChange={e => onEnd(e.target.value)} /></> }))
 vi.mock('./components/TradingChart', () => ({ TradingChart: ({ bars, datasetKey, source, lastBarTime, isStale, onLoadHistory }: { bars: { time: number }[]; datasetKey: string; source?: string; lastBarTime?: number; isStale?: boolean; onLoadHistory?: (before: number, signal: AbortSignal) => Promise<unknown> }) => <><output data-testid="chart-bars" data-times={bars.map(bar => bar.time).join(',')} data-dataset={datasetKey} data-source={source} data-last-time={lastBarTime} data-stale={String(isStale)}>{bars.length}</output>{onLoadHistory && <button onClick={() => void onLoadHistory(300, new AbortController().signal)}>测试加载更早行情</button>}</> }))
-vi.mock('./components/StrategyLabWorkspace', async () => {
+vi.mock('./components/StrategyLabWorkspace', () => ({ StrategyLabWorkspace: ({ children }: { children: import('react').ReactNode }) => children }))
+vi.mock('./components/RqAlphaLabWorkspace', async () => {
   const { useState } = await import('react')
-  return { StrategyLabWorkspace: function LabDraft({ onCustomResult,source }: { source:string; onCustomResult: (result: BacktestResult, code: {name:string;source:string;hash:string}) => void }) {
+  return { RqAlphaLabWorkspace: ({ defaults }: { defaults: { data_source: string } }) => {
     const [draft, setDraft] = useState('')
-    return <><output data-testid="lab-source">{source}</output><input aria-label="实验室草稿" value={draft} onChange={(event) => setDraft(event.target.value)} /><button onClick={() => onCustomResult({run_id:'code',created_at:'2026-01-01',asset:btc,interval:'1d',strategy,data_source:'binance',bars:market.bars,indicators:{},trades:[],equity:[],metrics:{},regime_metrics:{},warnings:[],source_note:null}, {name:'我的测试代码',source:'def target_bps(index, close, sma):\n return 5000',hash:'a'.repeat(64)})}>完成代码回测</button></>
+    return <><h2>统一策略库</h2><output data-testid="lab-source">{defaults.data_source}</output><input aria-label="实验室草稿" value={draft} onChange={event => setDraft(event.target.value)} /></>
   } }
 })
 vi.mock('./components/PortfolioWorkspace', async () => {
@@ -258,25 +259,22 @@ it('does not suggest an unavailable shorter interval for a short 15-minute range
 })
 
 
-it('shows the code identity and reruns the same Python snapshot after lab navigation', async () => {
+it('opens one strategy library without a workbench selector', async () => {
   render(<App />)
-  await waitFor(() => expect(screen.getByTestId('chart-bars').textContent).toBe('1'))
-  fireEvent.click(screen.getByRole('button', {name:'策略实验室'}))
-  fireEvent.click(await screen.findByRole('button', {name:'完成代码回测'}))
-  expect(await screen.findByText('我的测试代码')).toBeTruthy()
-  expect(screen.getByText('当前回测 · 我编写的 Python')).toBeTruthy()
-  vi.mocked(api.runBacktest).mockReturnValue(new Promise(() => {}))
-  fireEvent.click(screen.getByRole('button', {name:'运行回测'}))
-  expect(api.runBacktest).toHaveBeenCalledWith(expect.objectContaining({strategy_id:'python_bounded',python_source:'def target_bps(index, close, sma):\n return 5000',release_id:null}))
+  fireEvent.click(screen.getByRole('button', { name: '策略实验室' }))
+  expect(await screen.findByRole('heading', { name: '统一策略库' })).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: '策略类型' })).toBeNull()
+  expect(window.location.hash).toBe('#research')
 })
+
 
 it('preserves a shell-owned Proof deep link when the hidden quant workspace boots', async () => {
   window.history.replaceState(null, '', '/#/proof/qzp_test')
-  document.title = 'Proof 验证 · Atlas'
+  document.title = 'Proof 验证 · Trine'
   render(<App />)
   await waitFor(() => expect(api.getMarket).toHaveBeenCalled())
   expect(window.location.hash).toBe('#/proof/qzp_test')
-  expect(document.title).toBe('Proof 验证 · Atlas')
+  expect(document.title).toBe('Proof 验证 · Trine')
 })
 
 

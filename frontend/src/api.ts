@@ -1,5 +1,6 @@
 import type {
   Asset,
+  ChartOverviewPoint,
   Adjustment,
   BacktestResult,
   DataSource,
@@ -33,9 +34,17 @@ import type {
   ZkProofRecord,
 } from './types'
 
-import { request } from './request'
+import { ApiError, request } from './request'
+import { canExtendPublishedChart, extendPublishedChart } from './backtestChart'
+import { MarketChunkUnavailableError, MarketPreparingError } from './compute/market'
 import * as browserCompute from './compute/client'
+import { labOwnerHeaders, type LabDraft, type LabRunSummary, type LabStrategy, type LabStrategySummary } from './lab-strategy-types'
 import { evaluateBrowserAlerts } from './compute/alerts'
+
+function markChartFallback(data: MarketData): MarketData {
+  return { ...data, chart_feed: { source: data.source, start: data.bars[0]?.time ?? data.last_bar_time,
+    has_gap: false, used_as_fallback: true } }
+}
 
 export const api = {
   getHealth(signal?: AbortSignal) {
@@ -47,21 +56,69 @@ export const api = {
   getStrategies(mode: 'single' | 'portfolio') {
     return request<Strategy[]>(`/strategies?mode=${mode}`)
   },
-  getMarket(
+  async getMarket(
     symbol: string,
     assetClass: string,
     interval: Interval,
     source: DataSource,
     adjustment: Adjustment,
     options: { signal?: AbortSignal; refresh?: boolean; start?: string; end?: string; provider?: string } = {},
-  ) {
-    if (assetClass === 'crypto' && (options.provider === 'binance' || (!options.provider && (source === 'auto' || source === 'binance')))) {
-      const params = new URLSearchParams({ symbol, interval, adjustment })
-      if (options.end) params.set('before', String(Math.floor(Date.parse(options.end) / 1000) + 1))
-      return request<MarketData>(`/market/chart?${params}`, { signal: options.signal })
+  ): Promise<MarketData> {
+    const provider = options.provider
+    const crypto = assetClass === 'crypto' && (!provider || provider === 'binance')
+      && (source === 'auto' || source === 'binance')
+    const mainland = assetClass === 'equity' && /^\d{6}\.(SS|SZ)$/.test(symbol)
+      && (adjustment === 'raw' || adjustment === 'auto')
+      && (source === 'auto' || source === 'huggingface')
+    const published = async () => {
+      const market = await browserCompute.getMarket(symbol, assetClass, interval, source, adjustment, options)
+      if (!options.start && !options.end && !market.bars.length) {
+        throw new MarketPreparingError('所选标的和周期暂无已发布的 K 线')
+      }
+      return market
     }
-    return browserCompute.getMarket(symbol, assetClass, interval, source, adjustment, options)
+    const live = (liveAdjustment: Adjustment) => {
+      const params = new URLSearchParams({ symbol, asset_class: assetClass, interval, adjustment: liveAdjustment })
+      if (options.end) params.set('before', String(Math.floor(Date.parse(options.end) / 1000) + 1))
+      if (provider) params.set('provider', provider)
+      return request<MarketData>(`/market/chart?${params}`, { signal: options.signal }, 30_000)
+    }
+    const retryable = (error: unknown) => !options.signal?.aborted && (
+      error instanceof MarketPreparingError || error instanceof MarketChunkUnavailableError
+      || error instanceof ApiError && (error.kind === 'network' || error.kind === 'timeout'
+        || error.status === 404 || error.status === 429 || (error.status !== null && error.status >= 500))
+    )
+    if (crypto || (mainland && (provider === 'sina' || provider === 'eastmoney'))) {
+      try {
+        return await live(adjustment)
+      } catch (error) {
+        if (options.end || !retryable(error)) throw error
+        return published()
+      }
+    }
+    if (!mainland || options.start || options.end) return published()
+    if (options.refresh && (source === 'auto' || canExtendPublishedChart(interval))) {
+      const [snapshot, recent] = await Promise.allSettled([published(), live(source === 'auto' ? adjustment : 'raw')])
+      if (snapshot.status === 'fulfilled') {
+        if (recent.status === 'rejected') return snapshot.value
+        if (source === 'huggingface') return extendPublishedChart(snapshot.value, recent.value)
+        return recent.value.last_bar_time >= snapshot.value.last_bar_time ? recent.value : snapshot.value
+      }
+      if (!retryable(snapshot.reason)) throw snapshot.reason
+      if (recent.status === 'fulfilled') return markChartFallback(recent.value)
+      throw recent.reason
+    }
+    try {
+      return await published()
+    } catch (error) {
+      if (!retryable(error)) throw error
+      return markChartFallback(await live(adjustment))
+    }
   },
+  getChartOverview(datasetId: string, signal: AbortSignal) {
+    return request<ChartOverviewPoint[]>(`/market/datasets/${encodeURIComponent(datasetId)}/overview`, { signal })
+  },
+  getChartWindow: browserCompute.getChartWindow,
   getFundamentals(
     symbol: string,
     assetClass: string,
@@ -76,10 +133,10 @@ export const api = {
       signal: options.signal,
     })
   },
-  backtestEngines() {
-    return request<Array<{id: import('./types').BacktestEngine; name: string; available: boolean; description: string; version?: string; reason?: string}>>('/backtest-engines')
+  backtestEngines(signal?: AbortSignal) {
+    return request<Array<{id: import('./types').BacktestEngine; name: string; available: boolean; description: string; version?: string; reason?: string}>>('/backtest-engines', { signal })
   },
-  async runBacktest(payload: Record<string, unknown>, signal?:AbortSignal) {
+  async runBacktest(payload: Record<string, unknown>, signal?:AbortSignal, labOwner?: string) {
     if (payload.backtest_engine && payload.backtest_engine !== 'atlas') {
       if(payload.data_source==='huggingface'&&(!payload.start||!payload.end)){
         const q=new URLSearchParams({symbol:String(payload.symbol),asset_class:String(payload.asset_class),interval:String(payload.interval),adjustment:String(payload.adjustment??'raw'),data_source:'huggingface'})
@@ -88,15 +145,32 @@ export const api = {
         payload={...payload,start:payload.start||new Date(manifest.start*1000).toISOString(),end:payload.end||new Date(manifest.end*1000).toISOString()}
       }
       if(payload.strategy_id==='python_portable')payload=await browserCompute.prepareExternalStrategy(payload,signal)
-      return request<BacktestResult>('/backtests/native',{method:'POST',body:JSON.stringify(payload),signal},660_000)
+      return request<BacktestResult>('/backtests/native',{method:'POST',headers: labOwner ? { 'X-Atlas-Lab-Owner': labOwner } : undefined,body:JSON.stringify(payload),signal},660_000)
     }
-    return browserCompute.runBacktest(payload,signal)
+    return browserCompute.runBacktest(payload,signal,labOwner)
   },
   runPortfolio(payload: Record<string, unknown>) {
     return browserCompute.runPortfolio(payload)
   },
   listRuns() {
     return browserCompute.listRuns()
+  },
+  listLabStrategies(owner: string, signal?: AbortSignal) {
+    return request<LabStrategySummary[]>('/lab-strategies', { headers: labOwnerHeaders(owner), signal })
+  },
+  getLabStrategy(owner: string, id: string, signal?: AbortSignal) {
+    return request<LabStrategy>(`/lab-strategies/${encodeURIComponent(id)}`, { headers: labOwnerHeaders(owner), signal })
+  },
+  createLabStrategy(owner: string, id: string, draft: LabDraft) {
+    return request<LabStrategy>('/lab-strategies', { method: 'POST', headers: labOwnerHeaders(owner), body: JSON.stringify({ ...draft, id }) })
+  },
+  updateLabStrategy(owner: string, id: string, revision: number, draft: LabDraft) {
+    return request<LabStrategy>(`/lab-strategies/${encodeURIComponent(id)}`, {
+      method: 'PATCH', headers: labOwnerHeaders(owner), body: JSON.stringify({ ...draft, expected_revision: revision }),
+    })
+  },
+  listLabRuns(owner: string, id: string, signal?: AbortSignal) {
+    return request<LabRunSummary[]>(`/lab-strategies/${encodeURIComponent(id)}/runs`, { headers: labOwnerHeaders(owner), signal })
   },
   getRun<T extends BacktestResult | PortfolioResult>(id: string) {
     return browserCompute.getRunHydrated<T>(id)

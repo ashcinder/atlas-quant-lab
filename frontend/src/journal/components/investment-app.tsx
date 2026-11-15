@@ -289,7 +289,7 @@ export default function InvestmentApp() {
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   useEffect(() => {
-    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Atlas`;
+    document.title = `${navigation.find((item) => item.id === tab)?.label ?? "资产总览"} · Trine`;
   }, [tab]);
   const [modal, setModal] = useState<Modal | null>(null);
   const [busy, setBusy] = useState(false);
@@ -620,7 +620,7 @@ export default function InvestmentApp() {
   function exportData() {
     if (!s) return;
     DownloadFile(
-      `Atlas-账本备份-${today()}.json`,
+      `Trine-账本备份-${today()}.json`,
       JSON.stringify(s, null, 2),
       "application/json",
     );
@@ -660,7 +660,7 @@ export default function InvestmentApp() {
       }),
     ];
     DownloadFile(
-      `Atlas-资金流水-${today()}.csv`,
+      `Trine-资金流水-${today()}.csv`,
       "\uFEFF" + rows.map((r) => r.map(cell).join(",")).join("\r\n"),
       "text/csv;charset=utf-8",
     );
@@ -2493,7 +2493,7 @@ export default function InvestmentApp() {
             )}
             <footer className="page-footer">
               <span>
-                <ChartCandlestick size={12} /> Atlas · 让每一笔投资，有迹可循。
+                <ChartCandlestick size={12} /> Trine · 让每一笔投资，有迹可循。
               </span>
               <span>
                 {data.updatedAt

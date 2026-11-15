@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import type { ReactNode } from 'react'
 import { CircleAlert, X } from 'lucide-react'
 import './lab-experience.css'
 import { cycleDialogTab, useDialogKeyboard } from './dialogKeyboard'
@@ -10,10 +11,12 @@ interface Props {
   onConfirm: () => void
   onCancel: () => void
   destructive?: boolean
+  extraAction?: ReactNode
+  confirmDisabled?: boolean
 }
 
 /** Transient confirmation only: private draft content never leaves component memory. */
-export function LabConfirmDialog({ title, description, confirmLabel, onConfirm, onCancel, destructive = false }: Props) {
+export function LabConfirmDialog({ title, description, confirmLabel, onConfirm, onCancel, destructive = false, extraAction, confirmDisabled }: Props) {
   const titleId = useId()
   const descriptionId = useId()
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -39,7 +42,7 @@ export function LabConfirmDialog({ title, description, confirmLabel, onConfirm, 
     <div className="lab-confirm-dialog" ref={dialogRef} role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
       <header><CircleAlert size={20} /><h2 id={titleId}>{title}</h2><button aria-label="关闭确认" onClick={onCancel}><X size={18} /></button></header>
       <p id={descriptionId}>{description}</p>
-      <footer><button ref={cancelRef} onClick={onCancel}>取消，保留当前内容</button><button className={destructive ? 'is-destructive' : 'is-primary'} onClick={onConfirm}>{confirmLabel}</button></footer>
+      <footer><button ref={cancelRef} onClick={onCancel}>取消，保留当前内容</button>{extraAction}<button className={destructive ? 'is-destructive' : 'is-primary'} onClick={onConfirm} disabled={confirmDisabled}>{confirmLabel}</button></footer>
     </div>
   </div>
 }

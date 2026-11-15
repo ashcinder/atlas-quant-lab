@@ -1,3 +1,4 @@
+import { highlightStrategyCode } from './highlightStrategyCode'
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Bot, Check, CheckCheck, ChevronDown, Code2, Download, FileCode2, FolderArchive, LoaderCircle, Send, ShieldCheck, Square, Upload, WandSparkles, X, Play, MoreHorizontal, Settings2, PanelRightClose, ArrowUpRight, CircleHelp } from 'lucide-react'
 import { request } from '../request'
@@ -57,11 +58,12 @@ function ValidationDetails({ value,proofApplicable=true }: { value: Validation;p
   </div>
 }
 
-export function CodeStrategyWorkspace({ research, assets = [], onResearchContextChange, draftConfiguration }: {
+export function CodeStrategyWorkspace({ research, assets = [], onResearchContextChange, draftConfiguration, typeControl }: {
   research?: ResearchWorkspaceProps
   assets?: Asset[]
   onResearchContextChange?: (asset: Asset, interval: Interval) => void
   draftConfiguration?: ReactNode
+  typeControl?: ReactNode
 } = {}) {
   const [incomingArchive, setIncomingArchive] = useState<{ file: File } | null>(null)
   const projectInput = useRef<HTMLInputElement>(null)
@@ -117,10 +119,7 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
     else replace(next)
   }
 
-  const highlightedCode = useMemo(() => code.split(/(#[^\n]*|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"""[\s\S]*?"""|'[^'\n]*'|"[^"\n]*"|\b(?:from|import|class|def|return|if|else|elif|for|in|while|try|except|raise|with|as|pass|True|False|None|and|or|not|const|let|var|function|export|public|static|double|float|int|void|bool|struct|enum|package|func|fn|pub|use|using|namespace|new|true|false|null)\b|\b\d+(?:\.\d+)?\b)/g).map((token, index) => {
-    const kind = (token.startsWith('//') || token.startsWith('/*') || (token.startsWith('#') && ['python', 'r', 'julia'].includes(language))) ? 'comment' : /^['"]/.test(token) ? 'string' : /^(from|import|class|def|return|if|else|elif|for|in|while|try|except|raise|with|as|pass|True|False|None|and|or|not|const|let|var|function|export|public|static|double|float|int|void|bool|struct|enum|package|func|fn|pub|use|using|namespace|new|true|false|null)$/.test(token) ? 'keyword' : /^\d/.test(token) ? 'number' : ''
-    return <span key={index} className={kind ? `syntax-${kind}` : undefined}>{token}</span>
-  }), [code, language])
+  const highlightedCode = useMemo(() => highlightStrategyCode(code, language), [code, language])
 
   const loadCapabilities = () => {
     setCapabilityError('')
@@ -310,7 +309,7 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
     </div>
 
   return <PythonProjectWorkspace draftFilename={`strategy${languageInfo.extensions[0]}`} draftDirty={dirty}
-    draftToolbar={draftToolbar} draftConfiguration={draftConfiguration}
+    draftToolbar={draftToolbar} draftConfiguration={draftConfiguration} typeControl={typeControl}
     incomingArchive={incomingArchive} importDisabled={backtesting || checking} onOpenArchive={() => projectInput.current?.click()}>
     <section className={`code-studio ${assistantOpen ? '' : 'assistant-closed'}`} aria-label="代码策略工作区">
     {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
@@ -336,7 +335,7 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
           <div className="studio-settings-fields">
             <label>研究标的<select aria-label="代码回测标的" disabled={!onResearchContextChange||checking||backtesting} value={research.asset?.symbol??''} onChange={event=>{const asset=assets.find(item=>item.symbol===event.target.value);if(asset)onResearchContextChange?.(asset,supportsMinuteBars(asset)?research.interval:['1m','5m'].includes(research.interval)?'15m':research.interval)}}>{!research.asset&&<option value="">请选择标的</option>}{(assets.length?assets:research.asset?[research.asset]:[]).map(asset=><option key={asset.symbol} value={asset.symbol}>{asset.name} · {asset.symbol}</option>)}</select></label>
             <div className="studio-field-pair"><label>K线周期<select aria-label="代码回测周期" disabled={!onResearchContextChange||!research.asset||checking||backtesting} value={research.interval} onChange={event=>{if(research.asset)onResearchContextChange?.(research.asset,event.target.value as Interval)}}>{Object.entries({'1m':'1分钟','5m':'5分钟','15m':'15分钟','1h':'1小时','4h':'4小时','1d':'日线','1wk':'周线'}).filter(([interval])=>supportsMinuteBars(research.asset)||!['1m','5m'].includes(interval)).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-            <label>回测框架<select aria-label="代码回测框架" disabled={checking||backtesting} value={codeEngine} onChange={event=>setCodeEngine(event.target.value as 'atlas'|'vnpy'|'rqalpha')}><option value="atlas">Atlas</option><option value="vnpy">vn.py</option><option value="rqalpha">RQAlpha</option></select></label></div>
+            <label>回测框架<select aria-label="代码回测框架" disabled={checking||backtesting} value={codeEngine} onChange={event=>setCodeEngine(event.target.value as 'atlas'|'vnpy'|'rqalpha')}><option value="atlas">Trine</option><option value="vnpy">vn.py</option><option value="rqalpha">RQAlpha</option></select></label></div>
             <label className="studio-period-label">历史区间</label><BacktestPeriod label="代码回测" disabled={checking||backtesting} start={start} end={end} onApply={(from,to)=>{setStart(from);setEnd(to)}} />
             <div className="studio-source-context"><i/>{research.source==='huggingface'?'Hugging Face · 历史快照':research.source==='auto'?'自动选择行情来源':research.source}<span>{research.source==='huggingface'?'三框架统一口径':'框架默认口径'}</span></div>
           </div>

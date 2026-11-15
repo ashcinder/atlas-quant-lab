@@ -16,7 +16,7 @@ test('AUTH-05 enabled registration validates input, retains its session and reje
   page.on('response', response => {
     if (response.url().endsWith('/api/register')) sent.push(response.status())
   })
-  const submit = page.getByRole('button', { name: '注册并进入 Atlas', exact: true })
+  const submit = page.getByRole('button', { name: '注册并进入 Trine', exact: true })
   await submit.click()
   await expect(page.getByRole('alert')).toContainText('两次输入的密码不一致')
   expect(sent).toEqual([])
@@ -34,7 +34,7 @@ test('AUTH-05 enabled registration validates input, retains its session and reje
 
   await route(page, '#/journal/settings')
   await page.getByRole('button', { name: '退出登录', exact: true }).filter({ visible: true }).first().click()
-  await expect(page.getByRole('button', { name: '登录 Atlas', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '登录 Trine', exact: true })).toBeVisible()
   expect((await page.request.get('/api/ledger')).status()).toBe(401)
   await page.getByRole('button', { name: '创建账号', exact: true }).click()
   await page.getByLabel('登录邮箱').fill(address)
@@ -45,6 +45,6 @@ test('AUTH-05 enabled registration validates input, retains its session and reje
   expect(sent).toEqual([201, 409])
   await page.getByRole('button', { name: '返回登录', exact: true }).click()
   await page.getByLabel('密码', { exact: true }).fill(password)
-  await page.getByRole('button', { name: '登录 Atlas', exact: true }).click()
+  await page.getByRole('button', { name: '登录 Trine', exact: true }).click()
   await expect(page.getByLabel('登录邮箱')).toBeHidden()
 })

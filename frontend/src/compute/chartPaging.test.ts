@@ -38,6 +38,8 @@ it('loads recent and older pages, then stops at the true beginning', async () =>
  expect(older.bars[0].time).toBe(201000)
  const oldest=await loadChartPage(manifest,store,undefined,{end:1099},100)
  expect(oldest.bars[0].time).toBe(1000)
+ const directed=await loadChartPage(manifest,store,undefined,{start:1000,end:301099,fromStart:true},100)
+ expect(directed.bars.map(b=>b.time)).toEqual(Array.from({length:100},(_,i)=>1000+i))
  expect((await loadChartPage(manifest,store,undefined,{end:999},100)).bars).toEqual([])
  vi.unstubAllGlobals()
 })

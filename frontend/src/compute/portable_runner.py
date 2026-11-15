@@ -24,6 +24,10 @@ class StrategyContext:
 def run_strategy(source, bars_json, parameters_json='{}'):
     namespace = {'__name__': 'strategy'}
     exec(compile(source, 'strategy.py', 'exec'), namespace)
+    return run_namespace(namespace, bars_json, parameters_json)
+
+
+def run_namespace(namespace, bars_json, parameters_json='{}'):
     target = namespace.get('target')
     if not callable(target):
         raise ValueError('请定义 target(context)，返回0至1的目标仓位')
