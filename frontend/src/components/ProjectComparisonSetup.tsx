@@ -29,9 +29,9 @@ export function ProjectComparisonSetup({ entry, scriptOnly, method, settings, as
     </div>
     {scriptOnly ? <div className="project-comparison-blocked">
       <strong>此入口使用项目自带的回测</strong>
-      <p>点「运行脚本」查看完整组合结果。引擎对比需要从入口导出 <code>target(context)</code>，逐根返回单个标的的目标仓位。</p>
+      <p>点「运行项目脚本」查看完整组合结果。引擎对比需要从入口导出 <code>target(context)</code>，逐根返回单个标的的目标仓位。</p>
     </div> : <>
-      <p className="project-comparison-description">先检查入口、行情和引擎，再用同一批 K 线与仓位信号运行回测。</p>
+      <p className="project-comparison-description">三框架回测会用同一批 K 线和仓位信号。选择沪深 A 股和历史快照，即可使用三个框架共同支持的行情。</p>
       {preparing ? <p className="project-check-feedback" role="status">正在检查行情、生成仓位信号和读取引擎状态…</p> : null}
       {error ? <p className="project-check-feedback is-error" role="alert">{error}</p> : null}
       {checked && engines ? <section className="project-check-result" aria-label="引擎检查结果">

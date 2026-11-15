@@ -150,7 +150,7 @@ it('imports a native Python strategy without categories, engine or language sele
 
 it.each([
   { kind: 'multi_python', code: source },
-  { kind: 'single', code: 'def target(context):\n    return 0.5' },
+  { kind: 'single', code: 'def init(context):\n    pass\n\ndef target(context):\n    return 0.5' },
 ])('saves a $kind Python file on import and adds it to the library', async ({ kind, code }) => {
   const { container } = render(<RqAlphaLabWorkspace {...props} />)
   await screen.findByRole('button', { name: `打开 ${saved.name}` })
@@ -160,6 +160,11 @@ it.each([
   expect(await screen.findByLabelText('Python 策略代码')).toHaveValue(code)
   expect(screen.queryByRole('region', { name: '导入策略类型' })).toBeNull()
   expect(screen.getByText('已保存')).toBeVisible()
+  expect(editor().readOnly).toBe(false)
+  const assistant = screen.getByRole('button', { name: 'AI 助手' })
+  fireEvent.click(assistant)
+  expect(screen.getByRole('complementary', { name: 'AI 代码助手' })).toBeVisible()
+  fireEvent.click(assistant)
   const expected = kind === 'multi_python' ? { source: code, kind } : { source: code, settings: singleSettings }
   expect(api.createLabStrategy).toHaveBeenCalledWith(props.ownerId, expect.any(String), expect.objectContaining(expected))
   fireEvent.click(screen.getByRole('button', { name: '我的策略' }))

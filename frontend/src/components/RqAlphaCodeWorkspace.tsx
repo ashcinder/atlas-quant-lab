@@ -1,36 +1,14 @@
 import { highlightStrategyCode } from './highlightStrategyCode'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Check, CheckCheck, ChevronDown, Code2, Download, FileCode2, History, LoaderCircle, Play, Save, Send, Square, Upload, WandSparkles, X } from 'lucide-react'
+import { Bot, CheckCheck, Download, FileCode2, History, LoaderCircle, Play, Save, SlidersHorizontal, Upload, X } from 'lucide-react'
 import { request } from '../request'
 import { PublishRuntimeStrategy } from './PublishRuntimeStrategy'
 import { labOwnerHeaders, type LabDraft, type LabMultiEngine } from '../lab-strategy-types'
 import type { ReactNode } from 'react'
-import { AISettings } from './AISettings'
+import { StrategyCodeAssistant, ValidationDetails, type Validation } from './StrategyCodeAssistant'
 import { LabConfirmDialog } from './LabConfirmDialog'
 import './code-strategy.css'
 import { STRATEGY_LANGUAGES, MAX_STRATEGY_SOURCE, MAX_BOUNDED_SOURCE, sourceBytes, STRATEGY_FILE_ACCEPT, readStrategyFile, type StrategyLanguage } from './strategy-languages'
-interface Capabilities { configured: boolean; model?: string; message?: string; bounded_authoring?: boolean; conversation_context?: boolean }
-interface Suggestion { explanation: string; code: string | null; validation?: Validation }
-interface Message { id: number; role: 'user' | 'assistant'; text: string; code?: string | null; baseline?: string; validation?: Validation }
-interface Validation {
-  valid: boolean
-  error: { message: string; line?: number | null; offset?: number | null; kind?: string } | null
-  syntax_valid?: boolean
-  backtest_compatible?: boolean
-  proof_compatible?: boolean
-  dry_run?: { passed: boolean; synthetic: boolean; scenarios: number; bars_per_scenario: number } | null
-}
-
-function ValidationDetails({ value, staticOnly = false }: { value: Validation; staticOnly?: boolean }) {
-  const bounded = !staticOnly && value.syntax_valid != null
-  return <div className={`code-validation ${value.valid ? 'is-valid' : 'is-invalid'}`} role="status">
-    <strong>{staticOnly ? value.valid ? '语法与入口静态检查通过' : '需要修复代码' : bounded ? value.valid ? '代码检测通过' : '代码尚未通过平台检测' : value.valid ? '语法检查通过' : '需要修复代码'}</strong>
-    {bounded ? <p>语法：{value.syntax_valid ? '通过' : '未通过'} · 回测兼容：{value.backtest_compatible ? '通过' : '未通过'} · 证明兼容：{value.proof_compatible ? '通过' : '未通过'} · 合成试跑：{value.dry_run?.passed ? '通过' : '未通过或未执行'}</p> : null}
-    {value.error ? <p>{value.error.line ? `第 ${value.error.line} 行${value.error.offset ? `，第 ${value.error.offset} 列` : ''}：` : ''}{value.error.message}</p> : null}
-    <small>{bounded ? value.dry_run?.passed ? '使用合成行情检查执行兼容性；不是历史回测，未生成 Proof。' : '保留当前代码，请按诊断修正；未运行真实行情或生成 Proof。' : '仅静态检查，未运行策略。'}</small>
-  </div>
-}
-
 type SourceDraft = Pick<LabDraft, 'source' | 'name' | 'language'> & { kind?: LabDraft['kind'] }
 
 interface Props {
@@ -59,18 +37,13 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const multi = draft.kind === 'multi_python'
   const rqalpha = multi && engineId === 'rqalpha'
   const languageInfo = STRATEGY_LANGUAGES.find((item) => item.id === language)!
-  const [prompt, setPrompt] = useState('')
-  const [messages, setMessages] = useState<Message[]>([])
-  const [capabilities, setCapabilities] = useState<Capabilities | null>(null)
-  const [capabilityError, setCapabilityError] = useState('')
-  const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [validation, setValidation] = useState<Validation | null>(null)
   const [pane, setPane] = useState<'code' | 'guide'>('code')
   const [assistantOpen, setAssistantOpen] = useState(false)
-  const [aiSettingsOpen, setAISettingsOpen] = useState(false)
+  const [assistantVisited, setAssistantVisited] = useState(false)
   const [pending, setPending] = useState<{ code: string; name?: string; language?: StrategyLanguage; reason: string } | null>(null)
   const [undoCode, setUndoCode] = useState<string | null>(null)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
@@ -79,21 +52,13 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   const gutter = useRef<HTMLDivElement>(null)
   const highlight = useRef<HTMLPreElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-  const controller = useRef<AbortController | null>(null)
-  const generation = useRef(0)
   const revision = useRef(0)
   const codeRef = useRef(code)
   const importSequence = useRef(0)
-  const messagesEnd = useRef<HTMLDivElement>(null)
 
   const highlightedCode = useMemo(() => highlightStrategyCode(code, language), [code, language])
 
-  const loadCapabilities = () => {
-    setCapabilityError('')
-    request<Capabilities>('/strategy-code/capabilities').then(setCapabilities).catch(() => setCapabilityError('无法读取 AI 连接状态，请重试。'))
-  }
-  useEffect(() => { request<Capabilities>('/strategy-code/capabilities').then(setCapabilities).catch(() => setCapabilityError('无法读取 AI 连接状态，请重试。')); return () => { controller.current?.abort(); checkController.current?.abort(); generation.current += 1; importSequence.current += 1 } }, [])
-  useEffect(() => { if (messages.length || busy) messagesEnd.current?.scrollIntoView?.({ block: 'nearest' }) }, [messages, busy])
+  useEffect(() => () => { checkController.current?.abort(); importSequence.current += 1 }, [])
 
   const edit = (next: string) => {
     if (readOnly) return
@@ -105,10 +70,10 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   }
   const switchLanguage = (next: StrategyLanguage) => {
     if (readOnly || next === language) return
-    generation.current += 1; controller.current?.abort(); importSequence.current += 1
+    importSequence.current += 1
     revision.current += 1
     onEdit({ language: next })
-    setMessages([]); setPrompt(''); setBusy(false); setValidation(null); setUndoCode(null)
+    setValidation(null); setUndoCode(null)
     setError(''); setNotice(''); setPending(null)
   }
   const replace = (next: string, nextName?: string, nextLanguage?: StrategyLanguage) => {
@@ -151,7 +116,7 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
     const snapshot = revision.current
     setChecking(true); setError('')
     try {
-      if (!multi && /\bdef\s+target\s*\(/.test(code)) {
+      if (portable) {
         const { runPortablePython } = await import('../compute/portablePython')
         const bars = Array.from({ length: 100 }, (_, i) => ({ time: 1700000000 + i * 60, open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i, volume: 100000 }))
         await runPortablePython(code, bars, {}, abort.signal)
@@ -172,28 +137,6 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
       if (!abort.signal.aborted) setChecking(false)
     }
   }
-  const send = async () => {
-    if (readOnly || !prompt.trim() || busy || !capabilities?.configured) return
-    const current = ++generation.current
-    const text = prompt.trim()
-    const baseline = codeRef.current
-    const history = messages.slice(-6).map(message => {
-      const content = message.text + (message.code ? `\n此前建议代码（不代表已应用，当前编辑器代码另行提供）：\n${message.code}` : '')
-      return { role: message.role, content: content.length > 4000 ? content.slice(0, 3960) + '\n[历史消息过长，已截断]' : content }
-    })
-    const structured = capabilities?.bounded_authoring === true && language === 'python' && (!baseline.trim() || /\bdef\s+target_bps\s*\(/.test(baseline))
-    const abort = new AbortController(); controller.current = abort
-    setMessages((items) => [...items, { id: current * 2, role: 'user', text }])
-    setPrompt(''); setBusy(true); setError('')
-    try {
-      const response = await request<Suggestion>('/strategy-code/assist', { method: 'POST', headers: labOwnerHeaders(ownerId), body: JSON.stringify({ prompt: text, code: baseline, language, ...(structured ? { generation_mode: 'rules' } : {}), ...(capabilities.conversation_context ? { history } : {}) }), signal: abort.signal }, structured ? 120_000 : 90_000)
-      if (generation.current !== current) return
-      setMessages((items) => [...items, { id: current * 2 + 1, role: 'assistant', text: response.explanation, code: response.code, baseline, validation: response.validation }])
-    } catch (reason) {
-      if (generation.current === current) { setError(reason instanceof Error ? reason.message : 'AI 请求失败，请重试。'); setPrompt(text) }
-    } finally { if (generation.current === current) setBusy(false) }
-  }
-  const cancel = () => { generation.current += 1; controller.current?.abort(); setBusy(false); setNotice('已停止等待本次生成。') }
   const position = () => {
     const start = editor.current?.selectionStart ?? 0
     const lines = code.slice(0, start).split('\n')
@@ -201,7 +144,9 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
   }
 
   const sourceSize = sourceBytes(code)
-  const oversize = sourceSize > (multi ? MAX_STRATEGY_SOURCE : MAX_BOUNDED_SOURCE)
+  const portable = language === 'python' && !multi && /\bdef\s+target\s*\(/.test(code)
+  const sourceLimit = multi || portable ? MAX_STRATEGY_SOURCE : MAX_BOUNDED_SOURCE
+  const oversize = sourceSize > sourceLimit
   const canCheck = !readOnly && language === 'python' && !!code.trim() && !oversize
   return <section className="lab-code-workbench" aria-label="代码策略工作区">
     {pending ? <LabConfirmDialog title="替换当前代码？" description={pending.reason} confirmLabel="替换代码" onCancel={() => setPending(null)} onConfirm={() => replace(pending.code, pending.name, pending.language)} /> : null}
@@ -213,10 +158,17 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
         <span className="lab-save-state">{saving ? '正在保存…' : dirty || !saved ? '未保存' : '已保存'}</span>
       </div>
       <div className="lab-command-actions">
-        <button onClick={onHistory} disabled={!saved}><History size={15} />历史回测</button>
+        {!readOnly ? <>
+          <button type="button" aria-pressed={assistantOpen} onClick={() => {
+            setAssistantVisited(true)
+            setAssistantOpen(open => !open)
+          }}><Bot size={15} />AI 助手</button>
+          <button type="button" aria-pressed={!assistantOpen} onClick={() => setAssistantOpen(false)}><SlidersHorizontal size={15} />回测设置</button>
+        </> : null}
+        <button onClick={() => { setAssistantOpen(false); onHistory() }} disabled={!saved}><History size={15} />历史回测</button>
         <button onClick={onSave} disabled={readOnly || saving || !name.trim()}><Save size={15} />保存策略</button>
         <button disabled={checking || !canCheck} onClick={() => void check()}>{checking ? <LoaderCircle size={15} className="spin" /> : <CheckCheck size={15} />}检查代码</button>
-        <button className="lab-primary" disabled={running || saving || !saved || !canCheck || !!runDisabledReason} title={!saved ? '先保存策略，再运行回测' : runDisabledReason} onClick={onRun}><Play size={15} />{running ? '回测中…' : multi ? '运行回测' : '运行三框架回测'}</button>
+        <button className="lab-primary" disabled={running || saving || !saved || !canCheck || !!runDisabledReason} title={!saved ? '先保存策略，再运行回测' : runDisabledReason} onClick={() => { setAssistantOpen(false); onRun() }}><Play size={15} />{running ? '回测中…' : multi ? '运行回测' : '运行三框架回测'}</button>
       </div>
       {runFeedback}
     </header>
@@ -229,31 +181,30 @@ export function RqAlphaCodeWorkspace({ draft, ownerId, onEdit, onSave, onRun, on
           {runtimeActions !== undefined ? runtimeActions : !readOnly && !multi && language === 'python' && !/\bdef\s+target\s*\(/.test(code) ? <PublishRuntimeStrategy ownerId={ownerId} draft={{ name, source_kind: 'python', strategy_id: 'python_bounded', python_source: code }} disabled={running || !canCheck} /> : null}
         </div>
       <div className="code-editor-panel">
-        <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}{!readOnly && !multi && !assistantOpen ? <button onClick={() => setAssistantOpen(true)}><Bot size={15} />AI 助手</button> : null}</div></div>
+        <div className="code-editor-tabs"><div role="tablist" aria-label="代码编辑视图"><button role="tab" aria-selected={pane === 'code'} onClick={() => setPane('code')}><FileCode2 size={14} />strategy{languageInfo.extensions[0]}</button><button role="tab" aria-selected={pane === 'guide'} onClick={() => setPane('guide')}>编写指南</button></div><div>{undoCode !== null ? <button onClick={() => { const previous = undoCode; setUndoCode(code); edit(previous) }}>撤销替换</button> : null}</div></div>
         {pane === 'code' ? <div className="code-editor-surface"><div ref={gutter} className="code-line-numbers" aria-hidden="true">{code.split('\n').map((_, index) => <div key={index}>{index + 1}</div>)}</div><div className="code-text-layer"><pre ref={highlight} aria-hidden="true" className="code-highlight">{highlightedCode}{'\n'}</pre><textarea ref={editor} readOnly={readOnly} aria-label={`${languageInfo.label} 策略代码`} value={code} spellCheck={false} autoCapitalize="off" autoComplete="off" wrap="off" onChange={(event) => edit(event.target.value)} onSelect={position} onScroll={(event) => { if (gutter.current) gutter.current.scrollTop = event.currentTarget.scrollTop; if (highlight.current) { highlight.current.scrollTop = event.currentTarget.scrollTop; highlight.current.scrollLeft = event.currentTarget.scrollLeft } }} onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 's') { event.preventDefault(); if (!readOnly && !saving && name.trim()) onSave() }
-        }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{rqalpha ? 'RQAlpha 公开版 · 原生 Python' : multi ? 'A 股多标的 · Trine Python SDK' : languageInfo.environment}</p><p>{rqalpha ? '使用 init(context) 和 handle_bar(context, bar_dict)，通过 order_target_percent 等原生 API 提交订单。context.symbols 为所选股票池的米筐代码（如 600519.XSHG），context.parameters 为已保存的参数字典。检查代码仅做静态语法与入口检查，不运行策略，也不证明回测兼容或计算正确。' : multi ? '策略通过 SDK 读取已收盘行情与共享账户，返回目标仓位或订单意图。请按策略包声明的执行方式编写。' : /\bdef\s+target\s*\(/.test(code) ? '通用入口 target(context) 返回 0–1 的目标仓位，可使用 context.close、context.sma(period)、context.params 与 context.state。initialize(context) 可选。一次生成信号后分别回放三个框架。' : language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '当前语言支持编辑和下载，检查和回测使用受限 Python。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
+        }} /></div></div> : <article className="code-writing-guide"><h2>编写指南</h2><p>{rqalpha ? 'RQAlpha 公开版 · 原生 Python' : multi ? 'A 股多标的 · Trine Python SDK' : languageInfo.environment}</p><p>{rqalpha ? '使用 init(context) 和 handle_bar(context, bar_dict)，通过 order_target_percent 等原生 API 提交订单。context.symbols 为所选股票池的米筐代码（如 600519.XSHG），context.parameters 为已保存的参数字典。检查代码仅做静态语法与入口检查，不运行策略，也不证明回测兼容或计算正确。' : multi ? '策略通过 SDK 读取已收盘行情与共享账户，返回目标仓位或订单意图。请按策略包声明的执行方式编写。' : /\bdef\s+target\s*\(/.test(code) ? '通用入口 target(context) 返回 0–1 的目标仓位，可使用 context.close、context.sma(period)、context.params 与 context.state。initialize(context) 可选。一次生成信号后分别回放三个框架。' : language === 'python' ? '用 target_bps(index, close, sma) 返回 0–9500 的整数仓位。5000 表示 50%。检查代码会显示回测兼容性；历史回测与 Proof 分别运行。' : '此语言支持编辑和下载。'}</p><p>导入 UTF-8 源码文件（最大 60 KB），点击「保存策略」将源码与回测设置存入当前账号。</p></article>}
         <footer className="code-editor-status"><span>UTF-8</span><span>{languageInfo.label}</span><span>{code.split('\n').length} 行</span><span>行 {cursor.line}，列 {cursor.column}</span><span>{sourceSize.toLocaleString()} 字节</span></footer>
         {validation ? <ValidationDetails value={validation} staticOnly={rqalpha} /> : null}
       </div>
-      {assistantOpen ? <aside className="code-assistant" aria-label="AI 代码助手"><header><span><WandSparkles size={17} /><strong>AI 助手</strong></span><button aria-label="收起 AI 助手" onClick={() => setAssistantOpen(false)}><X size={17} /></button></header>
-        <div className="code-ai-status"><i className={capabilities?.configured ? 'is-ready' : ''} /><span>{capabilities?.configured ? `${capabilities.model ?? '模型'} 已配置` : capabilityError || capabilities?.message || (capabilities ? '尚未配置模型' : '正在检查模型连接…')}</span><button onClick={loadCapabilities} aria-label="刷新 AI 连接状态">刷新</button><button onClick={() => setAISettingsOpen(value => !value)}>AI 服务配置</button></div>
-        <div className="code-conversation" aria-live="polite">{!messages.length ? <div className="code-assistant-intro"><div className="code-assistant-mark"><Bot size={30} /></div><h2>把想法写成策略</h2><p>描述你的交易逻辑，或让我帮你检查当前代码。</p><div className="code-prompt-examples">{['写一个双均线交叉策略', '加入止损与仓位限制', '分析当前策略的风险', '给代码添加中文注释'].map((text) => <button key={text} onClick={() => setPrompt(text)}>{text}<ChevronDown size={12} /></button>)}</div><small>AI 修改先预览，由你决定是否应用。</small></div> : messages.map((message) => <article className={`code-message is-${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : 'AI 助手'}</strong><p>{message.text}</p>{message.code ? <div className="code-suggestion"><details><summary><Code2 size={14} />查看建议代码 · {message.code.split('\n').length} 行</summary><pre>{message.code}</pre></details>{message.validation ? <ValidationDetails value={message.validation} /> : null}<button disabled={readOnly || message.validation?.valid === false} onClick={() => {
-            if (message.validation?.valid === false) return
-            if (codeRef.current !== message.baseline) setPending({ code: message.code!, reason: '生成建议后代码已有修改。应用建议会替换当前版本，你可以取消以保留编辑。' })
-            else replace(message.code!)
-          }}><Check size={14} />应用到编辑器</button></div> : null}</article>)}{busy ? <div className="code-ai-thinking"><LoaderCircle size={16} className="spin" />正在根据当前代码生成建议…</div> : null}<div ref={messagesEnd} /></div>
-        {aiSettingsOpen && <AISettings />}
-        <form className="code-ai-composer" onSubmit={(event) => { event.preventDefault(); void send() }}><label htmlFor="code-ai-prompt">告诉 AI 你想实现什么</label><textarea id="code-ai-prompt" value={prompt} maxLength={4000} onChange={(event) => setPrompt(event.target.value)} placeholder="例如：用 20 / 60 日均线判断趋势，单次仓位不超过 20%…" onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send() } }} /><div><small>发送当前代码 · Shift + Enter 换行</small>{busy ? <button type="button" onClick={cancel}><Square size={14} />停止</button> : <button type="submit" disabled={!prompt.trim() || !capabilities?.configured}><Send size={15} />发送</button>}</div>{!capabilities?.configured ? <details className="code-connect-help"><summary>如何连接 AI？</summary><p>打开右上角设置 → AI 服务，选择 DeepSeek 或通义千问，填写模型与 Key，授权后保存并测试连接。也可以在服务端配置本机 Ollama（ATLAS_AI_URL 与 ATLAS_AI_MODEL），启动模型后刷新连接状态。代码助手会发送当前代码和提问；保密策略请使用开发者自己控制的本地模型。</p></details> : null}</form>
-      </aside> : null}
         <div className="lab-editor-feedback">
           {error ? <p role="alert">{error}<button onClick={() => setError('')} aria-label="关闭错误"><X size={14} /></button></p> : null}
           {notice ? <p role="status">{notice}</p> : null}
-          <p>{rqalpha ? 'RQAlpha Python · 学术非商用 · 历史回测' : multi ? '标准 Python · A 股多标的 · 共享人民币账户' : language === 'python' ? '受限 Python · 单标的历史回测' : '此语言可编辑和下载，尚未接入检查与回测。'}</p>
-          {language === 'python' && oversize ? <p role="status">源码超过 {multi ? '60,000 字节' : '16 KiB'}，请缩短后再检查或运行。</p> : null}
+          <p>{rqalpha ? 'RQAlpha Python · 学术非商用 · 历史回测' : multi ? '标准 Python · A 股多标的 · 共享人民币账户' : portable ? '通用 Python · 单标的三框架回测' : language === 'python' ? '受限 Python · 单标的三框架回测' : '此语言可编辑和下载，尚未接入检查与回测。'}</p>
+          {language === 'python' && oversize ? <p role="status">源码超过 {sourceLimit.toLocaleString() + ' 字节'}，请缩短后再检查或运行。</p> : null}
         </div>
       </div>
-      <div className="lab-backtest-column">{children}</div>
+      <div className="lab-backtest-column">
+        <div hidden={assistantOpen}>{children}</div>
+        {assistantVisited ? <div hidden={!assistantOpen}>
+          <StrategyCodeAssistant code={code} language={language} ownerId={ownerId} bounded={!multi}
+        disabled={readOnly} onClose={() => setAssistantOpen(false)} onApply={(next, baseline) => {
+          if (codeRef.current !== baseline) setPending({ code: next, reason: '生成建议后代码已有修改。应用建议会替换当前版本，你可以取消以保留编辑。' })
+          else replace(next)
+        }} />
+        </div> : null}
+      </div>
     </div>
   </section>
 }

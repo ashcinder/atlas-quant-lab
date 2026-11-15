@@ -1,18 +1,21 @@
 import { highlightStrategyCode } from './highlightStrategyCode'
 import { useDeferredValue, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowLeft, BarChart3, Braces, Check, ChevronRight, Download, FileCode2, FileText, Folder, FolderArchive, FolderOpen, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeft, PanelRight, Play, Plus, Search, SlidersHorizontal, Square, Terminal, X } from 'lucide-react'
+import { ArrowLeft, BarChart3, Bot, Braces, Check, ChevronRight, Download, FileCode2, FileText, Folder, FolderArchive, FolderOpen, LoaderCircle, Maximize2, Minimize2, MoreHorizontal, PanelLeft, PanelRight, Play, Plus, Search, SlidersHorizontal, Square, Terminal, X } from 'lucide-react'
 import { preferredEntry } from '../project-entry'
 import type { ImportedPythonProject, ProjectFilePreview, ProjectReport } from '../compute/pythonProject'
 import './python-project.css'
 import { api } from '../api'
-import { checkComparisonEngines, comparisonError, prepareComparison, runPreparedComparison,
+import { checkComparisonEngines, comparisonEngines, comparisonError, prepareComparison, runPreparedComparison,
   type ComparisonEngineCheck, type ComparisonMethod, type ComparisonRow, type PreparedComparison } from '../compute/compareBacktests'
 import { BacktestComparison } from './BacktestComparison'
 import { ProjectComparisonSetup } from './ProjectComparisonSetup'
 import { LabConfirmDialog } from './LabConfirmDialog'
 import { ProjectReportDetails } from './ProjectReportDetails'
+import { StrategyCodeAssistant } from './StrategyCodeAssistant'
 import type { LabBacktestSettings } from '../lab-strategy-types'
 import type { Asset } from '../types'
+
+const scriptComparisonReason = '此入口使用项目自己的账户和撮合。三框架回测需要入口提供 target(context)，为所选标的返回 0 到 1 的目标仓位。'
 
 type TreeNode = { name: string; path: string; children?: Map<string, TreeNode>; hasCode?: boolean }
 
@@ -136,7 +139,10 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
   const [newFile, setNewFile] = useState(false)
   const [newPath, setNewPath] = useState('')
   const [newFileError, setNewFileError] = useState('')
-  const [outputTab, setOutputTab] = useState<'summary' | 'settings'>('summary')
+  const [outputTab, setOutputTab] = useState<'summary' | 'settings' | 'assistant'>('summary')
+  const [assistantReplacement, setAssistantReplacement] = useState<{ file: string; source: string } | null>(null)
+  const [assistantUndo, setAssistantUndo] = useState<{ file: string; source: string } | null>(null)
+  const editorLocked = phase === 'save' || phase === 'import'
   const dirty = Object.keys(edits).length > 0
   const paths = useMemo(() => [...(project?.files.map(file => file.path) ?? []), ...newFiles], [project, newFiles])
   const tree = useMemo(() => buildTree(paths, project?.root ?? ''), [paths, project?.root])
@@ -163,7 +169,6 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
   const effectiveMethod = comparisonSettings?.data_source === 'huggingface' ? comparisonMethod : 'native'
   const checked = inspection && inspection.file === archive && inspection.entry === entry && inspection.edits === edits
     && inspection.settings === comparisonSettings && inspection.method === effectiveMethod && inspection.owner === comparisonContext?.ownerId ? inspection : null
-  const eligibleEngines = checked?.engines.filter(engine => engine.state !== 'unavailable').length ?? 0
   const matchedPaths = useMemo(() => deferredQuery ? paths.filter(path => path.slice(prefix.length).toLowerCase().includes(deferredQuery)) : [], [deferredQuery, paths, prefix])
   const runLabel = runKind === 'script' ? '脚本运行' : '引擎对比'
   const activeName = active.split('/').at(-1)
@@ -207,10 +212,11 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
   function revealOutput(tab: typeof outputTab) {
     setOutputOpen(true)
     setOutputTab(tab)
+    if (tab === 'assistant') setOutputExpanded(false)
     requestAnimationFrame(() => {
       const pane = outputPane.current
       if (pane && pane.getBoundingClientRect().top > window.innerHeight * 0.65) {
-        pane.scrollIntoView({ block: 'nearest' })
+        pane.scrollIntoView?.({ block: 'nearest' })
       }
     })
   }
@@ -267,6 +273,7 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
       const entry = preferredEntry(imported.scripts, imported.root)
       setProject({ ...imported, file, libraryId })
       setEdits({})
+      setAssistantUndo(null)
       setNewFiles([])
       setView('project')
       setActive(entry)
@@ -310,39 +317,59 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
     revealOutput('summary')
   }
 
-  function inspectComparison() {
-    if (!project || !entry || !comparisonContext || !comparisonSettings?.symbol || scriptOnly) return
+  async function prepareEntry(signal: AbortSignal) {
+    if (!project || !comparisonContext || !comparisonSettings?.symbol) throw new Error('请选择回测标的。')
     const settings = comparisonSettings
     const owner = comparisonContext.ownerId
+    if (settings.start && settings.end && Date.parse(settings.start) >= Date.parse(settings.end)) {
+      throw new Error('结束时间必须晚于开始时间。')
+    }
+    if (!Number.isFinite(settings.initial_capital) || settings.initial_capital <= 0) throw new Error('初始资金必须大于零。')
+    const { prepareProjectPlan } = await import('../compute/pythonProject')
+    const payload = {
+      ...settings, strategy_name: project.file.name.replace(/\.zip$/i, ''), params: {},
+      execution_model: effectiveMethod, adjustment: settings.data_source === 'huggingface' ? 'raw' : 'auto',
+    }
+    const [prepared, statuses] = await Promise.all([
+      prepareComparison(payload, signal, (bars, datasetId, runSignal) => prepareProjectPlan(project.file, entry, edits, bars, datasetId, runSignal)),
+      api.backtestEngines(signal).catch(() => undefined),
+    ])
+    signal.throwIfAborted()
+    return { file: project.file, entry, edits, settings, method: effectiveMethod, owner,
+      prepared, engines: checkComparisonEngines(payload, statuses) }
+  }
+
+  function inspectComparison() {
+    if (!project || !entry || !comparisonContext || scriptOnly) return
     void perform('check', async signal => {
       setInspection(null)
       outputScroll.current?.scrollTo?.({ top: 0 })
-      if (settings.start && settings.end && Date.parse(settings.start) >= Date.parse(settings.end)) {
-        throw new Error('结束时间必须晚于开始时间。')
-      }
-      if (!Number.isFinite(settings.initial_capital) || settings.initial_capital <= 0) throw new Error('初始资金必须大于零。')
-      const { prepareProjectPlan } = await import('../compute/pythonProject')
-      const payload = {
-        ...settings, strategy_name: project.file.name.replace(/\.zip$/i, ''), params: {},
-        execution_model: effectiveMethod, adjustment: settings.data_source === 'huggingface' ? 'raw' : 'auto',
-      }
-      const [prepared, statuses] = await Promise.all([
-        prepareComparison(payload, signal, (bars, datasetId, runSignal) => prepareProjectPlan(project.file, entry, edits, bars, datasetId, runSignal)),
-        api.backtestEngines(signal).catch(() => undefined),
-      ])
-      signal.throwIfAborted()
-      setInspection({ file: project.file, entry, edits, settings, method: effectiveMethod, owner,
-        prepared, engines: checkComparisonEngines(payload, statuses) })
+      setInspection(await prepareEntry(signal))
     })
   }
 
   function compareProject() {
-    if (!checked || !eligibleEngines) return
+    if (!project || !entry || !comparisonContext) return
+    if (!comparisonSettings?.symbol && !scriptOnly) { revealOutput('settings'); return }
     void perform('run', async signal => {
       startRun('comparison')
-      const { barCount, from, to, method, datasetId } = checked.prepared
-      setResultContext({ barCount, from, to, method, datasetId })
-      await runPreparedComparison(checked.prepared, signal, setComparisonRows, checked.owner, checked.engines)
+      if (scriptOnly) {
+        setComparisonRows(comparisonEngines.map(engine => ({ engine, status: 'skipped', error: scriptComparisonReason })))
+        return
+      }
+      setComparisonRows(comparisonEngines.map(engine => ({ engine, status: 'pending' })))
+      try {
+        const inspected = checked ?? await prepareEntry(signal)
+        setInspection(inspected)
+        const { barCount, from, to, method, datasetId } = inspected.prepared
+        setResultContext({ barCount, from, to, method, datasetId })
+        await runPreparedComparison(inspected.prepared, signal, setComparisonRows, inspected.owner, inspected.engines)
+      } catch (reason) {
+        const detail = comparisonError(reason, '入口准备失败。')
+        setComparisonRows(comparisonEngines.map(engine => ({ engine, status: signal.aborted ? 'cancelled' : 'error',
+          error: signal.aborted ? undefined : detail })))
+        throw reason
+      }
     })
   }
 
@@ -355,6 +382,17 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
       setReport(completed)
       setMessage(completed.summaries.length ? '回测完成' : '入口脚本运行结束')
     })
+  }
+
+  function runPrimary() {
+    if (comparisonContext) compareProject()
+    else run()
+  }
+
+  function applySuggestion(file: string, next: string) {
+    if (file !== active || source === undefined || editorLocked) return
+    setAssistantUndo({ file, source })
+    edit(next)
   }
 
   function exportProject() {
@@ -413,6 +451,10 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
   }
 
   return <div className={`strategy-code-workspace${compact && view === 'draft' ? ' is-embedded' : ''}${explorerOpen ? '' : ' is-explorer-closed'}${view === 'project' ? ' is-project-view' : ''}`}>
+    {assistantReplacement ? <LabConfirmDialog title="替换当前代码？"
+      description="生成建议后文件已有修改。应用建议会替换当前编辑内容。"
+      confirmLabel="替换代码" onCancel={() => setAssistantReplacement(null)}
+      onConfirm={() => { applySuggestion(assistantReplacement.file, assistantReplacement.source); setAssistantReplacement(null) }} /> : null}
     {leavingProject ? <LabConfirmDialog title="离开 ZIP 项目？" description="项目有未导出的修改。可以先导出 ZIP，再返回策略库。"
       confirmLabel="离开项目" destructive onCancel={() => setLeavingProject(false)}
       onConfirm={() => { setLeavingProject(false); onBackToLibrary?.() }}
@@ -504,10 +546,16 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
             {typeControl}
             {phase === 'run' || phase === 'export' || phase === 'check'
               ? <button className="project-stop" type="button" onClick={() => operation.current?.abort()}><Square size={13} />停止</button>
-              : <button className="project-run" type="button" disabled={!entry || !!phase} onClick={run}
-                aria-keyshortcuts="Control+Enter Meta+Enter" title="运行选中的入口（⌘ / Ctrl + Enter）"><Play size={14} />运行脚本</button>}
+              : <button className="project-run" type="button" disabled={!entry || !!phase} onClick={runPrimary}
+                aria-keyshortcuts="Control+Enter Meta+Enter"><Play size={14} />{comparisonContext ? '运行三框架回测' : '运行项目脚本'}</button>}
             {comparisonContext && comparisonSettings ? <button type="button" disabled={!!phase} onClick={() => revealOutput('settings')}>
-              <SlidersHorizontal size={14} /><span>引擎对比</span>
+              <SlidersHorizontal size={14} /><span>回测设置</span>
+            </button> : null}
+            <button type="button" disabled={source === undefined} aria-pressed={outputOpen && outputTab === 'assistant'} onClick={() => revealOutput('assistant')}>
+              <Bot size={15} /><span>AI 助手</span>
+            </button>
+            {onArchiveImported && project.libraryId ? <button type="button" disabled={!!phase || !dirty} onClick={saveProject}>
+              <Check size={15} />保存项目
             </button> : null}
             <button type="button" className="project-icon-button" aria-expanded={outputOpen} aria-controls={`${explorerId}-output`}
               aria-label={outputOpen ? '隐藏回测输出' : '显示回测输出'} title={outputOpen ? '隐藏回测输出' : '显示回测输出'}
@@ -515,10 +563,10 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
             <details className="project-actions-menu">
               <summary aria-label="项目操作" title="项目操作"><MoreHorizontal size={17} /></summary>
               <div>
-                {onArchiveImported && project.libraryId ? <button type="button" disabled={!!phase || !dirty} onClick={event => {
+                {comparisonContext ? <button type="button" disabled={!entry || !!phase} onClick={event => {
                   event.currentTarget.closest('details')?.removeAttribute('open')
-                  saveProject()
-                }}><Check size={15} /> 保存项目</button> : null}
+                  run()
+                }}><Play size={15} />运行项目脚本</button> : null}
                 <button type="button" disabled={!!phase} onClick={event => {
                 event.currentTarget.closest('details')?.removeAttribute('open')
                 exportProject()
@@ -547,7 +595,7 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
               <pre ref={gutter} className="project-gutter" aria-hidden="true">{lineNumbers}</pre>
               <div className="project-editor-layer">
               <pre ref={highlight} className="project-highlight" aria-hidden="true">{highlighted}{'\n'}</pre>
-              <textarea key={active} ref={editor} aria-label="项目 Python 源码" value={source} spellCheck={false} wrap="off" readOnly={!!phase}
+              <textarea key={active} ref={editor} aria-label="项目 Python 源码" value={source} spellCheck={false} wrap="off" readOnly={editorLocked}
                 onScroll={event => {
                   const { scrollTop, scrollLeft } = event.currentTarget
                   if (gutter.current) gutter.current.scrollTop = scrollTop
@@ -558,13 +606,13 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
                 }}
                 onChange={event => edit(event.target.value)}
                 onKeyDown={event => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); run() }
+                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); runPrimary() }
                   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
                     event.preventDefault()
                     if (project.libraryId) saveProject()
                     else exportProject()
                   }
-                  if (event.key === 'Tab' && !event.shiftKey && !phase) {
+                  if (event.key === 'Tab' && !event.shiftKey && !editorLocked) {
                     event.preventDefault()
                     const { selectionStart, selectionEnd } = event.currentTarget
                     edit(source.slice(0, selectionStart) + '    ' + source.slice(selectionEnd))
@@ -587,14 +635,16 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
               {active ? <><FileText size={27} /><p>{active.endsWith('.py') ? '该文件使用其他编码，可以运行，编辑需要 UTF-8 源码。' : '此文件随项目提供，可导出 ZIP 后在本地打开。'}</p></>
                 : <><FileCode2 size={27} /><p>从左侧打开文件。</p></>}
             </div>}
-            <footer><span>{paths.length} 个文件</span>{phase === 'save' ? <span role="status">正在保存项目…</span>
-              : dirty ? <button type="button" disabled={!!phase} onClick={project.libraryId ? saveProject : exportProject}>
-                {project.libraryId ? '保存项目' : '有修改 · 导出项目'}
-              </button> : message === '项目已保存' ? <span role="status">项目已保存</span> : null}</footer>
+            <footer><span>{paths.length} 个文件</span>
+              {assistantUndo?.file === active && !editorLocked ? <button type="button" onClick={() => {
+                edit(assistantUndo.source)
+                setAssistantUndo(null)
+              }}>撤销替换</button> : null}{phase === 'save' ? <span role="status">正在保存项目…</span>
+              : dirty ? <span>有未保存的修改</span> : message === '项目已保存' ? <span role="status">项目已保存</span> : null}</footer>
           </div>
           <aside ref={outputPane} id={`${explorerId}-output`} className="project-output" aria-label="项目回测结果" hidden={!outputOpen}>
             <header className="project-output-heading">
-              <strong><BarChart3 size={16} />回测输出</strong>
+              <strong>{outputTab === 'assistant' ? <Bot size={16} /> : <BarChart3 size={16} />}{outputTab === 'assistant' ? '策略工具' : '回测输出'}</strong>
               <div className="project-output-actions">
                 <button type="button" className="project-icon-button" aria-pressed={outputExpanded}
                   aria-label={outputExpanded ? '还原回测输出' : '放大回测输出'} title={outputExpanded ? '还原回测输出' : '放大回测输出'}
@@ -604,10 +654,18 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
             </header>
             <div className="project-output-tabs" aria-label="输出视图">
               <button type="button" aria-pressed={outputTab === 'summary'} onClick={() => setOutputTab('summary')}>结果</button>
-              {comparisonContext && comparisonSettings ? <button type="button" aria-pressed={outputTab === 'settings'} onClick={() => setOutputTab('settings')}>对比配置</button> : null}
+              {comparisonContext && comparisonSettings ? <button type="button" aria-pressed={outputTab === 'settings'} onClick={() => setOutputTab('settings')}>回测设置</button> : null}
+              <button type="button" aria-pressed={outputTab === 'assistant'} onClick={() => setOutputTab('assistant')}>助手</button>
             </div>
             <div ref={outputScroll} className="project-output-scroll">
-              {outputTab === 'settings' && comparisonContext && comparisonSettings ? <ProjectComparisonSetup
+              {outputTab === 'assistant' ? source === undefined ? <div className="project-output-empty"><strong>请选择一个可编辑的 Python 文件</strong></div>
+                : <StrategyCodeAssistant key={active} code={source} language="python" ownerId={comparisonContext?.ownerId}
+                  fileName={activeName} bounded={false} disabled={editorLocked} onClose={() => setOutputTab('summary')}
+                  onApply={(next, baseline) => {
+                    if (source !== baseline) setAssistantReplacement({ file: active, source: next })
+                    else applySuggestion(active, next)
+                  }} />
+                : outputTab === 'settings' && comparisonContext && comparisonSettings ? <ProjectComparisonSetup
                 entry={entry.slice(prefix.length)} scriptOnly={scriptOnly} method={effectiveMethod} busy={!!phase} preparing={phase === 'check'}
                 settings={comparisonSettings} assets={comparisonContext.assets} error={error || (message === '已停止' ? message : undefined)}
                 checked={checked?.prepared} engines={checked?.engines}
@@ -622,25 +680,32 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
                 {message && message !== '项目已保存' ? <p className="project-run-status" role="status"><Check size={14} />{message}</p> : null}
                 {error ? <pre className="python-project-error" role="alert">{error}</pre> : null}
                 <BacktestComparison context={resultContext} rows={comparisonRows} compact />
+                {runKind === 'comparison' && scriptOnly && comparisonRows.length > 0 ? <button className="project-report-download"
+                  type="button" disabled={!!phase} onClick={run}><Play size={14} />运行项目脚本</button> : null}
                   {report ? <>
                     {report.summaries.length ? <ProjectReportDetails report={report} /> : <p>脚本已结束。可以下载报告查看项目输出。</p>}
                   </> : null}
                 {!runPath && !phase && !error && !message ? <div className="project-output-empty">
                   <Terminal size={22} aria-hidden="true" />
-                  <strong>等待运行</strong>
-                  <p>选择运行入口，点击「运行脚本」查看项目输出。</p>
+                  <strong>{comparisonContext && scriptOnly ? '项目组合回测' : '等待运行'}</strong>
+                  <p>{comparisonContext && scriptOnly ? '此入口有自己的组合回测，三框架需要可对比的仓位信号。'
+                    : comparisonContext ? '选择入口和回测设置，查看三个框架各自的结果。' : '选择入口，运行项目脚本以查看输出。'}</p>
+                  {comparisonContext && scriptOnly ? <button type="button" className="project-report-download" onClick={run}><Play size={14} />运行项目脚本</button> : null}
                 </div> : null}
               </>}
             </div>
             {outputTab === 'settings' ? <footer className="project-output-footer">
-              {scriptOnly ? <button type="button" className="project-run" disabled={!!phase || !entry} onClick={run}><Play size={14} />运行项目脚本</button>
-                : checked ? <div className="project-comparison-commands">
-                  <button type="button" disabled={!!phase} onClick={inspectComparison}>重新检查</button>
-                  <button type="button" className="project-run" disabled={!!phase || eligibleEngines === 0} onClick={compareProject}>
-                    <Play size={14} />{eligibleEngines === 1 ? '运行 Trine 回测' : `运行 ${eligibleEngines} 个引擎`}
+              {scriptOnly ? <div className="project-comparison-commands">
+                  <button type="button" disabled={!!phase || !entry} onClick={compareProject}>查看框架可用性</button>
+                  <button type="button" className="project-run" disabled={!!phase || !entry} onClick={run}><Play size={14} />运行项目脚本</button>
+                </div>
+                : <div className="project-comparison-commands">
+                  <button type="button" disabled={!!phase || !entry || !comparisonSettings?.symbol} onClick={inspectComparison}>{checked ? '重新检查' : '检查配置'}</button>
+                  <button type="button" className="project-run" disabled={!!phase || !entry || !comparisonSettings?.symbol} onClick={compareProject}>
+                    <Play size={14} />运行三框架回测
                   </button>
-                </div> : <button type="button" className="project-run" disabled={!comparisonSettings?.symbol || !entry || !!phase} onClick={inspectComparison}><Check size={14} />检查配置</button>}
-            </footer> : report ? <footer className="project-output-footer">
+                </div>}
+            </footer> : outputTab === 'summary' && report ? <footer className="project-output-footer">
               <button className="project-report-download" type="button" onClick={() => downloadFile(report.archive, (runPath.split('/').at(-1) ?? '项目').replace(/\.py$/, '') + '-回测报告.zip')}><Download size={15} /> 下载报告</button>
             </footer> : null}
           </aside>

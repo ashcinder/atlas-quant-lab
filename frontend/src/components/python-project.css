@@ -495,3 +495,14 @@
 .engine-report-heading h4 { margin: 0; font-size: 13px; }
 .engine-report-heading small { color: var(--muted); }
 .engine-report-status { padding: 9px 0; }
+
+.project-output .code-assistant {
+  --code-border: var(--border);
+  --code-muted: var(--muted);
+  min-height: min(420px, 65vh);
+  border: 0;
+  border-radius: 8px;
+}
+
+.project-output .code-assistant > header > span { min-width: 0; overflow-wrap: anywhere; }
+.project-output .code-conversation { min-height: 160px; }

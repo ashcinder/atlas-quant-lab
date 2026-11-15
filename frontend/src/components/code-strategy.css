@@ -132,3 +132,6 @@
 :where(.quant-workspace) :is(.code-runtime-actions, .runtime-publish-action) button:hover:not(:disabled) { background: var(--surface-selected); }
 :where(.quant-workspace) :is(.code-runtime-actions, .runtime-publish-action) button:disabled { opacity: .5; cursor: not-allowed; }
 :where(.quant-workspace) .runtime-publish-action button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+
+:where(.quant-workspace) .code-ai-feedback { color: var(--muted); margin: 4px 16px; font-size: 12px; }
+:where(.quant-workspace) .code-ai-feedback[role="alert"] { color: var(--negative); }

@@ -413,7 +413,10 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     try {
       const imported = await readStrategyFile(file)
       if (started !== operation.current) return
-      const isNative = imported.language === 'python' && /(?:from|import)\s+rqalpha\b|def\s+(?:handle_bar|init)\s*\(/.test(imported.source)
+      const isNative = imported.language === 'python' && (
+        /^\s*(?:from|import)\s+rqalpha\b/m.test(imported.source) ||
+        (!/^def\s+target(?:_bps)?\s*\(/m.test(imported.source) && /^def\s+handle_bar\s*\(/m.test(imported.source))
+      )
       const snapshot: LabDraft = isNative
         ? { ...blankMulti(imported.source), name: imported.name }
         : { ...blankSingle(), language: imported.language, name: imported.name, source: imported.source }
