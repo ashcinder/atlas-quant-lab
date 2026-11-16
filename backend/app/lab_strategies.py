@@ -2,12 +2,13 @@
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.config import DB_PATH
@@ -177,6 +178,9 @@ class LabStrategy(LabStrategySummary):
 class LabRunSummary(RunSummary):
     source_sha256: str
     settings: LabBacktestSettings
+    comparison_id: str | None = None
+    engine: Literal["atlas", "vnpy", "rqalpha"] | None = None
+    execution_model: Literal["native", "unified"] | None = None
 
 
 class LabStrategyStore:
@@ -303,6 +307,14 @@ def lab_strategy_router(store, runs):
         store.require_owned(owner, strategy_id)
         return runs.list_lab(owner, strategy_id)
 
+    @router.delete("/{strategy_id}/runs/{run_id}", status_code=204)
+    def delete_runs(strategy_id: str, run_id: str, request: Request):
+        owner = require_lab_owner(request)
+        store.require_owned(owner, strategy_id)
+        if not runs.delete_lab_run(owner, strategy_id, run_id):
+            raise HTTPException(404, "回测记录不存在")
+        return Response(status_code=204)
+
     return router
 
 def single_run_snapshot(store, owner: str, strategy_id: str, payload: dict) -> dict:
@@ -315,5 +327,11 @@ def single_run_snapshot(store, owner: str, strategy_id: str, payload: dict) -> d
     settings = LabBacktestSettings.model_validate({
         key: value for key, value in payload.items() if key in LabBacktestSettings.model_fields
     })
+    comparison = payload.get("lab_comparison_id")
+    if comparison is not None and (not isinstance(comparison, str) or not re.fullmatch(r"[a-f0-9]{32}", comparison)):
+        raise HTTPException(422, "无效的回测批次编号")
     return {"source_sha256": hashlib.sha256(source.encode()).hexdigest(),
-            "settings": settings.model_dump(mode="json")}
+            "settings": settings.model_dump(mode="json"),
+            "comparison_id": comparison,
+            "engine": settings.backtest_engine or "atlas",
+            "execution_model": "unified" if payload.get("execution_model") == "unified" else "native"}

@@ -260,13 +260,15 @@ it('refreshes the visible model status when AI settings change', async () => {
   expect(await screen.findByText('deepseek-flash 已配置')).toBeTruthy()
 })
 
-it('asks for a bounded minute range before submitting a potentially huge history', async () => {
+it('submits an automatic minute backtest with the published range when dates are blank', async () => {
   const { api }=await import('../api')
-  const run=vi.spyOn(api,'runBacktest')
+  const run=vi.spyOn(api,'runBacktest').mockRejectedValueOnce(new Error('minute test'))
+  vi.mocked(request).mockImplementation(async path => path.endsWith('/capabilities')
+    ? { configured: true, model: 'local-test', bounded_authoring: true } : { valid: true })
   render(<CodeStrategyWorkspace research={{asset:{symbol:'BTC-USD',name:'Bitcoin',asset_class:'crypto',exchange:'CRYPTO',currency:'USD',timezone:'UTC',tags:[]},strategies:[],interval:'1m',source:'auto',initialCapital:10000,commission:.001,slippage:0,spread:0,maxPosition:.5,maxParticipation:.01,onLoading:vi.fn(),onError:vi.fn(),onCustomResult:vi.fn()}} />)
   fireEvent.click(screen.getByRole('button',{name:'运行回测'}))
-  expect(await screen.findByText('请先设置分钟回测的开始与结束时间。')).toBeTruthy()
-  expect(run).not.toHaveBeenCalled()
+  expect(await screen.findByText('minute test')).toBeTruthy()
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({interval:'1m', start:null, end:null}), expect.any(AbortSignal))
   run.mockRestore()
 })
 

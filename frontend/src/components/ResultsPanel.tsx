@@ -56,14 +56,20 @@ const tradeTime = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-
 
 export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls = true, proofAction, allowPublish = true }: Props) {
   const [tab, setTab] = useState<'summary' | 'trades' | 'risk' | 'warnings'>('summary')
+  const [tradePage, setTradePage] = useState({ runId: '', index: 0 })
   const metrics = result?.metrics ?? {}
+  const tradeCount = metrics.trade_count ?? result?.trades.length ?? 0
+  const visibleCount = result?.trades.length ?? 0
+  const pages = Math.max(1, Math.ceil(visibleCount / 200))
+  const page = tradePage.runId === result?.run_id ? Math.min(tradePage.index, pages - 1) : 0
+  const pageTrades = result?.trades.slice(page * 200, (page + 1) * 200) ?? []
   const currency = result ? resultCurrency(result) : null
   const money = (value: number | null | undefined) => currency ? formatMoney(value, currency) : formatNumber(value)
   return (
     <section className={`results-panel panel-${panelMode}`} aria-label="回测结果">
       <div className="result-tabs" role="tablist" aria-label="回测结果分类">
         <button role="tab" aria-selected={tab === 'summary'} className={tab === 'summary' ? 'is-active' : ''} onClick={() => setTab('summary')}><BarChart3 size={14} />概览</button>
-        <button role="tab" aria-selected={tab === 'trades'} className={tab === 'trades' ? 'is-active' : ''} onClick={() => setTab('trades')}><ListOrdered size={14} />交易记录 <em>{result?.trades.length ?? 0}</em></button>
+        <button role="tab" aria-selected={tab === 'trades'} className={tab === 'trades' ? 'is-active' : ''} onClick={() => setTab('trades')}><ListOrdered size={14} />交易记录 <em>{result?.metrics.trade_count ?? result?.trades.length ?? 0}</em></button>
         <button role="tab" aria-selected={tab === 'risk'} className={tab === 'risk' ? 'is-active' : ''} onClick={() => setTab('risk')}><ShieldAlert size={14} />风险分析</button>
         <button role="tab" aria-selected={tab === 'warnings'} className={tab === 'warnings' ? 'is-active' : ''} onClick={() => setTab('warnings')}><AlertTriangle size={14} />可信度 <em>{result?.warnings.length ?? 0}</em></button>
         {controls ? <span className="result-panel-actions">
@@ -99,8 +105,14 @@ export function ResultsPanel({ result, loading, panelMode, onPanelMode, controls
         ) : null}
         {!loading && result && tab === 'trades' ? (
           <div className="table-scroll">
+            {visibleCount > 0 && visibleCount < tradeCount && 'bar_count' in result ? <p>报告保留首笔和最近 {formatNumber(visibleCount - 1, 0)} 笔成交，共 {formatNumber(tradeCount, 0)} 笔计入统计。</p> : null}
+            {pages > 1 ? <div className="result-trade-pages" aria-label="成交记录分页">
+              <button type="button" disabled={page === 0} onClick={() => setTradePage({ runId: result.run_id, index: page - 1 })}>上一页</button>
+              <span>{page + 1} / {pages}</span>
+              <button type="button" disabled={page + 1 >= pages} onClick={() => setTradePage({ runId: result.run_id, index: page + 1 })}>下一页</button>
+            </div> : null}
             <table><thead><tr><th>时间（本地）</th><th>方向</th><th>触发原因</th><th>成交价</th><th>数量</th><th>成交额（{currency ?? '币种未知'}）</th><th>费用</th><th>已实现盈亏</th></tr></thead>
-              <tbody>{result.trades.map((trade) => <tr key={trade.id}><td>{tradeTime.format(new Date(trade.time * 1000))}</td><td><span className={`side-tag ${trade.side}`}>{trade.side === 'buy' ? '买入' : '卖出'}</span></td><td title={trade.reason}>{trade.reason}</td><td>{formatNumber(trade.price, 4)}</td><td>{formatNumber(trade.quantity, 6)}</td><td>{money(trade.notional)}</td><td>{money(trade.fee)}</td><td className={(trade.realized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{trade.realized_pnl == null ? '—' : money(trade.realized_pnl)}</td></tr>)}</tbody>
+              <tbody>{pageTrades.map((trade) => <tr key={trade.id}><td>{tradeTime.format(new Date(trade.time * 1000))}</td><td><span className={`side-tag ${trade.side}`}>{trade.side === 'buy' ? '买入' : '卖出'}</span></td><td title={trade.reason}>{trade.reason}</td><td>{formatNumber(trade.price, 4)}</td><td>{formatNumber(trade.quantity, 6)}</td><td>{money(trade.notional)}</td><td>{money(trade.fee)}</td><td className={(trade.realized_pnl ?? 0) >= 0 ? 'positive' : 'negative'}>{trade.realized_pnl == null ? '—' : money(trade.realized_pnl)}</td></tr>)}</tbody>
             </table>
           </div>
         ) : null}

@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.compute_mode import browser_compute_enabled
 from app.lab_strategies import require_lab_owner, single_run_snapshot
+from app.storage import DeletedLabComparison
 from app.models import BacktestResult, PortfolioResult, ResearchResult
 
 
@@ -208,8 +209,11 @@ def browser_router(runtime, publications, runs, private_compute, workspace=None,
         # Price history belongs to immutable datasets, not every saved result.
         if body.mode == "single":
             result["bars"] = []
-        runs.save_computed(owner, body.mode, body.request, result, publications.objects,
-                           lab_strategy_id=body.lab_strategy_id)
+        try:
+            runs.save_computed(owner, body.mode, body.request, result, publications.objects,
+                               lab_strategy_id=body.lab_strategy_id)
+        except DeletedLabComparison as exc:
+            raise HTTPException(409, str(exc)) from exc
         if body.mode == "research":
             digest = publications.objects.put("private", result)
             with runs._connect() as db:

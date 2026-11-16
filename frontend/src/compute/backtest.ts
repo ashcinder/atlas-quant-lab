@@ -7,6 +7,9 @@ import { buildEvaluation } from './evaluation'
 import { contributionSchedule, generateCustomTarget, generateTargetExposure, getStrategy, validateParams } from './strategies'
 import { generatePythonTargets } from './pythonProgram'
 import type { PythonInstruction } from './pythonProgram'
+import { dailyActionLedger, researchBars } from './dailyActions'
+import { LONG_BACKTEST_BARS, REPORT_POINTS, REPORT_TRADES, unpackTargets } from './longBacktest'
+import type { PortablePlan } from './portablePython'
 interface Pipeline {max_position:number;commission_rate:number;slippage_rate:number;max_participation_rate:number;ai_stages?:AIStage[]}
 const closeEnough=(a:number,b:number,atol:number)=>Math.abs(a-b)<=atol+1e-5*Math.abs(b)
 function requestNumber(request:Record<string,unknown>,key:string,fallback:number,min:number,max=Infinity,inclusiveMin=true,inclusiveMax=true):number{
@@ -18,7 +21,12 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  checkCancelled(context)
  const executionModel=request.execution_model??'native'
  if(!['native','unified'].includes(String(executionModel)))throw new Error('不支持的成交口径')
- if(executionModel==='unified'&&(market.source!=='hf-ohlcv'||request.release_id))throw new Error('统一研究口径需要Hugging Face行情与已解析的策略')
+ const publishedAutoDaily = request.data_source === 'auto' && market.source === 'rqalpha-sina'
+  && market.adjustment === 'raw' && market.interval === '1d'
+  && market.asset.asset_class === 'equity' && /\.(SS|SZ)$/i.test(market.asset.symbol)
+ if(executionModel==='unified'&&((market.source!=='hf-ohlcv'&&!publishedAutoDaily)||request.release_id)) {
+  throw new Error('统一研究口径需要已发布的不复权 A 股行情与已解析的策略')
+ }
  if(market.source==='baostock-disputed'||market.source==='hf-unverified')throw new Error('该长历史数据来源或 OHLCV 尚未核验，仅供查看，不能用于回测')
  const bars=market.bars;if(bars.length<40)throw new Error('至少需要40根K线才能回测')
  for(let i=0;i<bars.length;i++){const b=bars[i];if(![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||b.open<=0||b.close<=0||b.high<=0||b.low<=0||b.volume<0||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||(i>0&&b.time<=bars[i-1].time))throw new Error('行情存在缺失、非有限值、无效价格或重复/乱序时间，不能回测')}
@@ -35,8 +43,9 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  const strategyId=String(request.strategy_id??'sma_cross'),custom=request.custom_strategy as CustomStrategySpec|null|undefined,program=request.python_program as PythonInstruction[]|undefined,python=request.python_source!=null||program!=null
  if(request.python_source!=null&&!program)throw new Error('受限 Python 源码需先编译为已验证整数指令')
  if(python&&(custom||Object.keys((request.params??{}) as object).length||strategyId!=='python_bounded'))throw new Error('受限Python回测不接受其他策略或参数')
- const portable=strategyId==='python_portable',plan=request.portable_plan as {targets:number[];start:number;end:number;name:string}|undefined
- if(portable&&(!plan||plan.targets.length!==bars.length||plan.start!==bars[0].time||plan.end!==bars.at(-1)!.time||plan.targets.some(v=>!Number.isFinite(v)||v<0||v>1)))throw new Error('Python仓位计划与行情区间不一致')
+ const portable=strategyId==='python_portable',plan=request.portable_plan as PortablePlan|undefined
+ const portableTargets = portable && plan?.targets_gzip ? await unpackTargets(plan.targets_gzip, bars.length) : plan?.targets
+ if(portable&&(!plan||!portableTargets||portableTargets.length!==bars.length||plan.start!==bars[0].time||plan.end!==bars.at(-1)!.time||portableTargets.some(v=>!Number.isFinite(v)||v<0||v>1)))throw new Error('Python仓位计划与行情区间不一致')
  let strategy:Strategy
  if(portable)strategy={id:'python_portable',name:plan!.name,category:'代码',description:'隔离Python自定义仓位策略',suitable_for:'自定义研究',risk_level:'高',mode:'single',parameters:[]}
  else if(python)strategy={id:'python_bounded',name:'受限Python策略',category:'代码',description:'整数Python子集；本次回测不生成ZKP',suitable_for:'收盘价格与均线条件',risk_level:'高',mode:'single',parameters:[]}
@@ -44,18 +53,30 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  else strategy=getStrategy(strategyId)
  if(strategy.mode!=='single')throw new Error('组合策略请使用组合回测接口')
  const scheduled=strategyId==='scheduled_dca'&&!custom,scheduleParams=scheduled?validateParams(strategyId,(request.params??{}) as Record<string,unknown>):{},due=scheduled?contributionSchedule(bars.map(b=>b.time),Number(scheduleParams.every),String(scheduleParams.unit),Number(scheduleParams.start_delay)):[]
- const {target,reasons}=portable?{target:plan!.targets.map(v=>Math.min(v,maxPosition)),reasons:bars.map(()=>`${plan!.name} · Python收盘信号`)}:python?generatePythonTargets(bars,program!,maxPosition):scheduled?{target:bars.map(()=>0),reasons:bars.map(()=>'固定金额定投')}:custom?generateCustomTarget(bars,custom,maxPosition):generateTargetExposure(bars,strategyId,(request.params??{}) as Record<string,unknown>,maxPosition)
+ const {target,reasons}=portable?{target:portableTargets!,reasons:null}:python?generatePythonTargets(bars,program!,maxPosition):scheduled?{target:bars.map(()=>0),reasons:bars.map(()=>'固定金额定投')}:custom?generateCustomTarget(bars,custom,maxPosition):generateTargetExposure(bars,strategyId,(request.params??{}) as Record<string,unknown>,maxPosition)
+ const portableReason = portable ? `${plan!.name} · Python收盘信号` : ''
  context?.progress?.(.05,'策略信号已计算')
- let cash=initial,quantity=0,averageCost=0,pendingTarget=0,pendingReason='初始状态',lastSignalTarget=0,activeTarget=0,rebalancing=false,aiReviews=0
+ const actionData = executionModel === 'native' && request.daily_action_version === market.dailyActions?.version ? market.dailyActions : undefined
+ const applyActions = actionData && dailyActionLedger(actionData)
+ let cash=initial,quantity=0,averageCost=0,receivables=0,pendingTarget=0,pendingReason='初始状态',lastSignalTarget=0,activeTarget=0,rebalancing=false,aiReviews=0
  const trades:Trade[]=[],equityValues:number[]=[],exposures:number[]=[],aiStarted=performance.now(),benchmarkUnits=initial/bars[0].close
  for(let i=0;i<bars.length;i++){
   checkCancelled(context)
-  const b=bars[i],open=b.open,preEquity=cash+quantity*open
+  const b=bars[i],open=b.open
+  const previousCost = averageCost
+  if (applyActions) {
+   const adjusted = applyActions(b.time, quantity, averageCost)
+   quantity = adjusted.quantity
+   averageCost = adjusted.cost
+   cash += adjusted.paid
+   receivables = adjusted.outstanding
+  }
+  const preEquity=cash+receivables+quantity*open
   if(i>0){
    if(!closeEnough(pendingTarget,lastSignalTarget,1e-9)){lastSignalTarget=pendingTarget;activeTarget=pendingTarget;rebalancing=true}
    const currentFraction=preEquity>0?quantity*open/preEquity:0;let desiredQuantity=open>0?activeTarget*preEquity/open:quantity
    if(scheduled){rebalancing=due[i-1];const impact=1+slippage+spread/2,budget=Math.min(Number(scheduleParams.amount),Math.max(0,cash)),allowed=Math.max(0,maxPosition*preEquity-quantity*open),addition=rebalancing?Math.min(budget/(open*impact*(1+commission)),allowed/(open*impact)):0;desiredQuantity=quantity+addition;activeTarget=preEquity>0?desiredQuantity*open/preEquity:0;pendingReason='固定金额定投（下一根开盘）'}
-   if(quantity>0&&averageCost>0){const previousClose=bars[i-1].close;if(stop&&previousClose<=averageCost*(1-stop)){activeTarget=0;rebalancing=true;desiredQuantity=0;pendingReason='收盘确认止损'}else if(take&&previousClose>=averageCost*(1+take)){activeTarget=0;rebalancing=true;desiredQuantity=0;pendingReason='收盘确认止盈'}}
+   if(quantity>0&&previousCost>0){const previousClose=bars[i-1].close;if(stop&&previousClose<=previousCost*(1-stop)){activeTarget=0;rebalancing=true;desiredQuantity=0;pendingReason='收盘确认止损'}else if(take&&previousClose>=previousCost*(1+take)){activeTarget=0;rebalancing=true;desiredQuantity=0;pendingReason='收盘确认止盈'}}
    let delta=desiredQuantity-quantity
    const minChange=scheduled?.01:Math.max(preEquity*.001,1)
    if(context?.aiReview&&rebalancing&&Math.abs(delta*open)>=minChange){const forced=pendingReason==='收盘确认止损'||pendingReason==='收盘确认止盈'||(delta<0&&currentFraction>maxPosition);let scale=1
@@ -71,13 +92,15 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
     if(tradeQuantity>0){if(side==='buy'){const oldCost=averageCost*quantity;cash-=notional+fee;quantity+=tradeQuantity;averageCost=quantity>0?(oldCost+notional+fee)/quantity:0}else{tradeQuantity=Math.min(tradeQuantity,quantity);notional=tradeQuantity*executionPrice;fee=notional*commission;cash+=notional-fee;realizedPnl=(executionPrice-averageCost)*tradeQuantity-fee;quantity-=tradeQuantity;if(quantity<=1e-12){quantity=0;averageCost=0}}
      trades.push({id:trades.length+1,time:b.time,side,reason:pendingReason,price:executionPrice,quantity:tradeQuantity,notional,fee,slippage_cost:slippageCost,position_after:quantity,cash_after:cash,realized_pnl:realizedPnl})}
    }
-   const post=cash+quantity*open,fraction=post>0?quantity*open/post:0,remaining=Math.abs(activeTarget*post-quantity*open)
+   const post=cash+receivables+quantity*open,fraction=post>0?quantity*open/post:0,remaining=Math.abs(activeTarget*post-quantity*open)
    if(Math.abs(fraction-activeTarget)<.002||remaining<Math.max(post*.001,1))rebalancing=false
   }
-  const equity=cash+quantity*b.close;equityValues.push(equity);exposures.push(equity>0?quantity*b.close/equity:0);pendingTarget=target[i];pendingReason=reasons[i]
-  if(i%128===0){context?.progress?.(.05+.8*i/bars.length,'逐根执行与资金核算');await new Promise<void>(resolve=>setTimeout(resolve,0))}
+  const equity=cash+receivables+quantity*b.close;equityValues.push(equity);exposures.push(equity>0?quantity*b.close/equity:0);pendingTarget=portable?Math.min(target[i],maxPosition):target[i];pendingReason=reasons?.[i]??portableReason
+  if(i%(bars.length>LONG_BACKTEST_BARS?16384:128)===0){context?.progress?.(.05+.8*i/bars.length,'逐根执行与资金核算');await new Promise<void>(resolve=>setTimeout(resolve,0))}
  }
- const benchmark=bars.map(b=>b.close*benchmarkUnits),drawdown=drawdownSeries(equityValues),{metrics,warnings}=calculateMetrics(equityValues,benchmark,trades,exposures,interval,market.asset.asset_class,initial,market.asset.exchange),regimes=regimeMetrics(equityValues,bars.map(b=>b.close),interval,market.asset.asset_class,market.asset.exchange),evaluation=buildEvaluation(metrics,{start:bars[0].time,end:bars.at(-1)!.time,observation_count:bars.length-1},regimes)
+ const researchCloses = (actionData ? researchBars(bars, actionData) : bars).map(bar => bar.close)
+ const benchmark=researchCloses.map(close=>close*benchmarkUnits),drawdown=drawdownSeries(equityValues),{metrics,warnings}=calculateMetrics(equityValues,benchmark,trades,exposures,interval,market.asset.asset_class,initial,market.asset.exchange),regimes=regimeMetrics(equityValues,researchCloses,interval,market.asset.asset_class,market.asset.exchange),evaluation=buildEvaluation(metrics,{start:bars[0].time,end:bars.at(-1)!.time,observation_count:bars.length-1},regimes)
+ if(actionData) warnings.push(`按除权日确认应收现金分红及送转股份，派息可用日计入现金。基准采用 bundle 含分红送转因子的收盘序列，成交价不复权。公司行动版本 ${actionData.version}。`)
  if(executionModel==='unified')warnings.push('统一研究口径 research-next-open/v1：框架事件回放，共用信号和成交账本；非原生股票账户，允许零股，不模拟T+1、涨跌停、印花税或分红送转。')
  warnings.unshift('所有策略信号均在当前K线收盘后生成，并在下一根K线开盘执行。')
  if(['SSE','SZSE'].includes(market.asset.exchange))warnings.push('当前通用引擎尚未完整模拟A股T+1、整手、涨跌停等规则；分钟线结果用于研究。价格复权口径以实际数据清单为准。')
@@ -90,5 +113,14 @@ export async function runBacktest(request:Record<string,unknown>,market:MarketIn
  if(market.source==='demo')warnings.unshift('当前使用明确标记的演示数据，结果不能用于真实投资判断。')
  checkCancelled(context);context?.progress?.(1,'回测完成')
  const details=context?.includeDetails!==false
- return {execution_model:executionModel as 'native'|'unified',execution_contract:executionModel==='unified'?'research-next-open/v1':undefined,run_id:crypto.randomUUID(),created_at:new Date().toISOString(),asset:market.asset,interval,adjustment,strategy,data_source:market.source,valuation_currency:market.asset.currency,source_note:market.source_note??null,bars:details?bars:[],indicators:details?calculateIndicators(bars,3000):{},trades,equity:details?bars.map((b,i)=>({time:b.time,equity:equityValues[i],benchmark:benchmark[i],drawdown:Number.isFinite(drawdown[i])?drawdown[i]:0,exposure:exposures[i]})):[],metrics,regime_metrics:regimes,evaluation,warnings}
+ const long = bars.length > LONG_BACKTEST_BARS
+ const reportBars = long ? bars.slice(-3200) : bars
+ const reportIndices = long ? Array.from({length:REPORT_POINTS}, (_, i) => Math.floor(i*(bars.length-1)/(REPORT_POINTS-1))) : bars.keys()
+ const equity = details ? Array.from(reportIndices, i => ({
+   time:bars[i].time,equity:equityValues[i],benchmark:benchmark[i],drawdown:Number.isFinite(drawdown[i])?drawdown[i]:0,exposure:exposures[i],
+ })) : []
+ if (long) warnings.push(`绩效按全部 ${bars.length.toLocaleString('zh-CN')} 根 K 线计算。报告保留首尾和定距净值点，行情展示最近 3,200 根。`)
+ if (long && trades.length > REPORT_TRADES) warnings.push('成交统计使用全部成交，报告明细展示首笔和最近 12,000 笔。')
+ const reportTrades = long && trades.length > REPORT_TRADES ? [trades[0], ...trades.slice(-REPORT_TRADES)] : trades
+ return {bar_count:bars.length,daily_action_version:actionData?.version,execution_model:executionModel as 'native'|'unified',execution_contract:executionModel==='unified'?'research-next-open/v1':undefined,run_id:crypto.randomUUID(),created_at:new Date().toISOString(),asset:market.asset,interval,adjustment,strategy,data_source:market.source,valuation_currency:market.asset.currency,source_note:market.source_note??null,bars:details?reportBars:[],indicators:details?calculateIndicators(reportBars,3000):{},trades:reportTrades,equity,metrics,regime_metrics:regimes,evaluation,warnings}
 }

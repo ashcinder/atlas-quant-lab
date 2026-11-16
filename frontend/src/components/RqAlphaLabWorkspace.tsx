@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, BarChart3, Code2, FolderArchive, LockKeyhole, Plus, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BarChart3, Code2, FolderArchive, LockKeyhole, Plus, Trash2, Upload } from 'lucide-react'
 import { api } from '../api'
 import type { ImportedPythonProject } from '../compute/pythonProject'
 import { listLabProjects, readLabProject, saveLabProject, type LabProjectEntry } from '../lab-project-library'
@@ -18,7 +18,7 @@ import { ResultsPanel } from './ResultsPanel'
 import { readStrategyFile, STRATEGY_LANGUAGES } from './strategy-languages'
 import './lab-workbench.css'
 import { BacktestComparison } from './BacktestComparison'
-import { checkComparisonEngines, compareBacktests, comparisonLabels, type ComparisonRow } from '../compute/compareBacktests'
+import { checkComparisonEngines, compareBacktests, comparisonEngines, comparisonLabels, runPreparedComparison, type ComparisonRow, type PreparedComparison } from '../compute/compareBacktests'
 import PythonProjectWorkspace from './PythonProjectWorkspace'
 import { PORTABLE_PYTHON_TEMPLATE } from './CodeStrategyWorkspace'
 import { LabReportAnchor } from './LabReportAnchor'
@@ -58,7 +58,19 @@ def handle_bar(context, bar_dict):
     context.placed = True
 `
 
-type SingleRunSnapshot = { settings: LabBacktestSettings; source_sha256?: string; source?: string; historical?: boolean; preview?: boolean }
+type SingleRunSnapshot = { settings: LabBacktestSettings; source_sha256?: string; source?: string; historical?: boolean }
+type HistoryBatch = { key: string; first: LabRunSummary; rows: LabRunSummary[] }
+
+function historyBatches(rows: LabRunSummary[]) {
+  const groups = new Map<string, HistoryBatch>()
+  for (const row of rows) {
+    const key = row.comparison_id ?? row.id
+    const group = groups.get(key)
+    if (group) group.rows.push(row)
+    else groups.set(key, { key, first: row, rows: [row] })
+  }
+  return [...groups.values()]
+}
 
 function snapshotSettings(settings: LabBacktestSettings) {
   return JSON.stringify(Object.entries(settings).sort(([left], [right]) => left.localeCompare(right)))
@@ -81,6 +93,7 @@ function settingsError(settings: LabDraft['settings']) {
 
 export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defaults, onRunSaved }: Props) {
   const [comparisons, setComparisons] = useState<ComparisonRow[]>([])
+  const [retryComparison, setRetryComparison] = useState<PreparedComparison | null>(null)
   const [incomingArchive, setIncomingArchive] = useState<{ file: File } | null>(null)
   const archiveInput = useRef<HTMLInputElement>(null)
   const [openedProject, setOpenedProject] = useState<ImportedPythonProject | null>(null)
@@ -108,6 +121,9 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
   const [history, setHistory] = useState<LabRunSummary[] | null>(null)
   const [historyError, setHistoryError] = useState('')
   const [historyAttempt, setHistoryAttempt] = useState(0)
+  const [deleteCandidate, setDeleteCandidate] = useState<HistoryBatch | null>(null)
+  const [deletingHistory, setDeletingHistory] = useState(false)
+  const [deleteHistoryError, setDeleteHistoryError] = useState('')
   const [selectedRun, setSelectedRun] = useState<SingleRunSnapshot | null>(null)
   const [industryCheck, setIndustryCheck] = useState<{ owner: string; asOf: string | undefined; rows: LabIndustryCoverage[] | null; error: string } | null>(null)
   const [industryAttempt, setIndustryAttempt] = useState(0)
@@ -179,7 +195,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     symbol: proofSettings.symbol, asset_class: proofSettings.asset_class, interval: proofSettings.interval,
     data_source: proofSettings.data_source, adjustment: proofSettings.data_source === 'huggingface' ? 'raw' as const : 'auto' as const,
   } : null
-  const reportChoices = !single || selectedRun?.preview ? [] : comparisons.length
+  const reportChoices = !single ? [] : comparisons.length
     ? comparisons.flatMap(row => row.result && row.result.compute?.storage_status !== 'local'
       ? [{ id: row.result.run_id, engine: comparisonLabels[row.engine] }] : [])
     : result && result.compute?.storage_status !== 'local' ? [{ id: result.run_id, engine: result.backtest_engine ? comparisonLabels[result.backtest_engine] : '历史报告' }] : []
@@ -346,8 +362,10 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     setOpenedProject(null); setIncomingArchive(null); setArchiveBusy(false)
     setDraft(next); setRecord(saved); setBaseline(initial ? JSON.stringify(initial) : '')
     setError(''); setConflict(false); setRunError(''); setResult(null); setComparisons([])
+    setRetryComparison(null)
     setInspectorView('settings')
     setHistoryOpen(false); setHistory(null); setHistoryError(''); setSelectedRun(null)
+    setDeleteCandidate(null); setDeletingHistory(false); setDeleteHistoryError('')
     setJob(null); setPreviousSuccess(null); setJobs(null); setJobsError(''); setPollError(''); setCancelling(false)
     setCoverageCheck(null); setCoverageBusy(false); setReleases([])
     setCapabilityCheck(null)
@@ -532,10 +550,10 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     return () => { window.clearTimeout(timer); window.removeEventListener('hashchange', onHash) }
   }, [active, open])
 
-  const save = async (): Promise<boolean> => {
-    if (!draft || readOnly || saveInFlight.current) return false
+  const save = async (): Promise<LabStrategy | null> => {
+    if (!draft || readOnly || saveInFlight.current) return null
     const invalid = !draft.name.trim() ? '请输入策略名称。' : settingsError(draft.settings)
-    if (invalid) { setError(invalid); return false }
+    if (invalid) { setError(invalid); return null }
     const snapshot = draft
     const create = record ? null : pendingCreate.current ?? { id: crypto.randomUUID().replaceAll('-', ''), snapshot }
     pendingCreate.current = create
@@ -545,7 +563,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     try {
       const saved = create ? await api.createLabStrategy(ownerId, create.id, create.snapshot)
         : await api.updateLabStrategy(ownerId, record!.id, record!.revision, snapshot)
-      if (started !== operation.current) return false
+      if (started !== operation.current) return null
       pendingCreate.current = null
       const submitted = create?.snapshot ?? snapshot
       setRecord(saved)
@@ -554,16 +572,16 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
       setItems(current => [saved, ...(current ?? []).filter(item => item.id !== saved.id)])
       if (submitted !== snapshot) {
         setError('已恢复上次保存。请再保存一次，提交后续修改。')
-        return false
+        return null
       }
-      return true
+      return saved
     } catch (reason) {
       if (started === operation.current) {
         if (reason instanceof ApiError && reason.kind === 'http' && (reason.status ?? 500) < 500) pendingCreate.current = null
         setConflict(reason instanceof ApiError && reason.status === 409)
         setError(message(reason, '策略保存失败'))
       }
-      return false
+      return null
     } finally {
       saveInFlight.current = false
       setSaving(false)
@@ -587,10 +605,9 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     }
   }
 
-  const runSingle = async () => {
+  const runSingle = async (retry?: PreparedComparison) => {
     if (!draft || draft.kind === 'multi_python' || runDisabledReason || runRequest.current) return
     const snapshot = draft
-    const savedId = dirty ? undefined : record?.id
     const started = operation.current
     const invalid = settingsError(snapshot.settings)
     if (invalid || !snapshot.settings.symbol) { setRunError(invalid || '请选择回测标的。'); return }
@@ -598,30 +615,53 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     runRequest.current = controller
     resultRequest.current += 1
     setRunning(true); setLoadingRun(false); setRunError(''); setComparisons([]); setResult(null)
-    setSelectedRun({ settings: snapshot.settings, source: snapshot.source, preview: !savedId })
+    setSelectedRun({ settings: snapshot.settings, source: snapshot.source })
     const portable = /\bdef\s+target\s*\(/.test(snapshot.source)
+    setRetryComparison(null)
+    const updateRows = (rows: ComparisonRow[]) => {
+      if (operation.current === started) setComparisons(rows)
+    }
     try {
-      const rows = await compareBacktests({
+      const saved = record ?? await save()
+      if (controller.signal.aborted || operation.current !== started) return
+      if (!saved) {
+        setRunError('无法保存新策略。请检查策略名称或连接后重试。')
+        return
+      }
+      const history = { lab_strategy_id: saved.id, lab_comparison_id: crypto.randomUUID().replaceAll('-', ''), persist: true }
+      const rows = retry ? await runPreparedComparison({ ...retry, request: { ...retry.request, ...history } }, controller.signal, updateRows, ownerId, unavailable)
+        : await compareBacktests({
         ...snapshot.settings, strategy_name: snapshot.name,
         adjustment: singleAdjustment,
         strategy_id: portable ? 'python_portable' : 'python_bounded',
         python_source: portable ? undefined : snapshot.source,
         portable_python: portable ? snapshot.source : undefined,
-        lab_strategy_id: savedId, persist: !!savedId, params: {},
-      }, controller.signal, rows => { if (operation.current === started) setComparisons(rows) }, ownerId, undefined, unavailable)
+        ...history, params: {},
+      }, controller.signal, updateRows, ownerId, undefined, unavailable, prepared => {
+        if (operation.current === started) setRetryComparison(prepared)
+      })
       if (controller.signal.aborted) return
       const next = rows.find(row => row.result)?.result
       if (next) setResult(next)
-      if (next && savedId) {
+      if (next) {
         setHistoryAttempt(value => value + 1)
         onRunSaved()
       }
     } catch (reason) {
-      if (!controller.signal.aborted) setRunError(message(reason, '回测失败'))
+      if (!controller.signal.aborted && operation.current === started) {
+        setComparisons([])
+        setRetryComparison(null)
+        setRunError(message(reason, '回测失败'))
+      }
     } finally {
       if (runRequest.current === controller) { runRequest.current = null; setRunning(false) }
     }
   }
+
+  const canRetryWithUnified = !running && !singleResultStale && !loadingRun && retryComparison?.method === 'native'
+    && retryComparison.request.data_source === 'auto' && retryComparison.request.interval === '1d'
+    && comparisons.some(row => row.result?.data_source === 'rqalpha-sina')
+    && comparisons.some(row => row.engine === 'rqalpha' && row.status === 'error' && row.error?.includes('涨跌停参考'))
 
   const runMulti = async () => {
     if (readOnly || !multi || !record || runDisabledReason || runningMulti || runRequest.current) return
@@ -690,16 +730,24 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     }
   }
 
-  const openRun = async (row: LabRunSummary) => {
+  const openRun = async (batch: HistoryBatch) => {
     const sequence = ++resultRequest.current
     setInspectorView('results')
     setLoadingRun(true); setRunError('')
     try {
-      const next = await api.getRun<BacktestResult>(row.id)
+      const loaded = await Promise.allSettled(batch.rows.map(row => api.getRun<BacktestResult>(row.id)))
+      const reports = loaded.flatMap(report => report.status === 'fulfilled' ? [report.value] : [])
+      if (loaded[0].status === 'rejected' && reports.length === 0) throw loaded[0].reason
       if (sequence === resultRequest.current) {
-        setComparisons([])
-        setResult(next)
-        setSelectedRun({ ...row, historical: true })
+        setRetryComparison(null)
+        setResult(reports.find(report => report.backtest_engine === 'atlas') ?? reports[0])
+        setSelectedRun({ ...batch.first, historical: true })
+        setComparisons(batch.first.comparison_id ? comparisonEngines.map(engine => {
+          const report = loaded[batch.rows.findIndex(row => (row.engine ?? row.settings.backtest_engine ?? 'atlas') === engine)]
+          if (report?.status === 'fulfilled') return { engine, status: 'completed', result: report.value }
+          if (report?.status === 'rejected') return { engine, status: 'error', error: message(report.reason, '无法打开该引擎的报告。') }
+          return { engine, status: 'skipped', error: '本次没有保存该引擎的报告。' }
+        }) : [])
       }
     } catch (reason) {
       if (sequence === resultRequest.current) setRunError(message(reason, '无法打开回测结果'))
@@ -708,8 +756,35 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
     }
   }
 
+  const deleteHistory = async () => {
+    if (!record || !deleteCandidate || deletingHistory) return
+    const batch = deleteCandidate
+    const started = operation.current
+    setDeletingHistory(true); setDeleteHistoryError('')
+    try {
+      await api.deleteLabRun(ownerId, record.id, batch.first.id)
+      if (operation.current !== started) return
+      const ids = new Set(batch.rows.map(row => row.id))
+      setHistory(current => current?.filter(row => !ids.has(row.id)) ?? current)
+      if (result && ids.has(result.run_id)) {
+        setResult(null); setSelectedRun(null); setComparisons([]); setRetryComparison(null)
+      }
+      setDeleteCandidate(null)
+      setHistoryAttempt(value => value + 1)
+      onRunSaved()
+    } catch (reason) {
+      if (operation.current === started) {
+        setDeleteCandidate(null)
+        setDeleteHistoryError(message(reason, '无法删除回测记录'))
+      }
+    } finally {
+      if (operation.current === started) setDeletingHistory(false)
+    }
+  }
+
   const singleResultNotice = singleResultStale ? '结果对应运行时的代码和参数，当前修改尚未回测。'
     : selectedRun?.historical ? '正在查看历史回测快照。' : ''
+  const hasLocalReport = comparisons.some(row => row.result?.compute?.storage_status === 'local')
 
   const backToLibrary = () => requestExit(() => {
     if (labRoute() === '#research' && window.location.hash !== '#research') window.history.replaceState(window.history.state, '', '#research')
@@ -717,6 +792,11 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
   })
 
   return <main className="lab-workbench" aria-label="策略实验室">
+    {deleteCandidate ? <LabConfirmDialog title="删除历史回测？"
+      description={`将删除这次回测已保存的 ${deleteCandidate.rows.length} 份报告。`}
+      confirmLabel="确认删除回测" destructive confirmDisabled={deletingHistory}
+      onCancel={() => { if (!deletingHistory) setDeleteCandidate(null) }}
+      onConfirm={() => void deleteHistory()} /> : null}
     <input ref={archiveInput} type="file" accept=".zip" hidden onChange={event => {
       const file = event.target.files?.[0]; event.target.value = ''
       if (!file || libraryBusy) return
@@ -811,7 +891,7 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
         proof={proofVisited ? <Suspense fallback={<p className="lab-proof-loading" role="status">正在加载本地证明工具…</p>}>
           <BrowserProofPanel key={JSON.stringify(proofQuery)} query={proofQuery} onSettings={() => setInspectorView('settings')} />
         </Suspense> : <p className="lab-proof-loading" />}
-        anchor={<LabReportAnchor choices={reportChoices} multi={!!multi} preview={!!selectedRun?.preview}
+        anchor={<LabReportAnchor choices={reportChoices} multi={!!multi} preview={false}
           saved={!!record} dirty={dirty} busy={running || loadingRun}
           onHistory={() => { setInspectorView('history'); setHistoryOpen(true) }} />}
         runtimeActions={rqalpha ? <p className="lab-form-note">RQAlpha 历史回测不支持创建旧版运行版本、发布订阅、持续模拟或 Proof。</p> : null}
@@ -845,20 +925,26 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
             </table></div> : <p>创建的任务会出现在这里。</p>}
         </section> : historyOpen ? <section className="lab-history" aria-labelledby="lab-history-heading">
           <h2 id="lab-history-heading">历史回测</h2>
+          {deleteHistoryError ? <p role="alert" className="lab-error">{deleteHistoryError}</p> : null}
           {historyError ? <div role="alert" className="lab-error">{historyError}<button onClick={() => { setHistoryError(''); setHistoryAttempt(value => value + 1) }}>重试</button></div>
             : history === null ? <p role="status">正在读取历史回测…</p>
             : history.length ? <div className="lab-table-scroll"><table className="lab-table lab-history-table">
-              <thead><tr><th scope="col">运行时间</th><th scope="col">收益</th><th scope="col">源码摘要</th><th scope="col">操作</th></tr></thead>
-              <tbody>{history.map(row => <tr key={row.id} className={result?.run_id === row.id ? 'lab-active-run' : undefined}>
-                <td><time dateTime={row.created_at}>{displayTime.format(new Date(row.created_at))}</time></td>
-                <td>{formatPercent(row.total_return)}</td><td><code title={row.source_sha256}>{row.source_sha256.slice(0, 10)}</code></td>
-                <td><button disabled={running} onClick={() => void openRun(row)} aria-label={`查看 ${displayTime.format(new Date(row.created_at))} 的回测`}>查看</button></td>
+              <thead><tr><th scope="col">运行时间</th><th scope="col">框架报告</th><th scope="col">操作</th></tr></thead>
+              <tbody>{historyBatches(history).map(batch => <tr key={batch.key} className={batch.rows.some(row => row.id === result?.run_id) ? 'lab-active-run' : undefined}>
+                <td><time dateTime={batch.first.created_at}>{displayTime.format(new Date(batch.first.created_at))}</time></td>
+                <td>{batch.first.comparison_id ? `${batch.rows.length} / 3 · ${batch.first.execution_model === 'unified' ? '统一撮合' : '独立撮合'}`
+                  : `${comparisonLabels[batch.first.engine ?? batch.first.settings.backtest_engine ?? 'atlas']} · ${formatPercent(batch.first.total_return)}`}</td>
+                <td><button disabled={running || deletingHistory} onClick={() => void openRun(batch)} aria-label={`查看 ${displayTime.format(new Date(batch.first.created_at))} 的回测`}>查看</button>{' '}
+                  <button type="button" disabled={running || deletingHistory} onClick={() => { setDeleteHistoryError(''); setDeleteCandidate(batch) }}><Trash2 size={14} />删除</button></td>
               </tr>)}</tbody>
             </table></div> : <p>成功完成的回测会出现在这里。</p>}
         </section> : null}
         </>}
         results={<section className="lab-results">
-          {runError ? <p className="lab-error" role="alert">{runError}</p> : null}
+          {runError ? <div className="lab-error" role="alert">
+            <span>{runError}</span>
+            {!multi ? <button type="button" onClick={() => setInspectorView('settings')}>调整回测设置</button> : null}
+          </div> : null}
           {multi ? <>
             {pollError && <p className="lab-error" role="alert">{pollError}</p>}
             {multiResultStale && <p className="lab-form-note">任务使用已保存的历史快照，当前修改尚未回测。</p>}
@@ -868,7 +954,16 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
             </details>}
           </> : <>
             {singleResultNotice && <p className="lab-form-note">{singleResultNotice}</p>}
-            {selectedRun?.preview && <p className="lab-preview-note">草稿试跑 · 这次结果只在当前页面显示。保存策略后重新运行，结果才会加入历史回测。</p>}
+            {canRetryWithUnified && <div className="lab-preview-note lab-source-tools">
+              <p>统一撮合保留本次行情、日期和策略信号，三框架共用成交规则，不模拟涨跌停、T+1 或公司行动。</p>
+              <button type="button" disabled={!!runDisabledReason || saving}
+                onClick={() => void runSingle({ ...retryComparison, method: 'unified',
+                  request: { ...retryComparison.request, execution_model: 'unified' } })}>用统一撮合重跑三框架</button>
+            </div>}
+            {!running && comparisons.some(row => row.result) && !selectedRun?.historical
+              ? <p className="lab-preview-note">{hasLocalReport
+                ? '有报告暂存于浏览器。可在顶部「回测历史」中重试同步，同步后会显示在本策略的历史回测中。'
+                : '已将完成的报告保存到「历史回测」。'}</p> : null}
             {selectedRun && <details className="lab-original-settings">
               <summary>本次运行参数和源码摘要</summary>
               {selectedRun.source_sha256 && <code>{selectedRun.source_sha256}</code>}
@@ -906,7 +1001,8 @@ export function RqAlphaLabWorkspace({ ownerId, assets, active, typeControl, defa
         </div> : null}
         {!multi ? <div className="lab-settings-coverage">
           {unavailable.length ? <p><strong>当前标的与行情配置不支持：</strong>{unavailable.map(engine => comparisonLabels[engine.engine]).join('、')}。要尝试全部三个框架，可选沪深 A 股与历史快照。</p> : null}
-          {dirty || !record ? <p>当前修改可直接试跑。保存策略后重新运行，结果会加入历史回测。</p> : null}
+          {!record ? <p>首次运行会保存新策略，完成的报告会进入历史回测。</p>
+            : dirty ? <p>回测使用当前代码和设置，历史回测会保留此次快照。</p> : null}
         </div> : null}
       </RqAlphaCodeWorkspace>
       </PythonProjectWorkspace>

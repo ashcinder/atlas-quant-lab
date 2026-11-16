@@ -39,8 +39,24 @@ export function calculateMetrics(equity:number[],benchmark:number[],trades:Trade
  const volatility=returns.length>1?std(returns)*Math.sqrt(factor):0,annual=returns.length?mean(returns)*factor:0,sharpe=volatility>0?annual/volatility:NaN
  const negative=returns.filter(x=>x<0),downside=negative.length>1?std(negative)*Math.sqrt(factor):NaN,sortino=downside>0?annual/downside:NaN
  const maxDD=drawdown.reduce((minimum,value)=>Number.isFinite(value)?Math.min(minimum,value):minimum,Infinity),calmar=maxDD<0&&Number.isFinite(cagr)?cagr/Math.abs(maxDD):NaN,var95=returns.length?-percentile(returns,.05):NaN,tail=returns.filter(x=>x<=-var95)
- const paired=raw.map((v,i)=>[v,benchRaw[i]]).filter(v=>v.every(Number.isFinite));let information=NaN,beta=NaN
- if(paired.length>1){const a=paired.map(x=>x[0]-x[1]),tracking=std(a)*Math.sqrt(factor);information=tracking>0?mean(a)*factor/tracking:NaN;const bv=paired.map(x=>x[1]),bm=mean(bv),am=mean(paired.map(x=>x[0])),variance=std(bv)**2;beta=variance>0?paired.reduce((s,x)=>s+(x[0]-am)*(x[1]-bm),0)/(paired.length-1)/variance:NaN}
+ let paired=0, strategySum=0, benchmarkSum=0, activeSum=0, information=NaN,beta=NaN
+ for (let i=0;i<raw.length;i++) {
+   if (!Number.isFinite(raw[i]) || !Number.isFinite(benchRaw[i])) continue
+   paired++; strategySum+=raw[i]; benchmarkSum+=benchRaw[i]; activeSum+=raw[i]-benchRaw[i]
+ }
+ if (paired>1) {
+   const strategyMean=strategySum/paired, benchmarkMean=benchmarkSum/paired, activeMean=activeSum/paired
+   let activeSquares=0, benchmarkSquares=0, covariance=0
+   for (let i=0;i<raw.length;i++) {
+     if (!Number.isFinite(raw[i]) || !Number.isFinite(benchRaw[i])) continue
+     activeSquares+=(raw[i]-benchRaw[i]-activeMean)**2
+     benchmarkSquares+=(benchRaw[i]-benchmarkMean)**2
+     covariance+=(raw[i]-strategyMean)*(benchRaw[i]-benchmarkMean)
+   }
+   const tracking=Math.sqrt(activeSquares/(paired-1))*Math.sqrt(factor)
+   information=tracking>0?activeMean*factor/tracking:NaN
+   beta=benchmarkSquares>0?covariance/benchmarkSquares:NaN
+ }
  const sells=trades.filter(t=>t.side==='sell'&&t.realized_pnl!==null),pnls=sells.map(t=>t.realized_pnl!),wins=pnls.filter(x=>x>0),losses=pnls.filter(x=>x<0),sum=(v:number[])=>v.reduce((a,b)=>a+b,0),fees=sum(trades.map(t=>t.fee)),notional=sum(trades.map(t=>t.notional))
  const t=returns.length>=3?mean(returns)/(std(returns)/Math.sqrt(returns.length)):NaN,p=returns.length>=3?regularizedBeta((returns.length-1)/(returns.length-1+t*t),(returns.length-1)/2,.5):NaN
  const benchmarkReturn=benchmark.at(-1)!/benchmark[0]-1

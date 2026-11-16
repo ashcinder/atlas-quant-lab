@@ -1,4 +1,5 @@
 import type { Asset, Bar, Adjustment, Interval } from '../types'
+import type { DailyActionData } from './dailyActions'
 export interface MarketInput {
   asset: Asset
   bars: Bar[]
@@ -9,6 +10,7 @@ export interface MarketInput {
   fetched_at?: number
   last_bar_time?: number
   is_stale?: boolean
+  dailyActions?: DailyActionData
 }
 export interface AIStage {
   stage: 'market' | 'entry' | 'buy_size' | 'sell_size' | 'risk' | 'execution'

@@ -1,7 +1,11 @@
 """Compile strategy definitions into closed-bar targets; never execute user Python."""
+import base64
+import binascii
 import hashlib
 import math
+import zlib
 
+import numpy as np
 import pandas as pd
 
 from app.models import StrategyDefinition
@@ -44,18 +48,39 @@ def validate_strategy(r):
             raise ValueError('快速周期必须小于慢速周期')
 
 
+def portable_targets(plan, count):
+    if plan.targets_gzip is None:
+        if len(plan.targets) != count:
+            raise ValueError('Python 仓位计划长度与行情根数不一致')
+        return np.asarray(plan.targets, dtype=np.float64)
+    try:
+        compressed = base64.b64decode(plan.targets_gzip, validate=True)
+        decoder = zlib.decompressobj(31)
+        raw = decoder.decompress(compressed, count * 8 + 1)
+    except (ValueError, binascii.Error, zlib.error) as exc:
+        raise ValueError('Python 仓位计划压缩格式无效') from exc
+    if len(raw) != count * 8 or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+        raise ValueError('Python 仓位计划长度与行情根数不一致')
+    values = np.frombuffer(raw, dtype='<f8')
+    if not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+        raise ValueError('Python 仓位计划含无效目标仓位')
+    return values
+
+
+def validate_plan_market(plan, dataset_id, start, end):
+    if plan.dataset_id != dataset_id or plan.start != start or plan.end != end:
+        raise ValueError('Python仓位计划与所选不可变行情或日期区间不一致')
+
+
 def prepare_plan(r,bars,dataset_id=None):
     validate_strategy(r)
+    if r.strategy_id == 'python_portable':
+        p = r.portable_plan
+        validate_plan_market(p, dataset_id, bars[0]['time'], bars[-1]['time'])
+        return dict(targets=np.minimum(portable_targets(p, len(bars)), r.max_position).tolist(), due=None)
     frame=pd.DataFrame(bars).set_index('time')
     frame.index=pd.to_datetime(frame.index,unit='s',utc=True)
-    if r.strategy_id=='python_portable':
-        p=r.portable_plan
-        if (p.dataset_id!=dataset_id or p.start!=bars[0]['time'] or p.end!=bars[-1]['time'] or len(p.targets)!=len(bars)):
-            raise ValueError('Python仓位计划与所选不可变行情或日期区间不一致')
-        target=[min(v,r.max_position) for v in p.targets]
-        reasons=[f'{p.name} · Python收盘信号']*len(bars)
-        due=None
-    elif r.python_source is not None:
+    if r.python_source is not None:
         target,reasons=generate_python_targets(frame,compile_program(r.python_source),r.max_position)
         due=None
     elif r.custom_strategy:

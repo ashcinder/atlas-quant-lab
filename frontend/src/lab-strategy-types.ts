@@ -96,6 +96,9 @@ export type LabStrategy = LabDraft & LabStrategySummary
 export interface LabRunSummary extends RunSummary {
   source_sha256: string
   settings: LabBacktestSettings
+  comparison_id?: string | null
+  engine?: 'atlas' | 'vnpy' | 'rqalpha' | null
+  execution_model?: 'native' | 'unified' | null
 }
 
 export interface LabMultiTrade {

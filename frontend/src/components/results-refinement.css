@@ -1,4 +1,5 @@
 .quant-workspace .results-panel { container: results / inline-size; }
+.result-trade-pages { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 0; }
 .quant-workspace .results-panel .summary-grid { display: flex; flex-direction: column; gap: 14px; padding: 14px 18px 18px; min-height: 390px; height: 100%; overflow: visible; }
 .quant-workspace .results-panel .metrics-grid { display: grid; flex: 0 0 auto; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; border: 0; }
 .quant-workspace .results-panel .metric-cell { justify-content: flex-start; gap: 8px; border: 1px solid var(--border-soft); border-radius: 9px; padding: 12px 14px; background: var(--panel); }

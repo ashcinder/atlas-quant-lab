@@ -102,7 +102,7 @@ it('runs all three frameworks from the primary ZIP action with the same edited e
   }))
   const plan = { dataset_id: 'dataset-id', source_sha256: 'fingerprint', name: 'strategies',
     start: bars[0].time, end: bars[39].time, targets: bars.map(() => 0.35) }
-  vi.mocked(comparisonMarket).mockResolvedValue({ bars, datasetId: plan.dataset_id })
+  vi.mocked(comparisonMarket).mockResolvedValue({ bars, datasetId: plan.dataset_id, source: 'fixture' })
   vi.mocked(prepareProjectPlan).mockResolvedValue({ source: '# project fingerprint', plan })
   vi.mocked(api.backtestEngines).mockResolvedValue([])
   vi.mocked(api.runBacktest).mockImplementation(async payload => ({

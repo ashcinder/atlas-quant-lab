@@ -1,7 +1,7 @@
 import runner from './python_project_runner.py?raw'
 import bootstrap from './portable_runner.py?raw'
 import type { Bar } from '../types'
-import { runIsolatedPython } from './portablePython'
+import { encodePortableTargets, packedTargetOutput, portableMarketInput, readPortableTargets, runIsolatedPython } from './portablePython'
 
 const worker = `
   py.FS.writeFile('/atlas-project.zip',new Uint8Array(data.archive));
@@ -40,10 +40,14 @@ const worker = `
   py.globals.set('_root',staged.root);
   if (data.action === 'targets') {
     await py.runPythonAsync(${JSON.stringify(bootstrap)});
-    py.globals.set('_bars',JSON.stringify(data.bars));
     py.globals.set('_params',JSON.stringify(data.params || {}));
-    const targets=JSON.parse(await py.runPythonAsync('run_namespace(execute_project(_entry, _root, True), _bars, _params)'));
-    self.postMessage({kind:'done',targets});
+    if(data.packed){
+      ${packedTargetOutput('run_packed_namespace(execute_project(_entry, _root, True), _packed, _params)')}
+    }else{
+      py.globals.set('_bars',JSON.stringify(data.bars));
+      const targets=JSON.parse(await py.runPythonAsync('run_namespace(execute_project(_entry, _root, True), _bars, _params)'));
+      self.postMessage({kind:'done',targets});
+    }
     return;
   }
   await py.runPythonAsync('_log = execute_project(_entry, _root)');
@@ -127,11 +131,8 @@ export async function previewPythonProjectFile(file: File, path: string, signal:
 
 export async function projectTargets(file: File, entry: string, edits: Record<string, string>, bars: Bar[], params: Record<string, unknown>, signal: AbortSignal): Promise<number[]> {
   const archive = await readArchive(file, signal)
-  return runIsolatedPython({ archive, entry, edits, bars, params, action: 'targets' }, result => {
-    const targets = result.targets
-    if (!Array.isArray(targets) || targets.length !== bars.length || targets.some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)) throw new Error('项目目标仓位序列无效')
-    return targets as number[]
-  }, signal, worker)
+  return runIsolatedPython({ archive, entry, edits, ...portableMarketInput(bars), params, action: 'targets' },
+    result => readPortableTargets(result, bars.length), signal, worker)
 }
 
 export async function prepareProjectPlan(file: File, entry: string, edits: Record<string, string>, bars: Bar[], datasetId: string, signal: AbortSignal) {
@@ -144,6 +145,6 @@ export async function prepareProjectPlan(file: File, entry: string, edits: Recor
   return {
     source,
     plan: { dataset_id: datasetId, source_sha256: sourceHash, name: file.name.replace(/\.zip$/i, '').slice(0, 80),
-      start: bars[0].time, end: bars.at(-1)!.time, targets },
+      start: bars[0].time, end: bars.at(-1)!.time, ...await encodePortableTargets(targets) },
   }
 }

@@ -9,6 +9,10 @@ from app.config import DB_PATH
 from app.models import RunSummary
 
 
+class DeletedLabComparison(ValueError):
+    pass
+
+
 class RunStore:
     def __init__(self, path: Path = DB_PATH):
         self.path = path
@@ -45,11 +49,22 @@ class RunStore:
                 )
             if "lab_strategy_id" not in columns:
                 connection.execute("ALTER TABLE backtest_runs ADD COLUMN lab_strategy_id TEXT")
+            if "lab_comparison_id" not in columns:
+                connection.execute("ALTER TABLE backtest_runs ADD COLUMN lab_comparison_id TEXT")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_backtest_runs_owner_time ON backtest_runs(owner_id, created_at DESC)"
             )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_backtest_runs_lab ON backtest_runs(owner_id, lab_strategy_id, created_at DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_backtest_runs_lab_comparison ON backtest_runs(owner_id, lab_strategy_id, lab_comparison_id)"
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS deleted_lab_comparisons (
+                    owner_id TEXT NOT NULL, strategy_id TEXT NOT NULL, comparison_id TEXT NOT NULL,
+                    PRIMARY KEY (owner_id, strategy_id, comparison_id)
+                )"""
             )
 
     def save(
@@ -59,12 +74,21 @@ class RunStore:
         symbol = request.get("symbol") or ", ".join(
             asset["symbol"] for asset in request.get("assets", [])
         )
+        comparison_id = request.get("lab_snapshot", {}).get("comparison_id") if lab_strategy_id else None
         with self._connect() as connection:
+            if comparison_id is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                deleted = connection.execute(
+                    "SELECT 1 FROM deleted_lab_comparisons WHERE owner_id=? AND strategy_id=? AND comparison_id=?",
+                    (owner_id, lab_strategy_id, comparison_id),
+                ).fetchone()
+                if deleted:
+                    raise DeletedLabComparison("这次回测已删除，报告不能重新写入")
             connection.execute(
                 """
                 INSERT OR REPLACE INTO backtest_runs
-                    (id, mode, strategy_id, symbol, request_json, result_json, created_at, status, owner_id, lab_strategy_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?)
+                    (id, mode, strategy_id, symbol, request_json, result_json, created_at, status, owner_id, lab_strategy_id, lab_comparison_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
                 """,
                 (
                     result["run_id"],
@@ -76,6 +100,7 @@ class RunStore:
                     result["created_at"],
                     owner_id,
                     lab_strategy_id,
+                    comparison_id,
                 ),
             )
 
@@ -111,13 +136,43 @@ class RunStore:
     def list_lab(self, owner_id: str, strategy_id: str):
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT * FROM backtest_runs WHERE owner_id=? AND lab_strategy_id=?
-                   ORDER BY created_at DESC, id DESC LIMIT 50""", (owner_id, strategy_id)
+                """WITH recent AS (
+                    SELECT COALESCE(lab_comparison_id, id) AS batch
+                    FROM backtest_runs WHERE owner_id=? AND lab_strategy_id=?
+                    GROUP BY batch ORDER BY MAX(created_at) DESC, batch DESC LIMIT 50
+                )
+                SELECT r.* FROM backtest_runs r
+                JOIN recent ON COALESCE(r.lab_comparison_id, r.id)=recent.batch
+                WHERE r.owner_id=? AND r.lab_strategy_id=? ORDER BY r.created_at DESC, r.id DESC""",
+                (owner_id, strategy_id, owner_id, strategy_id),
             ).fetchall()
         return [
             {**self._summary(row).model_dump(), **json.loads(row["request_json"])["lab_snapshot"]}
             for row in rows
         ]
+
+    def delete_lab_run(self, owner_id: str, strategy_id: str, run_id: str) -> bool:
+        scope = (owner_id, strategy_id)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT lab_comparison_id FROM backtest_runs WHERE owner_id=? AND lab_strategy_id=? AND id=?",
+                (*scope, run_id),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["lab_comparison_id"] is not None:
+                connection.execute(
+                    "INSERT OR IGNORE INTO deleted_lab_comparisons VALUES (?, ?, ?)",
+                    (*scope, row["lab_comparison_id"]),
+                )
+                connection.execute(
+                    "DELETE FROM backtest_runs WHERE owner_id=? AND lab_strategy_id=? AND lab_comparison_id=?",
+                    (*scope, row["lab_comparison_id"]),
+                )
+            else:
+                connection.execute("DELETE FROM backtest_runs WHERE id=?", (run_id,))
+        return True
 
     def get(self, owner_id: str, run_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:

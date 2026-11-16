@@ -1,7 +1,10 @@
 import { api } from '../api'
 import { comparisonMarket } from './client'
+import { MarketUnavailableError } from './market'
 import { createPortablePlan, type PortablePlan } from './portablePython'
 import type { Bar, BacktestResult } from '../types'
+import { researchBars, type DailyActionData } from './dailyActions'
+import { ApiError, request as apiRequest } from '../request'
 
 export const comparisonEngines = ['atlas', 'vnpy', 'rqalpha'] as const
 export type ComparisonEngine = typeof comparisonEngines[number]
@@ -61,17 +64,33 @@ export function comparisonError(reason: unknown, fallback: string) {
 
 export async function prepareComparison(payload: Record<string, unknown>, signal: AbortSignal, projectPlan?: PlanFactory): Promise<PreparedComparison> {
   const market = await comparisonMarket(payload, signal)
-  if (market.bars.length < 40) throw new Error('引擎对比至少需要 40 根已发布 K 线。')
+  if (market.bars.length < 40) throw new MarketUnavailableError('引擎对比至少需要 40 根已发布 K 线，请延长回测区间或更换行情设置。')
   const from = market.bars[0].time
   const to = market.bars.at(-1)!.time
   const method = payload.data_source === 'huggingface' && payload.execution_model !== 'native' ? 'unified' : 'native'
   const request: Record<string, unknown> = { ...payload, start: new Date(from * 1000).toISOString(),
     end: new Date(to * 1000).toISOString(), execution_model: method }
+  let signalBars = market.bars
+  if (method === 'native' && request.interval === '1d' && market.source === 'rqalpha-sina'
+    && request.data_source === 'auto' && (projectPlan || request.strategy_id === 'python_portable')) {
+    const query = new URLSearchParams({ symbol: String(request.symbol), start: String(from), end: String(to) })
+    try {
+      const actions = await apiRequest<DailyActionData>(`/backtests/daily-actions?${query}`, { signal })
+      request.daily_action_version = actions.version
+      request.daily_actions = actions
+      signalBars = researchBars(market.bars, actions)
+    } catch (error) {
+      if (!(error instanceof ApiError && (
+        (error.status === 422 && error.message.includes('未覆盖'))
+        || (error.status === 503 && error.message.includes('分红送转数据不可用'))
+      ))) throw error
+    }
+  }
   if (projectPlan) {
-    const generated = await projectPlan(market.bars, market.datasetId, signal)
+    const generated = await projectPlan(signalBars, market.datasetId, signal)
     Object.assign(request, { strategy_id: 'python_portable', python_source: undefined, portable_python: generated.source, portable_plan: generated.plan })
   } else if (request.strategy_id === 'python_portable') {
-    request.portable_plan = await createPortablePlan(String(request.portable_python), market.bars, market.datasetId,
+    request.portable_plan = await createPortablePlan(String(request.portable_python), signalBars, market.datasetId,
       String(request.strategy_name ?? 'Python策略'), (request.params ?? {}) as Record<string, unknown>, signal)
   }
   signal.throwIfAborted()
@@ -87,6 +106,8 @@ export async function runPreparedComparison(
     return check?.state === 'unavailable' ? { engine, status: 'skipped', error: check.reason } : { engine, status: 'pending' }
   })
   const publish = () => update(rows.map(row => ({ ...row })))
+  const { daily_actions, daily_action_version, ...request } = prepared.request
+  const useActions = prepared.method === 'native' && daily_action_version
   publish()
   for (const row of rows) {
     if (signal.aborted) break
@@ -94,7 +115,9 @@ export async function runPreparedComparison(
     row.status = 'running'
     publish()
     try {
-      row.result = await api.runBacktest({ ...prepared.request, backtest_engine: row.engine }, signal, owner)
+      row.result = await api.runBacktest({ ...request, backtest_engine: row.engine,
+        ...(useActions ? { daily_action_version } : {}),
+        ...(useActions && row.engine === 'atlas' ? { daily_actions } : {}) }, signal, owner)
       row.status = 'completed'
     } catch (error) {
       row.status = signal.aborted ? 'cancelled' : 'error'
@@ -110,6 +133,7 @@ export async function runPreparedComparison(
 export async function compareBacktests(
   payload: Record<string, unknown>, signal: AbortSignal,
   update: (rows: ComparisonRow[]) => void, owner?: string, projectPlan?: PlanFactory, checks?: ComparisonEngineCheck[],
+  onPrepared?: (prepared: PreparedComparison) => void,
 ): Promise<ComparisonRow[]> {
   const unavailable = new Map(checks?.filter(check => check.state === 'unavailable').map(check => [check.engine, check.reason]))
   update(comparisonEngines.map(engine => unavailable.has(engine) ? { engine, status: 'skipped', error: unavailable.get(engine) } : { engine, status: 'pending' }))
@@ -117,11 +141,13 @@ export async function compareBacktests(
   try {
     prepared = await prepareComparison(payload, signal, projectPlan)
   } catch (error) {
+    if (!signal.aborted && error instanceof MarketUnavailableError) throw error
     const rows: ComparisonRow[] = comparisonEngines.map(engine => unavailable.has(engine)
       ? { engine, status: 'skipped', error: unavailable.get(engine) }
       : { engine, status: signal.aborted ? 'cancelled' : 'error', error: signal.aborted ? undefined : comparisonError(error, '策略准备失败。') })
     update(rows)
     return rows
   }
+  onPrepared?.(prepared)
   return runPreparedComparison(prepared, signal, update, owner, checks)
 }

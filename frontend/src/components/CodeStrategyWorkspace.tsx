@@ -224,7 +224,6 @@ export function CodeStrategyWorkspace({ research, assets = [], onResearchContext
     if(settings.capital<=0||settings.position<=0||settings.position>1||settings.participation<=0||settings.participation>1||[settings.commission,settings.slippage,settings.spread].some(v=>v<0||v>.1)){
       setError('请检查资金与成本：初始资金须大于0，仓位与参与率须大于0且不超过100%，费用为0至10%。');showInspector('backtest');return
     }
-    if (research.source!=='huggingface' && ['1m','5m'].includes(research.interval) && (!start || !end)) { setError('请先设置分钟回测的开始与结束时间。'); return }
     const snapshot = revision.current
     backtestPending.current = true; setBacktesting(true); setError(''); research.onLoading(true)
     codeAbort.current=new AbortController()

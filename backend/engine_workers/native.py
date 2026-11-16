@@ -12,13 +12,25 @@ def vnpy_run(payload):
     from vnpy.trader.object import BarData
     from vnpy_ctastrategy import CtaTemplate
     from vnpy_ctastrategy.backtesting import BacktestingEngine
+    from daily_actions import DailyActions
 
-    r, bars = payload['request'], payload['bars']
+    r = payload['request']
+    long_history = 'history_path' in payload
+    if long_history:
+        import numpy as np
+        bars = np.load(payload['history_path'], mmap_mode='r')
+        account = np.lib.format.open_memmap(payload['account_path'], mode='w+', dtype='float64', shape=(len(bars), 2))
+        targets = np.load(payload['targets_path'], mmap_mode='r') if 'targets_path' in payload else None
+    else:
+        bars = payload['bars']
     plan = payload.get('prepared_strategy')
+    if long_history and targets is not None:
+        plan = {'targets': targets}
     fast, slow = (int(r['params'].get('fast',20)),int(r['params'].get('slow',60))) if plan is None else (20,60)
     impact = r['slippage_rate'] + r['spread_rate'] / 2
     costs = r['commission_rate'] + impact
     fills, snapshots, replayed = [], [], []
+    actions = DailyActions(payload['corporate_actions']) if 'corporate_actions' in payload else None
 
     class TargetStrategy(CtaTemplate):
         def __init__(self, *args):
@@ -26,6 +38,8 @@ def vnpy_run(payload):
             self.closes = []
             self.cash = r['initial_capital']
             self.average = 0
+            self.receivables = 0
+            self.bar_index = -1
         def on_init(self): pass
         def on_start(self): pass
         def on_stop(self): pass
@@ -48,18 +62,22 @@ def vnpy_run(payload):
                 position_after=self.pos, cash_after=self.cash, realized_pnl=pnl))
         def on_bar(self, bar):
             self.cancel_all()
-            self.closes.append(bar.close_price)
-            if plan is None and len(self.closes) < slow: return
-            target = plan['targets'][len(self.closes)-1] if plan else (r['max_position'] if sum(self.closes[-fast:])/fast > sum(self.closes[-slow:])/slow else 0)
+            self.bar_index += 1
+            if plan is None:
+                self.closes.append(bar.close_price)
+                if len(self.closes) < slow: return
+                target = r['max_position'] if sum(self.closes[-fast:])/fast > sum(self.closes[-slow:])/slow else 0
+            else:
+                target = plan['targets'][self.bar_index]
             if plan and 'amount' in plan:
-                if not plan['due'][len(self.closes)-1]: return
-                equity=self.cash+self.pos*bar.close_price
+                if not plan['due'][self.bar_index]: return
+                equity=self.cash+self.receivables+self.pos*bar.close_price
                 addition=min(plan['amount'],self.cash)/(bar.close_price*(1+costs))
                 target=min(r['max_position'],(self.pos+addition)*bar.close_price/equity)
             if self.pos and ((r.get('stop_loss') and bar.close_price <= self.average*(1-r['stop_loss'])) or
                              (r.get('take_profit') and bar.close_price >= self.average*(1+r['take_profit']))):
                 target = 0
-            equity = self.cash + self.pos * bar.close_price
+            equity = self.cash + self.receivables + self.pos * bar.close_price
             desired = target * equity / (bar.close_price * (1+costs))
             delta = desired - self.pos
             if abs(delta * bar.close_price) < max(equity*0.001, 1): return
@@ -74,7 +92,7 @@ def vnpy_run(payload):
                 price = self.bar.open_price
                 limit = self.bar.volume * r['max_participation_rate']
                 if order.direction == Direction.LONG:
-                    equity = self.strategy.cash + self.strategy.pos * price
+                    equity = self.strategy.cash + self.strategy.receivables + self.strategy.pos * price
                     limit = min(limit, max(0, self.strategy.cash)/(price*(1+costs)),
                                 max(0, r['max_position']*equity/price-self.strategy.pos))
                 else: limit = min(limit, self.strategy.pos)
@@ -82,24 +100,57 @@ def vnpy_run(payload):
                 if order.volume <= 1e-10: self.active_limit_orders.pop(key)
             super().cross_limit_order()
         def new_bar(self, bar):
-            replayed.append(dict(time=int(bar.datetime.timestamp()),open=bar.open_price,high=bar.high_price,
-                low=bar.low_price,close=bar.close_price,volume=bar.volume))
+            stamp = int(bar.datetime.timestamp())
+            if actions:
+                quantity, average, ratio, paid, outstanding = actions.apply(stamp, self.strategy.pos, self.strategy.average)
+                self.strategy.pos = quantity
+                self.strategy.average = average
+                self.strategy.cash += paid
+                self.strategy.receivables = outstanding
+                for order in self.active_limit_orders.values():
+                    order.volume *= ratio
+                    order.price /= ratio
+            if not long_history:
+                replayed.append(dict(time=stamp,open=bar.open_price,high=bar.high_price,
+                    low=bar.low_price,close=bar.close_price,volume=bar.volume))
             super().new_bar(bar)
-            snapshots.append(dict(time=int(bar.datetime.timestamp()),
-                equity=self.strategy.cash+self.strategy.pos*bar.close_price,
-                exposure=(self.strategy.pos*bar.close_price)/(self.strategy.cash+self.strategy.pos*bar.close_price)))
+            market_value = self.strategy.pos * bar.close_price
+            equity = self.strategy.cash + self.strategy.receivables + market_value
+            exposure = market_value / equity
+            if long_history:
+                account[self.strategy.bar_index] = (equity, exposure)
+                # Fills are already in our report list; keep only active order objects.
+                self.limit_orders = self.active_limit_orders.copy()
+                self.trades.clear()
+            else:
+                snapshots.append(dict(time=stamp, equity=equity, exposure=exposure))
 
     engine = RecordingEngine()
     symbol = 'BTCUSDT' if r['asset_class']=='crypto' else r['symbol'].replace('.','_')
+    first_time, last_time = (int(bars[0, 0]), int(bars[-1, 0])) if long_history else (bars[0]['time'], bars[-1]['time'])
     engine.set_parameters(vt_symbol=symbol+'.LOCAL', interval=Interval.DAILY if r['interval']=='1d' else Interval.MINUTE,
-        start=datetime.fromtimestamp(bars[0]['time'], timezone.utc), end=datetime.fromtimestamp(bars[-1]['time'], timezone.utc),
+        start=datetime.fromtimestamp(first_time, timezone.utc), end=datetime.fromtimestamp(last_time, timezone.utc),
         rate=costs, slippage=0, size=1, pricetick=1e-8, capital=r['initial_capital'])
     engine.add_strategy(TargetStrategy, {})
-    engine.history_data = [BarData(symbol=symbol, exchange=Exchange.LOCAL,
-        datetime=datetime.fromtimestamp(b['time'],timezone.utc), interval=engine.interval, volume=b['volume'],
-        open_price=b['open'], high_price=b['high'], low_price=b['low'], close_price=b['close'], gateway_name='ATLAS_CACHE') for b in bars]
+    def bar_data(stamp, open_price, high, low, close, volume):
+        return BarData(symbol=symbol, exchange=Exchange.LOCAL, datetime=datetime.fromtimestamp(int(stamp), timezone.utc),
+            interval=engine.interval, volume=float(volume), open_price=float(open_price), high_price=float(high),
+            low_price=float(low), close_price=float(close), gateway_name='ATLAS_CACHE')
+
+    if long_history:
+        class LazyHistory:
+            def __len__(self): return len(bars)
+            def __getitem__(self, key): return (bar_data(*row) for row in bars[key])
+
+        engine.history_data = LazyHistory()
+    else:
+        engine.history_data = [bar_data(b['time'], b['open'], b['high'], b['low'], b['close'], b['volume']) for b in bars]
     engine.run_backtesting()
-    if len(snapshots) != len(bars): raise ValueError('vn.py 未完成历史回放')
+    if long_history:
+        if engine.strategy.bar_index + 1 != len(bars) or (account[:, 0] <= 0).any():
+            raise ValueError('vn.py 未完成历史回放')
+        account.flush()
+    elif len(snapshots) != len(bars): raise ValueError('vn.py 未完成历史回放')
     return dict(version=version('vnpy')+' / CTA '+version('vnpy_ctastrategy'), bars=replayed, fills=fills, snapshots=snapshots,
         warnings=['vn.py CTA 原生限价撮合；收盘提交激进限价单，最早下一根开盘成交。滑点与半价差按成交额计入成本，不改变原生撮合价。',
                   '适配器使用无杠杆、仅做多现金账户约束；这不是 vn.py 默认的期货保证金模型。',
@@ -127,8 +178,10 @@ def rqalpha_published_run(payload):
     def init(context):
         subscribe(code)
         env = Environment.get_instance()
-        if env.data_source.missing_limits:
-            raise ValueError('RQAlpha bundle缺少所选交易日的涨跌停参考字段，不能完整模拟')
+        missing = env.data_source.missing_limit_dates
+        if missing:
+            raise ValueError(f'RQAlpha 缺少 {len(missing)} 个交易日的涨跌停参考价，'
+                             f'缺失日期从 {missing[0]} 到 {missing[-1]}，无法完成独立撮合。')
         event_labels.update({dt: b['time'] for dt,b in env.data_source.events if b is not None})
         def snapshot(event):
             if env.calendar_dt not in event_labels:
@@ -175,18 +228,20 @@ def rqalpha_published_run(payload):
     first = pd.Timestamp(bars[0]['time'],unit='s',tz='UTC').tz_convert('Asia/Shanghai')
     last = pd.Timestamp(bars[-1]['time'],unit='s',tz='UTC').tz_convert('Asia/Shanghai')
     end = last + pd.Timedelta(days=6) if r['interval']=='1wk' else last
-    result = run_func(config={
+    run_func(config={
         'base':{'start_date':str(first.date()),'end_date':str(end.date()),'frequency':'1m',
                 'accounts':{'stock':r['initial_capital']},'data_bundle_path':payload['bundle_path']},
         'extra':{'log_level':'error'},
         'mod':{'atlas_published':{'enabled':True,'lib':'hf_rqalpha','priority':10000},
-               'sys_analyser':{'enabled':True,'plot':False,'record':True},
+               # Reports use the same symbol bars as portfolio snapshots. The
+               # built-in analyser assumes a snapshot for every exchange session.
+               'sys_analyser':{'enabled':False},
                'sys_simulation':{'matching_type':'current_bar','volume_limit':True,
                     'inactive_limit':True,'volume_percent':r['max_participation_rate'],
                     'slippage':r['slippage_rate']+r['spread_rate']/2},
                'sys_transaction_cost':{'stock_commission_multiplier':r['commission_rate']/0.0008}}},
         init=init,handle_bar=handle_bar)
-    if not result or 'sys_analyser' not in result or len(snapshots)!=len(bars):
+    if [row['time'] for row in replayed] != [row['time'] for row in bars] or len(snapshots) != len(bars):
         raise ValueError('RQAlpha 未完成已发布K线与账户逐根回放')
     return dict(version=version('rqalpha'),bars=replayed,fills=fills,snapshots=snapshots,
         warnings=['RQAlpha 原生账户与撮合；输入OHLCV与图表、Atlas、vn.py使用同一不可变行情版本。',
@@ -272,14 +327,32 @@ if __name__ == '__main__':
     payload=json.load(sys.stdin)
     try:
         with contextlib.redirect_stdout(sys.stderr):
-            if payload.get('operation') == 'load_bundle':
+            if payload.get('operation') == 'daily_actions':
+                from daily_actions import load_daily_actions
+                result = load_daily_actions(payload)
+            elif payload.get('operation') == 'load_bundle':
                 from bundle_input import load_bars
                 result = load_bars(payload)
             elif payload['request'].get('execution_model') == 'unified':
                 from unified_runner import vnpy_replay, rqalpha_replay
                 result = vnpy_replay(payload) if payload['engine']=='vnpy' else rqalpha_replay(payload)
             else:
+                request = payload['request']
+                if request.get('daily_action_version'):
+                    from daily_actions import load_daily_actions, research_bars
+                    bars = payload['bars']
+                    actions = load_daily_actions({**payload, 'request': {
+                        'symbol': request['symbol'], 'from': bars[0]['time'], 'to': bars[-1]['time'],
+                    }})
+                    if actions['version'] != request['daily_action_version']:
+                        raise ValueError('分红送转数据已更新，请重新运行三框架回测')
+                    payload['corporate_actions'] = actions
                 result=vnpy_run(payload) if payload['engine']=='vnpy' else rqalpha_run(payload)
+                if request.get('daily_action_version'):
+                    result['research_closes'] = [bar['close'] for bar in research_bars(payload['bars'], actions)]
+                    result['warnings'].insert(0, f'基准采用 bundle 含分红送转因子的收盘序列。公司行动版本 {actions["version"]}。')
+                    if payload['engine'] == 'vnpy':
+                        result['warnings'].insert(0, '按除权日确认应收现金分红及送转股份，派息可用日计入现金；以不复权价格撮合。')
         write_result(result)
     except Exception as exc:
         import traceback

@@ -45,7 +45,7 @@ def vnpy_replay(payload):
         open_price=b['open'],high_price=b['high'],low_price=b['low'],close_price=b['close'],
         volume=b['volume'],gateway_name='PUBLISHED') for b in bars]
     engine.run_backtesting()
-    return output(ledger,replayed,'vnpy '+version('vnpy')+' / CTA '+version('vnpy_ctastrategy'))
+    return output(ledger, replayed, bars, 'vnpy '+version('vnpy')+' / CTA '+version('vnpy_ctastrategy'))
 
 
 def rqalpha_replay(payload):
@@ -79,10 +79,12 @@ def rqalpha_replay(payload):
         'extra':{'log_level':'error'},
         'mod':{'atlas_published':{'enabled':True,'lib':'hf_rqalpha','priority':10000},
                'sys_analyser':{'enabled':False},'sys_progress':{'enabled':False}}},init=init,handle_bar=handle_bar)
-    return output(ledger,replayed,'rqalpha '+version('rqalpha'))
+    return output(ledger, replayed, bars, 'rqalpha '+version('rqalpha'))
 
 
-def output(ledger, replayed, engine_version):
-    if ledger.count != len(replayed): raise ValueError('框架回放不完整')
+def output(ledger, replayed, requested, engine_version):
+    if (len(replayed) != len(requested) or ledger.count != len(requested)
+            or any(actual['time'] != expected['time'] for actual, expected in zip(replayed, requested))):
+        raise ValueError('框架未完整回放已选行情区间')
     return dict(version=engine_version,execution_model='unified',execution_contract=CONTRACT,
         bars=replayed,fills=ledger.fills,snapshots=ledger.snapshots,warnings=[NOTICE])

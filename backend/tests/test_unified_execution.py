@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from app.backtest.native import PYTHON, WORKER
+from app.backtest.native import PYTHON, WORKER, validate_native
 from app.backtest.unified import ResearchLedger
 from app.models import BacktestRequest
 
@@ -13,6 +13,15 @@ from app.models import BacktestRequest
 def test_request_preserves_execution_model():
     r = BacktestRequest(execution_model='unified')
     assert r.model_dump()['execution_model'] == 'unified'
+
+
+def test_native_accepts_unified_replay_of_published_auto_a_share_daily_input():
+    r = BacktestRequest(backtest_engine='rqalpha', execution_model='unified',
+        symbol='600519.SS', asset_class='equity', data_source='auto', interval='1d',
+        start='2026-11-02', end='2026-11-12')
+    validate_native(r)
+    with pytest.raises(ValueError):
+        validate_native(r.model_copy(update={'interval': '15m'}))
 
 
 def scenario():

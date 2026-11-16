@@ -7,6 +7,17 @@ export function std(values: number[], ddof = 1): number {
   return Math.sqrt(values.reduce((s,x)=>s+(x-m)**2,0)/(values.length-ddof))
 }
 export function rolling(values: number[], period: number, operation: 'mean'|'std'|'min'|'max'='mean', minPeriods = period): number[] {
+  if (values.length > 100_000 && (operation === 'mean' || operation === 'std')) {
+    let count = 0, sum = 0, squares = 0
+    return values.map((value, index) => {
+      const dropped = values[index - period]
+      if (Number.isFinite(dropped)) { count--; sum -= dropped; squares -= dropped * dropped }
+      if (Number.isFinite(value)) { count++; sum += value; squares += value * value }
+      if (count < minPeriods) return NaN
+      if (operation === 'mean') return sum / count
+      return count < 2 ? NaN : Math.sqrt(Math.max(0, (squares - sum * sum / count) / (count - 1)))
+    })
+  }
   return values.map((_,i)=> {
     const slice = values.slice(Math.max(0,i-period+1),i+1).filter(Number.isFinite)
     if (slice.length < minPeriods) return NaN

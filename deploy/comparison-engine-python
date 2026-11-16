@@ -1,9 +1,11 @@
 #!/usr/local/bin/python
 """Run the trusted native event adapters in the configured gVisor image."""
 import os
+import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 from uuid import uuid4
 
 image = os.environ.get("TRINE_COMPARISON_RUNNER_IMAGE", "")
@@ -11,25 +13,41 @@ socket = os.environ.get("ATLAS_RQALPHA_RUNNER_SOCKET", "")
 if not re.fullmatch(r"sha256:[a-f0-9]{64}", image) or not socket:
     raise SystemExit("三框架执行器需要固定镜像和本地 Docker socket")
 probe = len(sys.argv) == 3 and sys.argv[1] == "-c"
+payload = None
+workspace = None
 if probe:
     args = ["-c", sys.argv[2]]
 elif len(sys.argv) == 2 and sys.argv[1].endswith("/engine_workers/native.py"):
     args = ["/opt/trine/backend/engine_workers/native.py"]
+    payload = sys.stdin.buffer.read()
+    request = json.loads(payload)
+    if "history_path" in request:
+        root = Path(os.environ["TRINE_COMPARISON_WORKSPACE"]).resolve(strict=True)
+        workspace = Path(request["history_path"]).resolve(strict=True).parent
+        expected_paths = {"history_path": "ohlcv.npy", "account_path": "account.npy", "targets_path": "targets.npy"}
+        if (workspace.parent != root or not re.fullmatch(r"atlas-vnpy-\w+", workspace.name)
+                or workspace.stat().st_uid != os.getuid() or request["engine"] != "vnpy"
+                or any(Path(request[key]).resolve() != workspace / filename
+                       for key, filename in expected_paths.items() if key in request)):
+            raise SystemExit("长区间执行器输入目录无效")
 else:
     raise SystemExit("不支持的执行器入口")
 name = "trine-compare-" + uuid4().hex
 docker = ["/usr/local/bin/docker", "--host", "unix://" + socket]
 command = docker + ["run", "--rm", "-i", "--name", name, "--pull=never", "--runtime=runsc",
                     "--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                    "--user=65532:65532", "--cpus=1", "--memory=1g", "--pids-limit=64",
+                    f"--user={os.getuid()}:{os.getgid()}" if workspace else "--user=65532:65532",
+                    "--cpus=1", "--memory=1g", "--pids-limit=64",
                     "--tmpfs=/tmp:rw,nosuid,nodev,size=128m", "--workdir=/tmp"]
 bundle = os.environ.get("ATLAS_RQALPHA_BUNDLE")
 if bundle and os.path.isdir(bundle):
     command += ["--mount", "type=bind,source=" + bundle + ",target=" + bundle + ",readonly"]
+if workspace:
+    command += ["--mount", f"type=bind,source={workspace},target={workspace}"]
 command += ["--entrypoint=python", image, *args]
 environment = {"PATH": "/usr/local/bin:/usr/bin:/bin"}
 try:
-    process = subprocess.run(command, timeout=15 if probe else 590, env=environment)
+    process = subprocess.run(command, input=payload, timeout=15 if probe else 590, env=environment)
     raise SystemExit(process.returncode)
 except subprocess.TimeoutExpired:
     print("框架执行超过时间限制", file=sys.stderr)

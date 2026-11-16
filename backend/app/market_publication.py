@@ -142,10 +142,11 @@ class MarketPublication:
         parts = [part for part in manifest["chunks"]
                  if (start is None or part['end'] >= start.timestamp())
                  and (end is None or part['start'] <= end.timestamp())]
-        bars = [bar for part in parts for bar in self.objects.read("public", part["sha256"])["bars"]]
-        if not bars:
+        if not parts:
             raise ValueError("区间内没有已发布行情")
-        frame = pd.DataFrame(bars)
+        frame = pd.concat([
+            pd.DataFrame(self.objects.read("public", part["sha256"])["bars"]) for part in parts
+        ], ignore_index=True)
         frame["time"] = pd.to_datetime(frame["time"], unit="s", utc=True)
         frame = frame.set_index("time")
         if start is not None:

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from '../api'
 import { comparisonMarket } from '../compute/client'
+import { MarketPreparingError } from '../compute/market'
 import { inspectPythonProject, type PythonProject } from '../compute/pythonProject'
 import { listLabProjects, readLabProject, saveLabProject } from '../lab-project-library'
 import { requestLabNavigation } from '../lab-navigation'
@@ -19,7 +20,7 @@ vi.mock('../lab-project-library', () => ({ listLabProjects: vi.fn(), readLabProj
 
 vi.mock('../api', () => ({ api: {
   listLabStrategies: vi.fn(), getLabStrategy: vi.fn(), createLabStrategy: vi.fn(), updateLabStrategy: vi.fn(),
-  listLabRuns: vi.fn(), runBacktest: vi.fn(), getRun: vi.fn(), searchAssets: vi.fn(),
+  listLabRuns: vi.fn(), deleteLabRun: vi.fn(), runBacktest: vi.fn(), getRun: vi.fn(), searchAssets: vi.fn(),
 } }))
 vi.mock('../request', async original => ({ ...await original<typeof import('../request')>(), request: vi.fn().mockResolvedValue({ configured: false }) }))
 vi.mock('../lab-multi-api', async original => {
@@ -665,9 +666,9 @@ it('creates a common Python strategy without a framework selector', async () => 
   expect(screen.queryByRole('combobox', { name: '回测引擎' })).toBeNull()
 })
 
-it('runs the unsaved source in the results tab without creating history and skips unsupported engines', async () => {
+it('saves a new strategy once and stores completed engines in the same comparison', async () => {
   const bars = Array.from({ length: 45 }, (_, i) => ({ time: 1700000000 + i * 86400, open: 100, high: 101, low: 99, close: 100, volume: 1000 }))
-  vi.mocked(comparisonMarket).mockResolvedValue({ bars, datasetId: 'published-fixture' })
+  vi.mocked(comparisonMarket).mockResolvedValue({ bars, datasetId: 'published-fixture', source: 'fixture' })
   vi.mocked(api.runBacktest).mockImplementation(async payload => ({
     run_id: String(payload.backtest_engine), metrics: { total_return: .1, max_drawdown: -.01 }, trades: [],
   }) as unknown as BacktestResult)
@@ -681,18 +682,18 @@ it('runs the unsaved source in the results tab without creating history and skip
   fireEvent.click(screen.getByRole('button', { name: '运行三框架回测' }))
   expect(screen.getByRole('tab', { name: '回测结果', selected: true })).toBeVisible()
   expect(await screen.findByText('2 / 3 完成')).toBeVisible()
-  expect(screen.getByText(/草稿试跑/)).toBeVisible()
+  expect(await screen.findByText(/已将完成的报告保存到/)).toBeVisible()
   expect(screen.getByRole('tab', { name: /RQAlpha.*已跳过/ })).toBeVisible()
   expect(api.runBacktest).toHaveBeenCalledTimes(2)
+  const first = vi.mocked(api.runBacktest).mock.calls[0][0]
+  expect(first.lab_comparison_id).toMatch(/^[a-f0-9]{32}$/)
+  const id = vi.mocked(api.createLabStrategy).mock.calls[0][1]
   for (const [payload] of vi.mocked(api.runBacktest).mock.calls) {
-    expect(payload).toMatchObject({ persist: false, python_source: 'def target_bps(index, close, sma):\n    return 2500' })
-    expect(payload.lab_strategy_id).toBeUndefined()
+    expect(payload).toMatchObject({ persist: true, lab_strategy_id: id, lab_comparison_id: first.lab_comparison_id,
+      python_source: 'def target_bps(index, close, sma):\n    return 2500' })
   }
-  expect(api.createLabStrategy).not.toHaveBeenCalled()
+  expect(api.createLabStrategy).toHaveBeenCalledOnce()
   expect(api.listLabRuns).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('button', { name: '上链存证' }))
-  expect(screen.getByRole('heading', { name: '回测报告上链存证' })).toBeVisible()
-  expect(screen.queryByRole('button', { name: '公开回测收益并上链' })).toBeNull()
 })
 
 it('lists matching assets as selectable search results and explains invalid parameters', async () => {
@@ -705,4 +706,21 @@ it('lists matching assets as selectable search results and explains invalid para
   fireEvent.change(screen.getByRole('spinbutton', { name: '初始资金' }), { target: { value: '0' } })
   expect(screen.getByRole('button', { name: '运行三框架回测' })).toBeDisabled()
   expect(screen.getByRole('button', { name: '运行三框架回测' })).toHaveAccessibleDescription('初始资金必须大于零。')
+})
+
+it('explains missing shared market data once and lets the user adjust settings without changing their strategy', async () => {
+  vi.mocked(comparisonMarket).mockRejectedValue(new MarketPreparingError('所选周期的行情尚未发布'))
+  render(<RqAlphaLabWorkspace {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: '新建策略' }))
+  const source = (await screen.findByLabelText<HTMLTextAreaElement>('Python 策略代码')).value
+  fireEvent.click(screen.getByRole('button', { name: '运行三框架回测' }))
+
+  const notice = await screen.findByRole('alert')
+  expect(notice).toHaveTextContent('所选周期的行情尚未发布')
+  expect(screen.queryByRole('region', { name: '三框架回测结果' })).not.toBeInTheDocument()
+  expect(api.runBacktest).not.toHaveBeenCalled()
+
+  fireEvent.click(within(notice).getByRole('button', { name: '调整回测设置' }))
+  expect(screen.getByRole('tab', { name: '回测设置', selected: true })).toBeVisible()
+  expect(screen.getByLabelText('Python 策略代码')).toHaveValue(source)
 })

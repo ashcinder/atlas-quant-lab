@@ -12,6 +12,16 @@ NOTICE = ('统一研究口径 research-next-open/v1：框架负责事件回放�
           '允许零股，不模拟T+1、涨跌停、印花税或分红送转。不是原生A股账户。')
 
 
+def unified_market_source(request):
+    """Return the publication provenance accepted for this research request."""
+    if request.data_source == 'huggingface':
+        return 'hf-ohlcv'
+    if (request.data_source == 'auto' and request.interval == '1d'
+            and request.asset_class == 'equity' and request.symbol.endswith(('.SS', '.SZ'))):
+        return 'rqalpha-sina'
+    raise ValueError('统一研究口径需要沪深 A 股历史快照或已发布的自动来源日线')
+
+
 def validate_unified(request):
     if request.get('release_id'):
         raise ValueError('统一研究口径需要已解析的策略定义')

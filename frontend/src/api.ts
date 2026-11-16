@@ -172,6 +172,11 @@ export const api = {
   listLabRuns(owner: string, id: string, signal?: AbortSignal) {
     return request<LabRunSummary[]>(`/lab-strategies/${encodeURIComponent(id)}/runs`, { headers: labOwnerHeaders(owner), signal })
   },
+  deleteLabRun(owner: string, id: string, runId: string) {
+    return request<void>(`/lab-strategies/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}`, {
+      method: 'DELETE', headers: labOwnerHeaders(owner),
+    })
+  },
   getRun<T extends BacktestResult | PortfolioResult>(id: string) {
     return browserCompute.getRunHydrated<T>(id)
   },

@@ -5,10 +5,11 @@ import { request } from '../request'
 export interface MarketChunk {sha256:string;count:number;start:number;end:number;url:string}
 export interface MarketManifest {status:'ready';schema:'atlas.market/v1';dataset_id:string;asset:Asset;interval:Interval;adjustment:Adjustment;source:string;source_note:string|null;fetched_at:number;is_stale:boolean;start:number;end:number;count:number;chunks:MarketChunk[];coverage?:{start:number;end:number;basis:string};conversions?:Record<string,string>}
 export interface MarketQuery {symbol:string;asset_class:string;interval:Interval;adjustment:Adjustment;data_source:DataSource;start?:string;end?:string}
-export class MarketChunkUnavailableError extends Error {
+export class MarketUnavailableError extends Error {}
+export class MarketChunkUnavailableError extends MarketUnavailableError {
   constructor(message: string) { super(message); this.name = 'MarketChunkUnavailableError' }
 }
-export class MarketPreparingError extends Error {constructor(message='历史数据尚未发布，请等待数据准备完成后重试'){super(message);this.name='MarketPreparingError'}}
+export class MarketPreparingError extends MarketUnavailableError {constructor(message='历史数据尚未发布，请等待数据准备完成后重试'){super(message);this.name='MarketPreparingError'}}
 export function validateManifest(raw:unknown):MarketManifest {
  if(!raw||typeof raw!=='object')throw new Error('行情清单格式无效')
  if('status'in raw&&raw.status==='preparing')throw new MarketPreparingError('message'in raw&&typeof raw.message==='string'?raw.message:undefined)
@@ -42,12 +43,10 @@ export async function decodeChunk(buffer:ArrayBuffer,chunk:MarketChunk):Promise<
  for(let i=0;i<bars.length;i++){const b=bars[i];if(!b||![b.time,b.open,b.high,b.low,b.close,b.volume].every(Number.isFinite)||!Number.isInteger(b.time)||b.open<=0||b.high<=0||b.low<=0||b.close<=0||b.volume<0||b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||(i>0&&b.time<=bars[i-1].time))throw new Error('行情分块包含缺失、无效或乱序的K线')}
  if(bars[0].time!==chunk.start||bars.at(-1)!.time!==chunk.end)throw new Error('行情分块覆盖范围不符');return bars
 }
-export async function loadMarket(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal,range?:{start?:number;end?:number}):Promise<MarketInput>{
- const bars:Bar[]=[]
- const chunks=manifest.chunks.filter(chunk=>chunk.end>=(range?.start??-Infinity)&&chunk.start<=(range?.end??Infinity))
- if(!chunks.length)throw new Error('请求区间没有已发布行情')
- for(const chunk of chunks){if(signal?.aborted)throw signal.reason??new DOMException('请求已取消','AbortError');let bytes=await store.get<ArrayBuffer>('chunks',chunk.sha256).catch(()=>undefined)
-  if(bytes){try{for(const bar of await decodeChunk(bytes,chunk))bars.push(bar);continue}catch{await store.delete('chunks',chunk.sha256).catch(()=>undefined)}}
+async function loadChunk(chunk:MarketChunk,store:ComputeStore,signal?:AbortSignal):Promise<Bar[]>{
+  if(signal?.aborted)throw signal.reason??new DOMException('请求已取消','AbortError')
+  let bytes=await store.get<ArrayBuffer>('chunks',chunk.sha256).catch(()=>undefined)
+  if(bytes){try{return await decodeChunk(bytes,chunk)}catch{await store.delete('chunks',chunk.sha256).catch(()=>undefined)}}
   const url=new URL(chunk.url,globalThis.location?.origin??'http://localhost');if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error('行情下载地址无效')
   let response: Response
   try {
@@ -66,7 +65,16 @@ export async function loadMarket(manifest:MarketManifest,store:ComputeStore,sign
   bytes = await response.arrayBuffer()
   const decoded = await decodeChunk(bytes, chunk)
   await store.put('chunks', chunk.sha256, bytes).catch(() => undefined)
-  for (const bar of decoded) bars.push(bar)
+  return decoded
+}
+
+export async function loadMarket(manifest:MarketManifest,store:ComputeStore,signal?:AbortSignal,range?:{start?:number;end?:number}):Promise<MarketInput>{
+ const bars:Bar[]=[]
+ const chunks=manifest.chunks.filter(chunk=>chunk.end>=(range?.start??-Infinity)&&chunk.start<=(range?.end??Infinity))
+ if(!chunks.length)throw new MarketUnavailableError('请求区间没有已发布行情')
+ for(let i=0;i<chunks.length;i+=8){
+  const batch=await Promise.all(chunks.slice(i,i+8).map(chunk=>loadChunk(chunk,store,signal)))
+  for(const part of batch) for(const bar of part) bars.push(bar)
  }
  if(bars.length!==chunks.reduce((count,chunk)=>count+chunk.count,0))throw new Error('行情数据集不完整')
  return {asset:manifest.asset,bars,source:manifest.source,source_note:manifest.source_note,interval:manifest.interval,adjustment:manifest.adjustment,fetched_at:manifest.fetched_at,last_bar_time:bars.at(-1)!.time,is_stale:manifest.is_stale}

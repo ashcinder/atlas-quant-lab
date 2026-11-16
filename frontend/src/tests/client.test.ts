@@ -3,7 +3,10 @@ import { idbHarness } from './idb-harness'
 import type { WorkerInput, WorkerOutput } from '../compute/worker'
 const mocks=vi.hoisted(()=>({request:vi.fn(),manifest:vi.fn(),load:vi.fn(),dataset:vi.fn()}))
 vi.mock('../request',()=>({request:mocks.request}))
-vi.mock('../compute/market',()=>({fetchManifest:mocks.manifest,loadMarket:mocks.load,loadChartPage:mocks.load,fetchDatasetManifest:mocks.dataset}))
+vi.mock('../compute/market',async importOriginal=>({
+ ...await importOriginal<typeof import('../compute/market')>(),
+ fetchManifest:mocks.manifest,loadMarket:mocks.load,loadChartPage:mocks.load,fetchDatasetManifest:mocks.dataset,
+}))
 const asset={symbol:'T',name:'Test',asset_class:'crypto',exchange:'test',currency:'USD',timezone:'UTC',tags:[]},bar={time:1700000000,open:100,high:102,low:99,close:101,volume:10}
 const result={run_id:'local-run',created_at:'2026-11-05T00:00:00Z',asset,interval:'1d',strategy:{},data_source:'fixture',source_note:null,bars:[bar],indicators:{rsi14:[{time:bar.time,value:50}]},trades:[],equity:[{time:bar.time,equity:100,benchmark:100,drawdown:0,exposure:0}],metrics:{},regime_metrics:{},warnings:[]}
 let owner={owner_id:'a',session_scope:'s-a'},holdWorker=false,workerInstances:MockWorker[]=[]
@@ -105,6 +108,19 @@ describe('browser facade lifecycle',()=>{
 })
 
 describe('published session coverage',()=>{
+ it('uses the first and last closed candle when dates are blank and keeps an explicit start',async()=>{
+  const {time: first}=bar,last=first+120
+  const candles=[bar,{...bar,time:first+60},{...bar,time:last}]
+  mocks.manifest.mockResolvedValue({dataset_id:'data',asset,source:'binance',interval:'1m',start:first,end:last,fetched_at:last+10})
+  mocks.load.mockResolvedValue({asset,bars:candles,source:'binance'})
+  const payload={symbol:'T',interval:'1m',data_source:'auto'}
+  const signal=new AbortController().signal
+  const entire=await client.comparisonMarket(payload,signal)
+  expect(entire.bars.map(candle=>candle.time)).toEqual([first,first+60])
+  const afterFirst=await client.comparisonMarket({...payload,start:new Date((first+60)*1000).toISOString()},signal)
+  expect(afterFirst.bars.map(candle=>candle.time)).toEqual([first+60])
+ })
+
  it('accepts weekend boundaries from the published query without inventing bars',async()=>{
   const first=Date.parse('2025-03-03T04:00:00Z')/1000,last=Date.parse('2025-03-07T04:00:00Z')/1000
   mocks.manifest.mockResolvedValue({dataset_id:'data',asset:{...asset,asset_class:'equity'},interval:'1d',coverage:{start:Date.parse('2025-03-01T00:00:00Z')/1000,end:Date.parse('2025-03-09T00:00:00Z')/1000},start:first,end:last})

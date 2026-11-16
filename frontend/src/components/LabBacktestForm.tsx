@@ -85,7 +85,7 @@ export function LabBacktestForm({ value, assets, onChange, compact = false, lock
       <label>行情源<select value={value.data_source} onChange={event => onChange({ data_source: event.target.value as LabBacktestSettings['data_source'] })}>
         <option value="huggingface">历史快照</option><option value="auto">自动选择</option><option value="yahoo">Yahoo Finance</option><option value="binance" disabled={value.asset_class !== 'crypto'}>Binance</option><option value="demo">演示数据</option>
       </select></label>
-      <p className="lab-form-note">时间按本地时区输入。留空时使用已发布行情的可用范围。</p>
+      <p className="lab-form-note">时间按本地时区输入。开始留空时从第一根有效 K 线开始，结束留空时用最后一根有效 K 线。</p>
     </div>
     <details className="lab-advanced">
       <summary>高级设置</summary>

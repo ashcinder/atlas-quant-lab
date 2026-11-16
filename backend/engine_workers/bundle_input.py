@@ -9,8 +9,8 @@ def load_bars(payload):
     source=BaseDataSource(RqAttrDict({'data_bundle_path':payload['bundle_path']}))
     code=r['symbol'].replace('.SS','.XSHG').replace('.SZ','.XSHE')
     instrument=next(source.get_instruments([code]))
-    start=pd.Timestamp(r['start']).tz_convert('Asia/Shanghai').date()
-    end=pd.Timestamp(r['end']).tz_convert('Asia/Shanghai').date()
+    start=pd.Timestamp(r['start']).tz_convert('Asia/Shanghai').date() if r['start'] else datetime.min.date()
+    end=pd.Timestamp(r['end']).tz_convert('Asia/Shanghai').date() if r['end'] else pd.Timestamp.now(tz='Asia/Shanghai').date()
     rows=source.history_bars(instrument,1000000,'1d',None,datetime.combine(end,datetime.max.time()),
         skip_suspended=False,include_now=True,adjust_type='none')
     bars=[]

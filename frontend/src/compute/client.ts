@@ -2,9 +2,11 @@ import type { Bar, Adjustment, BacktestResult, DataSource, Interval, MarketData,
 import { request } from '../request'
 import { labOwnerHeaders } from '../lab-strategy-types'
 import { ComputeStore, LOCAL_SAVE_NOTICE, type ComputeIdentity, type StoredTask, type StoredRun, type StoredResult } from './persistence'
-import { fetchManifest, fetchDatasetManifest, loadMarket, loadChartPage, type MarketManifest, type MarketQuery } from './market'
+import { fetchManifest, fetchDatasetManifest, loadMarket, loadChartPage, MarketUnavailableError, type MarketManifest, type MarketQuery } from './market'
 import { chartHistorySource } from '../marketSupport'
 import type { MarketInput } from './model'
+import type { DailyActionData } from './dailyActions'
+import { LONG_BACKTEST_BARS } from './longBacktest'
 import type { WorkerTask, WorkerInput, WorkerOutput, WorkerResult } from './worker'
 export const ENGINE_VERSION='browser-ts/v1'
 const LOCAL_HISTORY_INDEX='@local-history/v1'
@@ -65,7 +67,7 @@ async function computeStore(captured:ComputeIdentity):Promise<ComputeStore>{
 }
 function support():void{if(typeof Worker==='undefined')throw new Error('当前浏览器不支持 Web Worker，无法执行浏览器计算');if(typeof indexedDB==='undefined')throw new Error('当前浏览器不支持 IndexedDB，无法保存计算任务')}
 async function capabilities(releaseId?:string,purpose:'backtest'|'runtime'='backtest'):Promise<Capabilities>{const result=await request<Capabilities>(`/compute/capabilities${releaseId?`?release_id=${encodeURIComponent(releaseId)}${purpose==='runtime'?'&purpose=runtime':''}`:''}`);if(!result.available)throw new Error(result.unavailable_reason??result.message??'当前策略版本不可执行');return result}
-const ALLOWED_FIELDS=['portable_python','portable_plan','strategy_name','execution_model','symbol','asset_class','interval','start','end','adjustment','base_currency','data_source','strategy_id','custom_strategy','python_source','python_program','params','initial_capital','commission_rate','slippage_rate','spread_rate','max_position','max_participation_rate','stop_loss','take_profit','execution_pipeline','assets','rebalance','cash_buffer','max_asset_weight','volatility_target','experiments','objective','holdout_ratio','walk_forward','release_id','persist']
+const ALLOWED_FIELDS=['lab_comparison_id','portable_python','portable_plan','strategy_name','execution_model','daily_action_version','symbol','asset_class','interval','start','end','adjustment','base_currency','data_source','strategy_id','custom_strategy','python_source','python_program','params','initial_capital','commission_rate','slippage_rate','spread_rate','max_position','max_participation_rate','stop_loss','take_profit','execution_pipeline','assets','rebalance','cash_buffer','max_asset_weight','volatility_target','experiments','objective','holdout_ratio','walk_forward','release_id','persist']
 export function computePayload(payload:Record<string,unknown>):Record<string,unknown>{return structuredClone(Object.fromEntries(ALLOWED_FIELDS.filter(key=>payload[key]!==undefined).map(key=>[key,payload[key]])))}
 async function resolvedPayload(payload:Record<string,unknown>,cap:Capabilities,labOwner?:string):Promise<Record<string,unknown>>{
  const resolved=computePayload(payload)
@@ -76,18 +78,23 @@ async function resolvedPayload(payload:Record<string,unknown>,cap:Capabilities,l
 function queryFor(payload:Record<string,unknown>):MarketQuery{return {symbol:String(payload.symbol??'BTC-USD'),asset_class:String(payload.asset_class??'crypto'),interval:(payload.interval??'1d') as Interval,adjustment:(payload.adjustment??'auto') as Adjustment,data_source:(payload.data_source??'auto') as DataSource,...(payload.start?{start:String(payload.start)}:{}),...(payload.end?{end:String(payload.end)}:{})}}
 function checkCoverage(manifest:MarketManifest,query:MarketQuery):void{
  const coverage=manifest.coverage??{start:manifest.start,end:manifest.end}
- if(query.start){const from=Date.parse(query.start)/1000;if(!Number.isFinite(from))throw new Error('回测开始时间无效');if(coverage.start>from)throw new Error('已发布行情未完整覆盖请求的开始日期，请调整日期或等待数据发布')}
- if(query.end){const to=Date.parse(query.end)/1000;if(!Number.isFinite(to))throw new Error('回测结束时间无效');if(coverage.end<Math.min(to,Date.now()/1000))throw new Error('已发布行情未完整覆盖请求的结束日期，请调整日期或等待数据发布')}
+ if(query.start){const from=Date.parse(query.start)/1000;if(!Number.isFinite(from))throw new Error('回测开始时间无效');if(coverage.start>from)throw new MarketUnavailableError('已发布行情未覆盖选定的开始日期，请调整回测区间。')}
+ if(query.end){const to=Date.parse(query.end)/1000;if(!Number.isFinite(to))throw new Error('回测结束时间无效');if(coverage.end<Math.min(to,Date.now()/1000))throw new MarketUnavailableError('已发布行情未覆盖选定的结束日期，请调整回测区间。')}
 }
 async function marketFor(payload:Record<string,unknown>,storage:ComputeStore,signal?:AbortSignal,convertBase=false):Promise<{market:MarketInput;manifest:MarketManifest}>{
  const query=queryFor(payload);let manifest=await fetchManifest(query,storage,signal);checkCoverage(manifest,query)
  const base=payload.base_currency
  if(convertBase&&typeof base==='string'&&base!==manifest.asset.currency){const converted=manifest.conversions?.[base];if(!converted)throw new Error(`缺少 ${manifest.asset.currency}→${base} 的已发布历史汇率数据集`);manifest=await fetchDatasetManifest(converted,storage,signal);if(manifest.asset.currency!==base)throw new Error('换汇数据集计价币种不符');checkCoverage(manifest,query)}
  // An immutable dataset may include broader coverage than a research window.
- const start=query.start?Date.parse(query.start)/1000:-Infinity,end=query.end?Date.parse(query.end)/1000:Infinity
- const market=await loadMarket(manifest,storage,signal,query.start||query.end?{start,end}:undefined)
- market.bars=market.bars.filter(bar=>bar.time>=start&&bar.time<=end)
- if(!market.bars.length)throw new Error('请求区间没有已发布行情')
+ const start=query.start?Date.parse(query.start)/1000:manifest.start
+ const publishedEnd = /^(binance|binance:cache)$/.test(manifest.source)
+   ? Math.min(manifest.end, manifest.fetched_at - proofIntervalSeconds[manifest.interval]) : manifest.end
+ const end=Math.min(query.end?Date.parse(query.end)/1000:publishedEnd, publishedEnd)
+ const market=await loadMarket(manifest,storage,signal,{start,end})
+ if (market.bars[0]?.time < start || market.bars.at(-1)!.time > end) {
+   market.bars=market.bars.filter(bar=>bar.time>=start&&bar.time<=end)
+ }
+ if(!market.bars.length)throw new MarketUnavailableError('请求区间没有已发布行情')
  return {market,manifest}
 }
 function workerCompute<T extends WorkerResult>(task:WorkerTask,captured:ComputeIdentity,progress?:(value:number,message:string)=>void,signal?:AbortSignal,id:string=crypto.randomUUID()):Promise<T>{
@@ -178,8 +185,14 @@ export async function runBacktest(payload:Record<string,unknown>,externalSignal?
    progress(.03,'准备隔离Python运行环境与策略信号')
    resolved.portable_plan=await createPortablePlan(String(resolved.portable_python??''),market.bars,manifest.dataset_id,String(resolved.strategy_name??'Python策略'),(resolved.params??{}) as Record<string,unknown>,signal)
   }
-  const result=await workerCompute<BacktestResult>({kind:'single',request:resolved,market},captured,progress,signal)
-  if(!payload.start&&!payload.end)result.warnings.push('未指定历史区间，本次使用数据清单公布的覆盖范围。')
+  if(resolved.strategy_id==='python_portable' && (resolved.portable_plan as {dataset_id?:string})?.dataset_id!==manifest.dataset_id)
+   throw new Error('行情版本已更新，请重新运行以生成与新行情一致的策略信号。')
+  const dailyActions = payload.daily_actions as DailyActionData | undefined
+  if (resolved.daily_action_version && dailyActions?.version !== resolved.daily_action_version) {
+   throw new Error('分红送转数据与本次回测版本不匹配')
+  }
+  const result=await workerCompute<BacktestResult>({kind:'single',request:resolved,market:{...market,dailyActions}},captured,progress,signal)
+  if(!payload.start&&!payload.end)result.warnings.push('未指定历史区间，从第一根已发布有效 K 线回测至最后一根。')
   result.compute={execution_location:'browser',proof_status:'unverified',engine_version:ENGINE_VERSION,dataset_ids:[manifest.dataset_id],strategy_version:cap.strategy_version}
   if(signal.aborted)throw new Error('计算已取消');if(payload.persist===false)return result
   const labStrategyId=typeof payload.lab_strategy_id==='string'?payload.lab_strategy_id:undefined
@@ -231,7 +244,7 @@ export async function getRunHydrated<T extends BacktestResult|PortfolioResult>(i
   if(!record?.sync_request||record.mode==='research')throw new Error('当前用户在此浏览器没有该回测记录')
   result=record.result as T
  }else result=await request<T>(`/runs/${encodeURIComponent(id)}`)
- if('bars'in result&&result.bars.length===0&&result.compute?.dataset_ids?.length){const manifest=await fetchDatasetManifest(result.compute.dataset_ids[0],storage),from=result.equity[0]?.time??result.compute.period_start??-Infinity,to=result.equity.at(-1)?.time??result.compute.period_end??Infinity,market=await loadMarket(manifest,storage,undefined,{start:from,end:to});result.bars=market.bars.filter(b=>b.time>=from&&b.time<=to);result.indicators=await workerCompute<BacktestResult['indicators']>({kind:'indicators',bars:result.bars},captured)}
+ if('bars'in result&&result.bars.length===0&&result.compute?.dataset_ids?.length){const manifest=await fetchDatasetManifest(result.compute.dataset_ids[0],storage),from=result.equity[0]?.time??result.compute.period_start??-Infinity,to=result.equity.at(-1)?.time??result.compute.period_end??Infinity,market=(result.bar_count??0)>LONG_BACKTEST_BARS?await loadChartPage(manifest,storage,undefined,{start:from,end:to},3200):await loadMarket(manifest,storage,undefined,{start:from,end:to});result.bars=market.bars.filter(b=>b.time>=from&&b.time<=to);result.indicators=await workerCompute<BacktestResult['indicators']>({kind:'indicators',bars:result.bars},captured)}
  await assertComputeIdentity(captured);return result
 }
 
@@ -282,7 +295,7 @@ export async function comparisonMarket(payload: Record<string, unknown>, signal:
   const storage = await computeStore(captured)
   const {market, manifest} = await marketFor(payload, storage, signal)
   await assertComputeIdentity(captured)
-  return { bars: market.bars, datasetId: manifest.dataset_id }
+  return { bars: market.bars, datasetId: manifest.dataset_id, source: market.source }
 }
 
 const proofIntervalSeconds: Record<Interval, number> = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1wk': 604800 }

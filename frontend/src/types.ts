@@ -148,8 +148,10 @@ export interface ComputeProvenance {
 export type BacktestEngine = 'atlas' | 'rqalpha' | 'vnpy'
 
 export interface BacktestResult {
+  bar_count?: number | null
   execution_model?: 'native' | 'unified'
   execution_contract?: string | null
+  daily_action_version?: string | null
   backtest_engine?: BacktestEngine
   engine_version?: string | null
   compute?: ComputeProvenance

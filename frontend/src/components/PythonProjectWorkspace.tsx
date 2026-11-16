@@ -5,6 +5,7 @@ import { preferredEntry } from '../project-entry'
 import type { ImportedPythonProject, ProjectFilePreview, ProjectReport } from '../compute/pythonProject'
 import './python-project.css'
 import { api } from '../api'
+import { MarketUnavailableError } from '../compute/market'
 import { checkComparisonEngines, comparisonEngines, comparisonError, prepareComparison, runPreparedComparison,
   type ComparisonEngineCheck, type ComparisonMethod, type ComparisonRow, type PreparedComparison } from '../compute/compareBacktests'
 import { BacktestComparison } from './BacktestComparison'
@@ -365,9 +366,13 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
         setResultContext({ barCount, from, to, method, datasetId })
         await runPreparedComparison(inspected.prepared, signal, setComparisonRows, inspected.owner, inspected.engines)
       } catch (reason) {
-        const detail = comparisonError(reason, '入口准备失败。')
-        setComparisonRows(comparisonEngines.map(engine => ({ engine, status: signal.aborted ? 'cancelled' : 'error',
-          error: signal.aborted ? undefined : detail })))
+        if (!signal.aborted && reason instanceof MarketUnavailableError) {
+          setComparisonRows([])
+        } else {
+          const detail = comparisonError(reason, '入口准备失败。')
+          setComparisonRows(comparisonEngines.map(engine => ({ engine, status: signal.aborted ? 'cancelled' : 'error',
+            error: signal.aborted ? undefined : detail })))
+        }
         throw reason
       }
     })
@@ -676,7 +681,11 @@ export default function PythonProjectWorkspace({ compact = false, comparisonCont
                 </div> : null}
                 {phase === 'run' ? <p className="project-run-status" role="status"><LoaderCircle className="spin" size={14} />正在{runKind === 'script' ? '运行脚本' : '回测'}…</p> : null}
                 {message && message !== '项目已保存' ? <p className="project-run-status" role="status"><Check size={14} />{message}</p> : null}
-                {error ? <pre className="python-project-error" role="alert">{error}</pre> : null}
+                {error ? <div className="python-project-error" role="alert">
+                  <pre>{error}</pre>
+                  {runKind === 'comparison' && comparisonContext ? <button type="button" className="project-report-download"
+                    onClick={() => revealOutput('settings')}>调整回测设置</button> : null}
+                </div> : null}
                 <BacktestComparison context={resultContext} rows={comparisonRows} compact />
                 {runKind === 'comparison' && scriptOnly && comparisonRows.length > 0 ? <button className="project-report-download"
                   type="button" disabled={!!phase} onClick={run}><Play size={14} />运行项目脚本</button> : null}

@@ -108,19 +108,24 @@ class PortablePlan(BaseModel):
     name: str = Field(default="Python策略",max_length=80)
     start: int
     end: int
-    targets: list[float] = Field(min_length=40,max_length=1_000_000)
+    targets: list[float] | None = Field(default=None, min_length=40,max_length=1_000_000)
+    targets_gzip: str | None = Field(default=None, min_length=1,max_length=16_000_000)
 
     @model_validator(mode="after")
     def valid_targets(self):
-        if any(v < 0 or v > 1 for v in self.targets):
+        if (self.targets is None) == (self.targets_gzip is None):
+            raise ValueError("仓位计划须提供一种编码")
+        if self.targets is not None and any(v < 0 or v > 1 for v in self.targets):
             raise ValueError("目标仓位必须在0至1之间")
         return self
 
 
 class BacktestRequest(BaseModel):
     lab_strategy_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    lab_comparison_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     backtest_engine: Literal['atlas', 'rqalpha', 'vnpy'] = 'atlas'
     execution_model: Literal['native', 'unified'] = 'native'
+    daily_action_version: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     release_id: str | None = Field(default=None, max_length=64)
     model_config = ConfigDict(allow_inf_nan=False)
 
@@ -223,10 +228,12 @@ class StrategyEvaluation(BaseModel):
 
 
 class BacktestResult(BaseModel):
+    bar_count: int | None = None
     backtest_engine: Literal['atlas', 'rqalpha', 'vnpy'] = 'atlas'
     execution_model: Literal['native', 'unified'] = 'native'
     engine_version: str | None = None
     execution_contract: str | None = None
+    daily_action_version: str | None = None
     run_id: str
     created_at: datetime
     asset: Asset

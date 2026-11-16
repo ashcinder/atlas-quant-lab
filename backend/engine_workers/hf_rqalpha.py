@@ -32,14 +32,14 @@ class PublishedSource(BaseDataSource):
         daily = frame.groupby(frame.index.date).agg(open=('open','first'),high=('high','max'),
             low=('low','min'),close=('close','last'),volume=('volume','sum'))
         self.daily = {}
-        self.missing_limits = 0
+        self.missing_limit_dates = []
         instrument = next(self.get_instruments([self.code]))
         for day, row in daily.iterrows():
             meta = None if unified else super().get_bar(instrument, day, '1d')
             limits = [float(meta[f]) if meta is not None and f in meta.dtype.names else np.nan
                       for f in ('limit_up', 'limit_down')]
-            if not all(np.isfinite(limits)):
-                self.missing_limits += 1
+            if not unified and not all(np.isfinite(limits)):
+                self.missing_limit_dates.append(day)
             self.daily[day] = self.record(datetime.combine(day, datetime.min.time()), row, limits)
         self.daily_array = np.array(list(self.daily.values()), dtype=DTYPE)
         if self.interval == '1wk' and not unified:
