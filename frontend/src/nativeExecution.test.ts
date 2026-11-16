@@ -1,10 +1,11 @@
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { api } from './api'
 import { request } from './request'
 import { computePayload } from './compute/client'
 
 vi.mock('./request',()=>({request:vi.fn()}))
 beforeEach(()=>vi.resetAllMocks())
+afterEach(()=>vi.useRealTimers())
 
 it('preserves the requested execution model through browser payload filtering',()=>{
  expect(computePayload({symbol:'300750.SZ',execution_model:'unified',api_key:'discard'})).toEqual({symbol:'300750.SZ',execution_model:'unified'})
@@ -20,4 +21,17 @@ it('uses the complete published range for empty native HF dates and keeps the sh
  expect(body.start).toBe(new Date(1528680600*1000).toISOString())
  expect(body.end).toBe(new Date(1786069200*1000).toISOString())
  expect(call[2]).toBe(660000)
+})
+
+it('submits crypto minute backtests once and polls until the native report is ready', async () => {
+  vi.useFakeTimers()
+  vi.mocked(request).mockResolvedValueOnce({ job_id: 'job' })
+    .mockResolvedValueOnce({ status: 'running' })
+    .mockResolvedValueOnce({ status: 'completed', result: { run_id: 'native-minute' } })
+  const run = api.runBacktest({ backtest_engine: 'vnpy', symbol: 'BTC-USD', asset_class: 'crypto', interval: '1m' })
+  await vi.advanceTimersByTimeAsync(6000)
+  await expect(run).resolves.toEqual({ run_id: 'native-minute' })
+  expect(vi.mocked(request).mock.calls.map(([path]) => path)).toEqual([
+    '/backtests/native-jobs', '/backtests/native-jobs/job', '/backtests/native-jobs/job',
+  ])
 })

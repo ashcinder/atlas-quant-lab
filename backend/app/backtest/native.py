@@ -1,8 +1,12 @@
 """Optional real Python engines, isolated from the API's Python dependencies."""
 import json
+import logging
 import os
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from tempfile import TemporaryDirectory
+from threading import Lock
+from time import monotonic
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -30,6 +34,7 @@ LONG_REPORT_THRESHOLD = 100_000
 REPORT_POINTS = 6_000
 REPORT_TRADE_LIMIT = 12_000
 NATIVE_TIMEOUT = 600
+logger = logging.getLogger(__name__)
 
 
 def engine_status():
@@ -236,6 +241,9 @@ def run_native(r, publications):
 
 def native_router(publications, runs, drafts=None):
     router=APIRouter(prefix='/api/v1')
+    jobs = {}
+    lock = Lock()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='native-backtest')
     @router.get('/backtest-engines')
     def engines(): return engine_status()
     @router.get('/backtests/daily-actions')
@@ -261,8 +269,7 @@ def native_router(publications, runs, drafts=None):
             raise HTTPException(422, str(result.get('error', '分红送转数据不可用'))[:200])
         return result
 
-    @router.post('/backtests/native',response_model=BacktestResult)
-    def backtest(body:BacktestRequest, request:Request):
+    def capture_request(body, request):
         if request.headers.get('X-Atlas-Lab-Owner'):
             from app.lab_strategies import require_lab_owner
             require_lab_owner(request)
@@ -272,12 +279,60 @@ def native_router(publications, runs, drafts=None):
             if drafts is None:
                 raise HTTPException(503, "策略库不可用")
             payload['lab_snapshot'] = single_run_snapshot(drafts, require_lab_owner(request), body.lab_strategy_id, payload)
+        return request.state.user.id, payload
+
+    def execute(body, owner, payload):
         try: result=run_native(body,publications)
         except ValueError as exc: raise HTTPException(422,str(exc)) from exc
         if body.persist:
             try:
-                runs.save(request.state.user.id, 'single', payload, result.model_dump(mode='json'), lab_strategy_id=body.lab_strategy_id)
+                runs.save(owner, 'single', payload, result.model_dump(mode='json'), lab_strategy_id=body.lab_strategy_id)
             except DeletedLabComparison as exc:
                 raise HTTPException(409, str(exc)) from exc
         return result
+
+    @router.post('/backtests/native',response_model=BacktestResult)
+    def backtest(body:BacktestRequest, request:Request):
+        return execute(body, *capture_request(body, request))
+
+    @router.post('/backtests/native-jobs', status_code=202)
+    def submit_native_job(body: BacktestRequest, request: Request):
+        owner, payload = capture_request(body, request)
+        try:
+            validate_native(body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        with lock:
+            for key, state in list(jobs.items()):
+                if state['finished'] is not None and monotonic() - state['finished'] > 900:
+                    del jobs[key]
+            if any(state['finished'] is None for state in jobs.values()):
+                raise HTTPException(429, '已有长区间回测正在运行，请稍后重试')
+            if len(jobs) >= 24:
+                del jobs[next(iter(jobs))]
+            job_id = uuid4().hex
+            jobs[job_id] = {'owner': owner, 'finished': None, 'status': 'running'}
+
+        def run():
+            try:
+                outcome = {'status': 'completed', 'result': execute(body, owner, payload)}
+            except HTTPException as exc:
+                outcome = {'status': 'failed', 'error': exc.detail}
+            except Exception:
+                logger.exception('Native backtest job %s failed', job_id)
+                outcome = {'status': 'failed', 'error': '回测执行失败，请稍后重试'}
+            with lock:
+                jobs[job_id].update(outcome, finished=monotonic())
+
+        executor.submit(run)
+        return {'job_id': job_id}
+
+    @router.get('/backtests/native-jobs/{job_id}')
+    def get_native_job(request: Request, job_id: str):
+        with lock:
+            state = jobs.get(job_id)
+            if state is None or state['owner'] != request.state.user.id:
+                raise HTTPException(404, '找不到该回测任务，请检查历史回测或重新运行')
+            return {key: value for key, value in state.items() if key not in ('owner', 'finished')}
+
     return router

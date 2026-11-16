@@ -145,7 +145,27 @@ export const api = {
         payload={...payload,start:payload.start||new Date(manifest.start*1000).toISOString(),end:payload.end||new Date(manifest.end*1000).toISOString()}
       }
       if(payload.strategy_id==='python_portable')payload=await browserCompute.prepareExternalStrategy(payload,signal)
-      return request<BacktestResult>('/backtests/native',{method:'POST',headers: labOwner ? { 'X-Atlas-Lab-Owner': labOwner } : undefined,body:JSON.stringify(payload),signal},660_000)
+      const options = {method:'POST',headers: labOwner ? { 'X-Atlas-Lab-Owner': labOwner } : undefined,body:JSON.stringify(payload),signal}
+      const plan = payload.portable_plan as { targets_gzip?: string } | undefined
+      const background = plan?.targets_gzip || (payload.backtest_engine === 'vnpy' && payload.asset_class === 'crypto'
+        && (payload.interval === '1m' || payload.interval === '5m'))
+      if (!background) return request<BacktestResult>('/backtests/native', options, 660_000)
+      const { job_id } = await request<{job_id: string}>('/backtests/native-jobs', options)
+      const deadline = Date.now() + 660_000
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 3000))
+        signal?.throwIfAborted()
+        try {
+          const job = await request<{status: 'running' | 'completed' | 'failed'; result?: BacktestResult; error?: string}>(
+            `/backtests/native-jobs/${encodeURIComponent(job_id)}`, { signal }, 30_000)
+          if (job.status === 'completed' && job.result) return job.result
+          if (job.status === 'failed') throw new Error(job.error || '后台回测失败')
+        } catch (error) {
+          if (!(error instanceof ApiError && (error.kind === 'network' || error.kind === 'timeout'
+            || [502, 503, 504].includes(error.status ?? 0)))) throw error
+        }
+      }
+      throw new Error('后台回测仍在运行，完成后可在历史回测查看。')
     }
     return browserCompute.runBacktest(payload,signal,labOwner)
   },

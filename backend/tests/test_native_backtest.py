@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from time import monotonic, sleep
 from types import SimpleNamespace
 
 import pytest
@@ -173,3 +174,16 @@ def test_native_api_requires_auth_and_persists_engine(monkeypatch):
         assert replayed['trades'] == result['trades']
         assert replayed['equity'][0] == result['equity'][0]
         assert replayed['equity'][-1] == result['equity'][-1]
+
+        job = client.post('/api/v1/backtests/native-jobs', json={**payload, 'persist': True})
+        assert job.status_code == 202, job.text
+        url = '/api/v1/backtests/native-jobs/' + job.json()['job_id']
+        deadline = monotonic() + 15
+        while monotonic() < deadline:
+            state = client.get(url).json()
+            if state['status'] != 'running':
+                break
+            sleep(.05)
+        assert state['status'] == 'completed', state
+        assert state['result']['metrics'] == result['metrics']
+        assert client.get('/api/v1/runs/' + state['result']['run_id']).status_code == 200
